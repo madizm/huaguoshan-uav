@@ -150,3 +150,55 @@ out body geom;
 - OSM 高度缺失可能很多，默认高度建筑会较多。
 - `geometry_properties.type` 数值枚举已对照官方 `citydb-tool` 代码确认；实施时仍需确保实际 PostGIS 几何类型与该枚举一致。
 - 如果要求真实地表高程或贴地建筑，需要额外 DEM 数据源；当前计划仅做 `z=0` 到 `height` 的 LoD1 挤出。
+
+## 12. 实施状态
+
+状态：**已实施并通过当前验收**。
+
+实施脚本：
+
+- `scripts/import_osm_buildings_to_3dcitydb.py`
+
+已完成内容：
+
+- 已通过 Overpass 获取项目 polygon 内 OSM 建筑数据。
+- 已将原始 Overpass 响应缓存到 `data/overpass_huaguoshan_buildings.json`。
+- 已解析 OSM `way["building"]` / `relation["building"]`。
+- 已按 `height`、`building:levels * 2.2`、默认 `10m` 推导建筑高度。
+- 已将建筑 footprint 从 `EPSG:4326` 投影到 `EPSG:32650`。
+- 已生成 LoD1 `POLYHEDRALSURFACE Z` solid。
+- 已按 `objectid = 'osm:{type}:{id}'` 实现幂等更新。
+- 已写入 3DCityDB：`citydb.feature`、`citydb.geometry_data`、`citydb.property`。
+- 已确认建筑 solid 使用官方几何枚举 `geometry_properties = {"type": 9}`。
+- 后续已接入 DEM terrain，高程基底不再固定为 `z=0`；建筑现在可通过 `--base-z-mode terrain` 使用 `terrain.dem_tile` 采样得到 `base_z`。
+
+当前数据库验收结果：
+
+```text
+OSM Building feature count: 17
+LoD1 lod1Solid property count: 17
+geometry count: 17
+geometry SRID EPSG:32650 count: 17
+geometry type ST_PolyhedralSurface count: 17
+ST_IsClosed count: 17
+terrain-elevated building count: 17
+```
+
+当前高度来源统计：
+
+```text
+default height: 16
+building:levels-derived height: 1
+height tag: 0
+```
+
+最近一次建筑导入命令：
+
+```bash
+uv run scripts/import_osm_buildings_to_3dcitydb.py \
+  --load-overpass-json data/overpass_huaguoshan_buildings.json \
+  --base-z-mode terrain \
+  --execute
+```
+
+注意：OSM 建筑轮廓和高度标签仍为社区维护数据，可能缺失或不准确；当前 LoD1 只适合近似建模、可视化和粗粒度空间分析。

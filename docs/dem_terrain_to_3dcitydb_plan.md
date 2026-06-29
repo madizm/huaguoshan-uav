@@ -410,10 +410,79 @@ gdalwarp -> gdal_translate -> raster2pgsql 或 Python 入库
 6. **坡地建筑**：单个 base_z 可能不能表达大坡度建筑，需记录高差质量标记。
 7. **性能**：路径规划不要实时扫 3DCityDB 通用表，应预生成 height grid / clearance grid。
 
-## 12. 建议下一步
+## 12. 实施状态
 
-1. 检查目标数据库是否支持 `postgis_raster`。
-2. 选定 DEM 数据源，优先 Copernicus DEM GLO-30；如下载受限，使用 SRTMGL1 v3。
-3. 实现 `terrain` schema 和 DEM 导入脚本。
-4. 实现高程采样函数。
-5. 更新现有 OSM 建筑导入脚本，使建筑落到 DEM 地形高程上。
+状态：**已实施并通过当前验收**。
+
+实施脚本：
+
+- `scripts/import_dem_terrain.py`
+- `scripts/import_osm_buildings_to_3dcitydb.py`（已增加 terrain base-z 支持）
+
+已完成内容：
+
+- 已确认目标数据库支持 `postgis_raster`。
+- 已选择并导入 Copernicus DEM GLO-30，覆盖项目 polygon + `1000m` buffer。
+- 已使用本地 GDAL 将 DEM 裁剪并重投影到 `EPSG:32650`。
+- 已创建 `terrain` schema。
+- 已创建并写入：
+  - `terrain.dem_dataset`
+  - `terrain.dem_tile`
+- 已创建高程采样函数：
+  - `terrain.get_elevation(x, y, dataset_key)`
+  - `terrain.get_elevation_for_geom(input_geom, method, dataset_key)`
+- 已在 3DCityDB 中创建 Relief 语义对象：
+  - `ReliefFeature`，`objectclass_id = 500`
+  - `RasterRelief`，`objectclass_id = 505`
+  - `reliefComponent` contains 关系，`val_relation_type = 1`
+- 已将 RasterRelief 元数据指向实际 raster 存储表 `terrain.dem_tile`。
+- 已更新 OSM 建筑 LoD1，使建筑基底高程来自 DEM terrain 采样。
+
+当前导入数据集：
+
+```text
+dataset_key: copernicus-dem-glo30-huaguoshan
+source: Copernicus DEM GLO-30
+source tile: N34E119 public COG
+projected SRID: EPSG:32650
+resolution: 30m
+raster size: 300 x 197
+DEM min elevation: -0.20740018784999847 m
+DEM max elevation: 618.8424072265625 m
+DEM mean elevation: 160.39945138822446 m
+tile count: 1
+```
+
+当前数据库验收结果：
+
+```text
+terrain.dem_dataset records for dataset: 1
+terrain.dem_tile records for dataset: 1
+citydb ReliefFeature count: 1
+citydb RasterRelief count: 1
+sample elevation at project area: returns non-null metres value
+OSM buildings with terrainElevation property: 17 / 17
+building base_z range: 2.617214322090149 m .. 590.5202026367188 m
+```
+
+最近一次 DEM 导入命令：
+
+```bash
+uv run scripts/import_dem_terrain.py --execute
+```
+
+最近一次建筑贴地更新命令：
+
+```bash
+uv run scripts/import_osm_buildings_to_3dcitydb.py \
+  --load-overpass-json data/overpass_huaguoshan_buildings.json \
+  --base-z-mode terrain \
+  --execute
+```
+
+## 13. 后续建议
+
+1. 如需更精细 UAV 避障，补充更高精度 DSM/LiDAR/航测或人工障碍物数据。
+2. 基于 `terrain.dem_tile` 和建筑 roof_z 生成 `terrain.height_grid` / `terrain.clearance_grid`。
+3. 为路径规划服务明确输入/输出高度基准，避免混用椭球高和正高。
+4. 如后续需要 CityGML 地形导出，可从 DEM 生成简化 `TINRelief`。
