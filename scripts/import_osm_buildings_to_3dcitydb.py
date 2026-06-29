@@ -87,6 +87,10 @@ class Building:
     height: float
     height_source: str
     levels: int | None
+    base_z: float
+    terrain_elevation_source: str | None
+    terrain_elevation_method: str | None
+    dem_dataset_key: str | None
     solid_wkt: str
     envelope_polygon_wkt: str
 
@@ -344,7 +348,7 @@ def parse_buildings(elements: Iterable[dict[str, Any]], area_lonlat: Polygon, tr
             footprint_projected = shapely_transform(transformer.transform, footprint_lonlat)
             footprint_projected = clean_polygon(footprint_projected)
             solid_wkt = polyhedral_surface_wkt(footprint_projected, height)
-            envelope_wkt = envelope_polygon_wkt(footprint_projected)
+            envelope_wkt = envelope_polygon_wkt(footprint_projected, 0.0, height)
 
             buildings.append(Building(
                 osm_type=osm_type,
@@ -354,6 +358,10 @@ def parse_buildings(elements: Iterable[dict[str, Any]], area_lonlat: Polygon, tr
                 height=height,
                 height_source=height_source,
                 levels=levels,
+                base_z=0.0,
+                terrain_elevation_source=None,
+                terrain_elevation_method=None,
+                dem_dataset_key=None,
                 solid_wkt=solid_wkt,
                 envelope_polygon_wkt=envelope_wkt,
             ))
@@ -384,41 +392,42 @@ def polygon_patch_wkt(rings: list[list[tuple[float, float]]], z: float, reverse:
     return "(" + ",".join(parts) + ")"
 
 
-def vertical_patches_for_ring(ring: list[tuple[float, float]], height: float, reverse: bool = False) -> list[str]:
+def vertical_patches_for_ring(ring: list[tuple[float, float]], base_z: float, roof_z: float, reverse: bool = False) -> list[str]:
     patches = []
     sequence = list(reversed(ring)) if reverse else ring
     for p0, p1 in zip(sequence, sequence[1:]):
         if coord_key(p0, 3) == coord_key(p1, 3):
             continue
         coords = [p0, p1, p1, p0, p0]
-        zs = [0.0, 0.0, height, height, 0.0]
+        zs = [base_z, base_z, roof_z, roof_z, base_z]
         patches.append("((" + ",".join(coord3(coord, z) for coord, z in zip(coords, zs)) + "))")
     return patches
 
 
-def polyhedral_surface_wkt(poly: Polygon, height: float) -> str:
+def polyhedral_surface_wkt(poly: Polygon, height: float, base_z: float = 0.0) -> str:
     exterior = close_ring(ring_coords_2d(poly.exterior))
     holes = [close_ring(ring_coords_2d(interior)) for interior in poly.interiors]
+    roof_z = base_z + height
 
     patches = []
     # bottom and top patches. Reverse the bottom to make shell orientation more consistent.
-    patches.append(polygon_patch_wkt([exterior, *holes], 0.0, reverse=True))
-    patches.append(polygon_patch_wkt([exterior, *holes], height, reverse=False))
-    patches.extend(vertical_patches_for_ring(exterior, height, reverse=False))
+    patches.append(polygon_patch_wkt([exterior, *holes], base_z, reverse=True))
+    patches.append(polygon_patch_wkt([exterior, *holes], roof_z, reverse=False))
+    patches.extend(vertical_patches_for_ring(exterior, base_z, roof_z, reverse=False))
     for hole in holes:
-        patches.extend(vertical_patches_for_ring(hole, height, reverse=True))
+        patches.extend(vertical_patches_for_ring(hole, base_z, roof_z, reverse=True))
     return "POLYHEDRALSURFACE Z (" + ",".join(patches) + ")"
 
 
-def envelope_polygon_wkt(poly: Polygon) -> str:
+def envelope_polygon_wkt(poly: Polygon, min_z: float = 0.0, max_z: float = 0.0) -> str:
     minx, miny, maxx, maxy = poly.bounds
     return (
         "POLYGON Z (("
-        f"{minx:.3f} {miny:.3f} 0.000,"
-        f"{maxx:.3f} {miny:.3f} 0.000,"
-        f"{maxx:.3f} {maxy:.3f} 0.000,"
-        f"{minx:.3f} {maxy:.3f} 0.000,"
-        f"{minx:.3f} {miny:.3f} 0.000"
+        f"{minx:.3f} {miny:.3f} {min_z:.3f},"
+        f"{maxx:.3f} {miny:.3f} {min_z:.3f},"
+        f"{maxx:.3f} {maxy:.3f} {max_z:.3f},"
+        f"{minx:.3f} {maxy:.3f} {max_z:.3f},"
+        f"{minx:.3f} {miny:.3f} {min_z:.3f}"
         "))"
     )
 
@@ -574,6 +583,54 @@ def insert_property_rows(cur: psycopg.Cursor[Any], feature_id: int, geometry_id:
             (feature_id, tags_json),
         )
 
+    if building.terrain_elevation_source is not None:
+        cur.execute(
+            """
+            insert into citydb.property
+              (feature_id, datatype_id, namespace_id, name, val_double, val_uom)
+            values (%s, 4, 3, 'terrainElevation', %s, 'm')
+            """,
+            (feature_id, building.base_z),
+        )
+        for name, value in [
+            ("terrainElevationSource", building.terrain_elevation_source),
+            ("terrainElevationMethod", building.terrain_elevation_method or ""),
+            ("demDatasetKey", building.dem_dataset_key or ""),
+            ("buildingHeightSource", building.height_source),
+        ]:
+            cur.execute(
+                """
+                insert into citydb.property
+                  (feature_id, datatype_id, namespace_id, name, val_string)
+                values (%s, 5, 3, %s, %s)
+                """,
+                (feature_id, name, value[:4000]),
+            )
+
+
+def apply_terrain_elevations(buildings: Sequence[Building], dsn: str, dataset_key: str | None, method: str, target_srid: int) -> int:
+    updated = 0
+    with psycopg.connect(dsn, connect_timeout=15) as conn, conn.cursor() as cur:
+        for building in buildings:
+            cur.execute(
+                """
+                select terrain.get_elevation_for_geom(ST_GeomFromText(%s, %s), %s, %s)
+                """,
+                (building.geometry.wkt, target_srid, method, dataset_key),
+            )
+            row = cur.fetchone()
+            if row is None or row[0] is None:
+                continue
+            base_z = float(row[0])
+            building.base_z = base_z
+            building.terrain_elevation_source = "terrain.dem_tile"
+            building.terrain_elevation_method = method
+            building.dem_dataset_key = dataset_key
+            building.solid_wkt = polyhedral_surface_wkt(building.geometry, building.height, base_z)
+            building.envelope_polygon_wkt = envelope_polygon_wkt(building.geometry, base_z, base_z + building.height)
+            updated += 1
+    return updated
+
 
 def import_buildings(buildings: Sequence[Building], dsn: str, target_srid: int, stats: ImportStats, batch_size: int) -> None:
     with psycopg.connect(dsn, connect_timeout=15) as conn:
@@ -650,6 +707,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--target-srid", type=int, default=TARGET_SRID)
     parser.add_argument("--limit", type=int, help="Limit number of parsed buildings, useful for tests")
     parser.add_argument("--batch-size", type=int, default=500)
+    parser.add_argument("--base-z-mode", choices=["zero", "terrain"], default="zero", help="Use z=0 or sample terrain.dem_tile for building base elevation")
+    parser.add_argument("--dem-dataset-key", default="copernicus-dem-glo30-huaguoshan", help="terrain.dem_dataset key used when --base-z-mode=terrain")
+    parser.add_argument("--terrain-method", choices=["median", "min", "max", "centroid"], default="median", help="Footprint elevation sampling method")
     parser.add_argument("--save-overpass-json", help="Write raw Overpass JSON to this path")
     parser.add_argument("--load-overpass-json", help="Read raw Overpass JSON from this path instead of fetching")
     parser.add_argument("--execute", action="store_true", help="Write to database. Without this flag, only performs a dry run.")
@@ -677,6 +737,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{args.target_srid}", always_xy=True)
     buildings = parse_buildings(elements, area_lonlat, transformer, args.limit, stats)
 
+    terrain_updated = 0
+    if args.base_z_mode == "terrain" and buildings:
+        terrain_updated = apply_terrain_elevations(buildings, args.dsn, args.dem_dataset_key, args.terrain_method, args.target_srid)
+        print(f"Applied terrain base elevations to {terrain_updated}/{len(buildings)} buildings", file=sys.stderr)
+
     if args.execute:
         import_buildings(buildings, args.dsn, args.target_srid, stats, args.batch_size)
         validation = validate_import(args.dsn)
@@ -684,6 +749,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         validation = None
         print("Dry run only. Re-run with --execute to write to 3DCityDB.", file=sys.stderr)
 
+    if validation is not None:
+        validation["terrain_elevated_buildings_in_run"] = terrain_updated
     print_report(stats, validation)
     return 0
 
