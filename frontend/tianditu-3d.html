@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>天地图三维底图服务测试 · 花果山</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23083d33'/%3E%3Ccircle cx='32' cy='32' r='16' fill='%23d7a846'/%3E%3Ccircle cx='32' cy='32' r='8' fill='%23d85a35'/%3E%3C/svg%3E" />
+  <script>
+    window.CESIUM_BASE_URL = 'https://api.tianditu.gov.cn/cdn/demo/sanwei/static/cesium/';
+  </script>
+  <script type="text/javascript" cesium="true" src="https://api.tianditu.gov.cn/cdn/demo/sanwei/static/cesium/Cesium.js"></script>
+  <script type="text/javascript" cesium="true" src="https://api.tianditu.gov.cn/cdn/plugins/cesium/Cesium_ext_min.js"></script>
+  <script type="text/javascript" cesium="true" src="https://api.tianditu.gov.cn/cdn/plugins/cesium/long.min.js"></script>
+  <script type="text/javascript" cesium="true" src="https://api.tianditu.gov.cn/cdn/plugins/cesium/bytebuffer.min.js"></script>
+  <script type="text/javascript" cesium="true" src="https://api.tianditu.gov.cn/cdn/plugins/cesium/protobuf.min.js"></script>
+  <link rel="stylesheet" cesium="true" href="https://api.tianditu.gov.cn/cdn/demo/sanwei/static/cesium/Widgets/widgets.css" />
+  <style>
+    :root {
+      --ink: #10201b;
+      --paper: #f4ecd8;
+      --paper-strong: #fff7df;
+      --jade: #1d6b57;
+      --jade-deep: #083d33;
+      --cinnabar: #d85a35;
+      --gold: #d7a846;
+      --mist: rgba(244, 236, 216, 0.86);
+      --panel: rgba(16, 32, 27, 0.72);
+      --line: rgba(255, 247, 223, 0.24);
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body,
+    #cesiumContainer {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #071713;
+    }
+
+    body {
+      color: var(--paper);
+      font-family: "Avenir Next Condensed", "DIN Condensed", "Microsoft YaHei", sans-serif;
+    }
+
+    #cesiumContainer .cesium-viewer-bottom,
+    #cesiumContainer .cesium-viewer-animationContainer,
+    #cesiumContainer .cesium-viewer-timelineContainer { display: none !important; }
+
+    .grain {
+      pointer-events: none;
+      position: fixed;
+      inset: 0;
+      z-index: 5;
+      opacity: 0.12;
+      mix-blend-mode: soft-light;
+      background-image:
+        radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.9) 0 1px, transparent 1px),
+        radial-gradient(circle at 70% 80%, rgba(255, 255, 255, 0.6) 0 1px, transparent 1px);
+      background-size: 19px 19px, 31px 31px;
+    }
+
+    .hud {
+      position: fixed;
+      z-index: 10;
+      top: 24px;
+      left: 24px;
+      width: min(430px, calc(100vw - 48px));
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background:
+        linear-gradient(135deg, rgba(8, 61, 51, 0.92), rgba(16, 32, 27, 0.72)),
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 9px);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px) saturate(1.15);
+    }
+
+    .kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--gold);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .kicker::before {
+      content: "";
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: var(--cinnabar);
+      box-shadow: 0 0 0 6px rgba(216, 90, 53, 0.16);
+    }
+
+    h1 {
+      margin: 12px 0 10px;
+      color: var(--paper-strong);
+      font-family: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
+      font-size: clamp(34px, 5vw, 56px);
+      line-height: 0.95;
+      letter-spacing: -0.05em;
+    }
+
+    .intro {
+      margin: 0 0 18px;
+      color: rgba(255, 247, 223, 0.76);
+      font-size: 15px;
+      line-height: 1.75;
+    }
+
+    .actions,
+    .toggles {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    button,
+    .chip {
+      border: 1px solid rgba(255, 247, 223, 0.28);
+      border-radius: 999px;
+      padding: 10px 14px;
+      color: var(--paper-strong);
+      background: rgba(255, 247, 223, 0.08);
+      font: inherit;
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+      transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+    }
+
+    button:hover,
+    button:focus-visible {
+      transform: translateY(-1px);
+      border-color: var(--gold);
+      background: rgba(215, 168, 70, 0.18);
+      outline: none;
+    }
+
+    button.primary {
+      border-color: rgba(216, 90, 53, 0.7);
+      background: linear-gradient(135deg, var(--cinnabar), #a53b25);
+      box-shadow: 0 14px 34px rgba(216, 90, 53, 0.24);
+    }
+
+    button[aria-pressed="false"] {
+      color: rgba(255, 247, 223, 0.55);
+      background: rgba(0, 0, 0, 0.14);
+    }
+
+    .readout {
+      position: fixed;
+      z-index: 10;
+      right: 24px;
+      bottom: 24px;
+      width: min(360px, calc(100vw - 48px));
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+    }
+
+    .readout h2 {
+      margin: 0 0 10px;
+      color: var(--gold);
+      font-size: 13px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .metric {
+      padding: 10px;
+      border: 1px solid rgba(255, 247, 223, 0.12);
+      border-radius: 12px;
+      background: rgba(255, 247, 223, 0.06);
+    }
+
+    .metric span {
+      display: block;
+      color: rgba(255, 247, 223, 0.58);
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 5px;
+      color: var(--paper-strong);
+      font-size: 17px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .status {
+      min-height: 42px;
+      padding: 10px 12px;
+      border-left: 3px solid var(--gold);
+      border-radius: 10px;
+      color: rgba(255, 247, 223, 0.75);
+      background: rgba(0, 0, 0, 0.18);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .badge {
+      position: fixed;
+      z-index: 10;
+      left: 24px;
+      bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 999px;
+      color: var(--ink);
+      background: var(--mist);
+      box-shadow: var(--shadow);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .badge svg { color: var(--jade); }
+
+    @media (max-width: 720px) {
+      .hud { top: 12px; left: 12px; width: calc(100vw - 24px); padding: 18px; }
+      .readout { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
+      .badge { display: none; }
+      h1 { font-size: 36px; }
+      .intro { font-size: 14px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <main id="cesiumContainer" aria-label="天地图三维地图容器"></main>
+  <div class="grain" aria-hidden="true"></div>
+
+  <section class="hud" aria-labelledby="page-title">
+    <div class="kicker">Tianditu 3D Base Map Test</div>
+    <h1 id="page-title">天地图三维<br />底图服务</h1>
+    <p class="intro">
+      使用 Cesium 1.108 + 天地图 Cesium 扩展加载影像、国界、地形、三维地名与本工程导出的 3D Tiles；默认飞行至连云港花果山景区。
+    </p>
+    <div class="actions" aria-label="相机操作">
+      <button class="primary" type="button" data-action="huaguoshan">飞到花果山</button>
+      <button type="button" data-action="tileset">查看 3D Tiles</button>
+      <button type="button" data-action="china">全国视角</button>
+      <button type="button" data-action="tilt">低空斜视</button>
+    </div>
+    <div class="toggles" aria-label="图层开关">
+      <button type="button" data-layer="image" aria-pressed="true">影像底图</button>
+      <button type="button" data-layer="boundary" aria-pressed="true">国界叠加</button>
+      <button type="button" data-layer="terrain" aria-pressed="true">三维地形</button>
+      <button type="button" data-layer="tileset" aria-pressed="true">导出模型</button>
+      <button type="button" data-layer="place" aria-pressed="true">三维地名</button>
+    </div>
+  </section>
+
+  <aside class="readout" aria-label="运行状态">
+    <h2>Live Diagnostics</h2>
+    <div class="grid">
+      <div class="metric"><span>Lon</span><strong id="lon">--</strong></div>
+      <div class="metric"><span>Lat</span><strong id="lat">--</strong></div>
+      <div class="metric"><span>Alt</span><strong id="alt">--</strong></div>
+    </div>
+    <div class="status" id="status">正在初始化天地图三维服务……</div>
+  </aside>
+
+  <div class="badge" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l7 4v7c0 5-3 8-7 9-4-1-7-4-7-9V6l7-4z"/><path d="M9 12l2 2 4-5"/></svg>
+    TK 已配置 · 2444…9347
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      var token = '2444f36b636d8eebf4c30ac7bc6c9347';
+      var tdtUrl = 'https://t{s}.tianditu.gov.cn/';
+      var subdomains = ['0', '1', '2', '3', '4', '5', '6', '7'];
+      var localTilesetUrl = '../exports/citydb-3dtiler/huaguoshan_3dtiles/tileset.json';
+      var huaguoshan = { lon: 119.2683, lat: 34.6469 };
+      var state = {
+        viewer: null,
+        imageLayer: null,
+        boundaryLayer: null,
+        terrainProvider: null,
+        buildingsTileset: null,
+        buildingsReady: false,
+        wtfs: null,
+        wtfsVisible: true
+      };
+
+      var $ = function (selector) { return document.querySelector(selector); };
+      var status = $('#status');
+
+      function log(message) {
+        status.textContent = message;
+        console.info('[Tianditu3D]', message);
+      }
+
+      function formatNumber(value, digits) {
+        return Number.isFinite(value) ? value.toFixed(digits) : '--';
+      }
+
+      function updateCameraReadout() {
+        if (!state.viewer) return;
+        var cartographic = state.viewer.camera.positionCartographic;
+        $('#lon').textContent = formatNumber(Cesium.Math.toDegrees(cartographic.longitude), 4);
+        $('#lat').textContent = formatNumber(Cesium.Math.toDegrees(cartographic.latitude), 4);
+        $('#alt').textContent = formatNumber(cartographic.height / 1000, 1) + 'km';
+      }
+
+      function configureScene(viewer) {
+        viewer.scene.fxaa = true;
+        viewer.scene.postProcessStages.fxaa.enabled = false;
+        viewer.scene.globe.showGroundAtmosphere = true;
+        viewer.scene.screenSpaceCameraController.constrainedPitch = Cesium.Math.toRadians(-20);
+        viewer.scene.screenSpaceCameraController.autoResetHeadingPitch = false;
+        viewer.scene.screenSpaceCameraController.inertiaZoom = 0.5;
+        viewer.scene.screenSpaceCameraController.minimumZoomDistance = 50;
+        viewer.scene.screenSpaceCameraController.maximumZoomDistance = 20000000;
+        viewer.scene.screenSpaceCameraController.zoomEventTypes = [
+          Cesium.CameraEventType.RIGHT_DRAG,
+          Cesium.CameraEventType.WHEEL,
+          Cesium.CameraEventType.PINCH
+        ];
+        viewer.scene.screenSpaceCameraController.tiltEventTypes = [
+          Cesium.CameraEventType.MIDDLE_DRAG,
+          Cesium.CameraEventType.PINCH,
+          { eventType: Cesium.CameraEventType.LEFT_DRAG, modifier: Cesium.KeyboardEventModifier.CTRL },
+          { eventType: Cesium.CameraEventType.RIGHT_DRAG, modifier: Cesium.KeyboardEventModifier.CTRL }
+        ];
+        viewer.cesiumWidget.screenSpaceEventHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+      }
+
+      function addImagery(viewer) {
+        var imgMap = new Cesium.UrlTemplateImageryProvider({
+          url: tdtUrl + 'DataServer?T=img_w&x={x}&y={y}&l={z}&tk=' + token,
+          subdomains: subdomains,
+          tilingScheme: new Cesium.WebMercatorTilingScheme(),
+          maximumLevel: 18,
+          credit: '天地图影像底图'
+        });
+        state.imageLayer = viewer.imageryLayers.addImageryProvider(imgMap);
+
+        var iboMap = new Cesium.UrlTemplateImageryProvider({
+          url: tdtUrl + 'DataServer?T=ibo_w&x={x}&y={y}&l={z}&tk=' + token,
+          subdomains: subdomains,
+          tilingScheme: new Cesium.WebMercatorTilingScheme(),
+          maximumLevel: 10,
+          credit: '天地图国界服务'
+        });
+        state.boundaryLayer = viewer.imageryLayers.addImageryProvider(iboMap);
+      }
+
+      function addTerrain(viewer) {
+        var terrainUrls = subdomains.map(function (subdomain) {
+          return tdtUrl.replace('{s}', subdomain) + 'mapservice/swdx?T=elv_c&tk=' + token;
+        });
+        state.terrainProvider = new Cesium.GeoTerrainProvider({ urls: terrainUrls });
+        viewer.terrainProvider = state.terrainProvider;
+      }
+
+      function addPlaceNames(viewer) {
+        state.wtfs = new Cesium.GeoWTFS({
+          viewer: viewer,
+          subdomains: subdomains,
+          metadata: {
+            boundBox: { minX: -180, minY: -90, maxX: 180, maxY: 90 },
+            minLevel: 1,
+            maxLevel: 20
+          },
+          depthTestOptimization: true,
+          dTOElevation: 15000,
+          dTOPitch: Cesium.Math.toRadians(-70),
+          aotuCollide: true,
+          collisionPadding: [5, 10, 8, 5],
+          serverFirstStyle: true,
+          labelGraphics: {
+            font: '28px sans-serif',
+            fontSize: 28,
+            fillColor: Cesium.Color.WHITE,
+            scale: 0.5,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 2,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            showBackground: false,
+            horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
+            verticalOrigin: Cesium.VerticalOrigin.TOP,
+            pixelOffset: new Cesium.Cartesian2(5, 5)
+          },
+          billboardGraphics: {
+            horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+            verticalOrigin: Cesium.VerticalOrigin.CENTER,
+            color: Cesium.Color.WHITE,
+            rotation: 0,
+            scale: 1,
+            width: 18,
+            height: 18
+          }
+        });
+
+        state.wtfs.getTileUrl = function () {
+          return tdtUrl + 'mapservice/GetTiles?lxys={z},{x},{y}&VERSION=1.0.0&tk=' + token;
+        };
+        state.wtfs.getIcoUrl = function () {
+          return tdtUrl + 'mapservice/GetIcon?id={id}&tk=' + token;
+        };
+        state.wtfs.initTDT([
+          {"x":6,"y":1,"level":2,"boundBox":{"minX":90,"minY":0,"maxX":135,"maxY":45}},
+          {"x":7,"y":1,"level":2,"boundBox":{"minX":135,"minY":0,"maxX":180,"maxY":45}},
+          {"x":6,"y":0,"level":2,"boundBox":{"minX":90,"minY":45,"maxX":135,"maxY":90}},
+          {"x":7,"y":0,"level":2,"boundBox":{"minX":135,"minY":45,"maxX":180,"maxY":90}},
+          {"x":5,"y":1,"level":2,"boundBox":{"minX":45,"minY":0,"maxX":90,"maxY":45}},
+          {"x":4,"y":1,"level":2,"boundBox":{"minX":0,"minY":0,"maxX":45,"maxY":45}},
+          {"x":5,"y":0,"level":2,"boundBox":{"minX":45,"minY":45,"maxX":90,"maxY":90}},
+          {"x":4,"y":0,"level":2,"boundBox":{"minX":0,"minY":45,"maxX":45,"maxY":90}},
+          {"x":6,"y":2,"level":2,"boundBox":{"minX":90,"minY":-45,"maxX":135,"maxY":0}},
+          {"x":6,"y":3,"level":2,"boundBox":{"minX":90,"minY":-90,"maxX":135,"maxY":-45}},
+          {"x":7,"y":2,"level":2,"boundBox":{"minX":135,"minY":-45,"maxX":180,"maxY":0}},
+          {"x":5,"y":2,"level":2,"boundBox":{"minX":45,"minY":-45,"maxX":90,"maxY":0}},
+          {"x":4,"y":2,"level":2,"boundBox":{"minX":0,"minY":-45,"maxX":45,"maxY":0}},
+          {"x":3,"y":1,"level":2,"boundBox":{"minX":-45,"minY":0,"maxX":0,"maxY":45}},
+          {"x":3,"y":0,"level":2,"boundBox":{"minX":-45,"minY":45,"maxX":0,"maxY":90}},
+          {"x":2,"y":0,"level":2,"boundBox":{"minX":-90,"minY":45,"maxX":-45,"maxY":90}},
+          {"x":0,"y":1,"level":2,"boundBox":{"minX":-180,"minY":0,"maxX":-135,"maxY":45}},
+          {"x":1,"y":0,"level":2,"boundBox":{"minX":-135,"minY":45,"maxX":-90,"maxY":90}},
+          {"x":0,"y":0,"level":2,"boundBox":{"minX":-180,"minY":45,"maxX":-135,"maxY":90}}
+        ]);
+      }
+
+      function addHuaguoshanMarker(viewer) {
+        viewer.entities.add({
+          name: '连云港花果山景区',
+          position: Cesium.Cartesian3.fromDegrees(huaguoshan.lon, huaguoshan.lat, 650),
+          point: {
+            pixelSize: 12,
+            color: Cesium.Color.fromCssColorString('#d85a35'),
+            outlineColor: Cesium.Color.WHITE,
+            outlineWidth: 2,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+          },
+          label: {
+            text: '花果山景区',
+            font: '600 16px Microsoft YaHei',
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            pixelOffset: new Cesium.Cartesian2(14, -18),
+            horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+          }
+        });
+      }
+
+      function addLocalTileset(viewer) {
+        if (!Cesium.Cesium3DTileset) {
+          log('当前 Cesium 版本不支持 Cesium3DTileset，无法挂载本地 3D Tiles。');
+          return Promise.resolve(null);
+        }
+
+        var tilesetOptions = {
+          maximumScreenSpaceError: 8,
+          dynamicScreenSpaceError: true,
+          skipLevelOfDetail: true,
+          immediatelyLoadDesiredLevelOfDetail: false,
+          cullRequestsWhileMoving: true,
+          show: true
+        };
+
+        log('正在挂载本工程 3D Tiles：' + localTilesetUrl);
+
+        var createTileset = Cesium.Cesium3DTileset.fromUrl
+          ? Cesium.Cesium3DTileset.fromUrl(localTilesetUrl, tilesetOptions)
+          : Promise.resolve(new Cesium.Cesium3DTileset(Object.assign({ url: localTilesetUrl }, tilesetOptions)));
+
+        return createTileset.then(function (tileset) {
+          state.buildingsTileset = viewer.scene.primitives.add(tileset);
+
+          var ready = tileset.readyPromise || Promise.resolve(tileset);
+          return ready.then(function () {
+            state.buildingsReady = true;
+            log('3D Tiles 已挂载：exports/citydb-3dtiler/huaguoshan_3dtiles/tileset.json');
+            return tileset;
+          });
+        }).catch(function (error) {
+          console.error('[Tianditu3D] 3D Tiles load failed:', error);
+          log('3D Tiles 挂载失败。请从工程根目录启动服务：python3 -m http.server 4173，然后访问 /frontend/tianditu-3d.html');
+          return null;
+        });
+      }
+
+      function flyToTileset() {
+        if (state.buildingsTileset && state.buildingsReady) {
+          state.viewer.flyTo(state.buildingsTileset, {
+            duration: 1.8,
+            offset: new Cesium.HeadingPitchRange(
+              Cesium.Math.toRadians(24),
+              Cesium.Math.toRadians(-28),
+              5200
+            )
+          });
+          return;
+        }
+
+        log('3D Tiles 仍在加载，先切换到花果山低空视角。');
+        state.viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(119.2683, 34.6469, 5200),
+          orientation: {
+            heading: Cesium.Math.toRadians(24),
+            pitch: Cesium.Math.toRadians(-28),
+            roll: 0
+          },
+          duration: 1.6
+        });
+      }
+
+      function flyToHuaguoshan() {
+        state.viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(huaguoshan.lon, huaguoshan.lat, 18500),
+          orientation: {
+            heading: Cesium.Math.toRadians(18),
+            pitch: Cesium.Math.toRadians(-48),
+            roll: 0
+          },
+          duration: 2.4
+        });
+      }
+
+      function bindControls() {
+        document.addEventListener('click', function (event) {
+          var actionButton = event.target.closest('[data-action]');
+          var layerButton = event.target.closest('[data-layer]');
+          if (actionButton) {
+            var action = actionButton.dataset.action;
+            if (action === 'huaguoshan') flyToHuaguoshan();
+            if (action === 'tileset') flyToTileset();
+            if (action === 'china') {
+              state.viewer.camera.flyTo({
+                destination: Cesium.Cartesian3.fromDegrees(103.84, 31.15, 17850000),
+                orientation: {
+                  heading: Cesium.Math.toRadians(348.4202942851978),
+                  pitch: Cesium.Math.toRadians(-89.74026687972041),
+                  roll: 0
+                },
+                duration: 2
+              });
+            }
+            if (action === 'tilt') {
+              state.viewer.camera.flyTo({
+                destination: Cesium.Cartesian3.fromDegrees(huaguoshan.lon - 0.018, huaguoshan.lat - 0.028, 5400),
+                orientation: {
+                  heading: Cesium.Math.toRadians(30),
+                  pitch: Cesium.Math.toRadians(-28),
+                  roll: 0
+                },
+                duration: 2
+              });
+            }
+          }
+
+          if (layerButton) {
+            var layer = layerButton.dataset.layer;
+            var active = layerButton.getAttribute('aria-pressed') !== 'true';
+            layerButton.setAttribute('aria-pressed', String(active));
+            if (layer === 'image' && state.imageLayer) state.imageLayer.show = active;
+            if (layer === 'boundary' && state.boundaryLayer) state.boundaryLayer.show = active;
+            if (layer === 'terrain') {
+              state.viewer.terrainProvider = active ? state.terrainProvider : new Cesium.EllipsoidTerrainProvider();
+            }
+            if (layer === 'tileset' && state.buildingsTileset) {
+              state.buildingsTileset.show = active;
+              log(active ? '本工程导出的 3D Tiles 模型已显示。' : '本工程导出的 3D Tiles 模型已隐藏。');
+            }
+            if (layer === 'place' && state.wtfs) {
+              state.wtfsVisible = active;
+              if (typeof state.wtfs.show === 'boolean') state.wtfs.show = active;
+              if (state.wtfs.labels) state.wtfs.labels.show = active;
+              log(active ? '三维地名服务已开启。' : '三维地名开关已切换；如插件版本不支持 show 属性，刷新瓦片后生效。');
+            }
+          }
+        });
+      }
+
+      function init() {
+        if (!window.Cesium || typeof Cesium.Map !== 'function') {
+          log('初始化失败：未加载 Cesium 或天地图 Cesium 扩展。请检查网络与 CDN 访问。');
+          return;
+        }
+
+        state.viewer = new Cesium.Map('cesiumContainer', {
+          shouldAnimate: true,
+          selectionIndicator: false,
+          baseLayerPicker: false,
+          fullscreenButton: false,
+          geocoder: false,
+          homeButton: false,
+          infoBox: false,
+          sceneModePicker: false,
+          timeline: false,
+          navigationHelpButton: false,
+          navigationInstructionsInitiallyVisible: false,
+          showRenderLoopErrors: false,
+          shadows: false
+        });
+
+        configureScene(state.viewer);
+        addImagery(state.viewer);
+        addTerrain(state.viewer);
+        addPlaceNames(state.viewer);
+        addHuaguoshanMarker(state.viewer);
+        addLocalTileset(state.viewer);
+        bindControls();
+
+        state.viewer.scene.postRender.addEventListener(updateCameraReadout);
+        flyToHuaguoshan();
+        log('天地图影像、国界、三维地形、三维地名与本地 3D Tiles 正在初始化。右键/滚轮缩放，中键或 Ctrl+拖拽倾斜视角。');
+      }
+
+      window.addEventListener('error', function (event) {
+        log('运行异常：' + event.message);
+      });
+
+      window.addEventListener('unhandledrejection', function (event) {
+        // 天地图 GeoTerrainProvider 在部分浏览器会先探测 GetCapabilities，
+        // 探测失败后仍会继续请求地形瓦片；避免把可恢复的内部 Promise 噪声暴露给用户。
+        console.warn('[Tianditu3D] Cesium provider promise rejected:', event.reason);
+        event.preventDefault();
+      });
+
+      init();
+    })();
+  </script>
+</body>
+</html>
