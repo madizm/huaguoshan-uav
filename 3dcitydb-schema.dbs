@@ -1,0 +1,587 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<project name="3DCityDB" database="PostgreSQL" id="Project-1a7" >
+	<schema name="citydb" >
+		<table name="address" >
+			<column name="id" type="bigint" mandatory="y" >
+				<defo><![CDATA[nextval('address_seq'::regclass)]]></defo>
+			</column>
+			<column name="objectid" type="text" />
+			<column name="identifier" type="text" />
+			<column name="identifier_codespace" type="text" />
+			<column name="street" type="text" />
+			<column name="house_number" type="text" />
+			<column name="po_box" type="text" />
+			<column name="zip_code" type="text" />
+			<column name="city" type="text" />
+			<column name="state" type="text" />
+			<column name="country" type="text" length="2" />
+			<column name="free_text" type="jsonb" />
+			<column name="multi_point" type="geometry(MULTIPOINTZ)" />
+			<column name="content" prior="xal_source" type="text" />
+			<column name="content_mime_type" type="text" />
+			<index name="address_pk" unique="PRIMARY_KEY" >
+				<column name="id" />
+			</index>
+		</table>
+		<table name="ade" >
+			<column name="id" type="integer" length="10" decimal="0" mandatory="y" >
+				<defo><![CDATA[nextval('ade_seq'::regclass)]]></defo>
+			</column>
+			<column name="name" type="text" length="1000" mandatory="y" />
+			<column name="description" type="text" length="4000" />
+			<column name="version" type="text" length="50" />
+			<index name="ade_pk" unique="PRIMARY_KEY" >
+				<column name="id" />
+			</index>
+		</table>
+		<table name="appear_to_surface_data" >
+			<column name="id" type="bigint" mandatory="y" >
+				<defo><![CDATA[nextval('appear_to_surface_data_seq'::regclass)]]></defo>
+			</column>
+			<column name="appearance_id" type="bigint" length="19" decimal="0" mandatory="y" />
+			<column name="surface_data_id" type="bigint" />
+			<index name="appear_to_surface_data_fkx1" unique="NORMAL" >
+				<column name="surface_data_id" />
+			</index>
+			<index name="appear_to_surface_data_fkx2" unique="NORMAL" >
+				<column name="appearance_id" />
+			</index>
+			<index name="appear_to_surface_data_pk" unique="PRIMARY_KEY" >
+				<column name="id" />
+			</index>
+			<fk name="appear_to_surface_data_fk1" to_schema="citydb" to_table="surface_data" delete_action="cascade" >
+				<fk_column name="surface_data_id" pk="id" />
+			</fk>
+			<fk name="appear_to_surface_data_fk2" to_schema="citydb" to_table="appearance" delete_action="cascade" >
+				<fk_column name="appearance_id" pk="id" />
+			</fk>
+		</table>
+		<table name="appearance" >
+			<column name="id" type="bigint" length="19" decimal="0" mandatory="y" >
+				<defo><![CDATA[nextval('appearance_seq'::regclass)]]></defo>
+			</column>
+			<column name="objectid" prior="appearanceid" type="text" length="256" />
+			<column name="identifier" type="text" length="256" />
+			<column name="identifier_codespace" type="text" length="256" />
+			<column name="theme" type="text" length="256" />
+			<column name="is_global" type="integer" />
+			<column name="feature_id" prior="cityobject_id" type="bigint" />
+			<column name="implicit_geometry_id" type="bigint" />
+			<index name="appearance_pk" unique="PRIMARY_KEY" >
+				<column name="id" />
+			</index>
+			<index name="appearance_feature_fkx" unique="NORMAL" >
+				<column name="feature_id" />
+			</index>
+			<index name="appearance_implicit_geom_fkx" unique="NORMAL" >
+				<column name="implicit_geometry_id" />
+			</index>
+			<index name="appearance_theme_inx" unique="NORMAL" >
+				<column name="theme" />
+			</index>
+			<fk name="appearance_feature_fk" to_schema="citydb" to_table="feature" delete_action="setNull" >
+				<fk_column name="feature_id" pk="id" />
+			</fk>
+			<fk name="appearance_implicit_geom_fk" to_schema="citydb" to_table="implicit_geometry" delete_action="cascade" >
+				<fk_column name="implicit_geometry_id" pk="id" />
+			</fk>
+		</table>
+		<table name="codelist" >
+			<column name="id" type="bigint" length="19" decimal="0" mandatory="y" >
+				<defo><![CDATA[nextval('codelist_seq'::regclass)]]></defo>
+			</column>
+			<column name="codelist_type" type="text" length="256" />
+			<column name="url" type="text" length="4000" />
+			<column name="mime_type" prior="mimetype" type="text" length="256" />
+			<index name="codelist_pk" unique="PRIMARY_KEY" >
+				<column name="id" />
+			</index>
+			<index name="codelist_codelist_type_inx" unique="NORMAL" >
+				<column name="codelist_type" />
+			</index>
+		</table>
+		<table name="codelist_entry" >
+			<column name="id" type="bigint" length="19" decimal="0" mandatory="y" >
+				<defo><![CDATA[nextval('codelist_entry_seq'::regclass)]]></defo>
+			</column>
+			<column name="codelist_id" type="bigint" mandatory="y" />
+			<column name="code" type="text" length="256" />
+			<column name="definition" type="text" length="256" />
+			<index name="codelist_entry_pk" unique="PRIMARY_KEY" >
+				<column name="id" />
+			</index>
+			<index name="codelist_entry_codelist_fkx" unique="NORMAL" >
+				<column name="codelist_id" />
+			</index>
+			<fk name="codelist_entry_codelist_fk" to_schema="citydb" to_table="codelist" delete_action="cascade" >
+				<fk_column name="codelist_id" pk="id" />
+			</fk>
+		</table>
+		<table name="database_srs" >
+			<column name="srid" type="integer" length="10" decimal="0" mandatory="y" />
+			<column name="srs_name" prior="gml_srs_name" type="text" length="1000" />
+			<index name="database_srs_pk" unique="PRIMARY_KEY" >
+				<column name="srid" />
+			</index>
+		</table>
+		<table name="datatype" prior="objectclass_0" >
+			<column name="id" type="integer" length="10" decimal="0" mandatory="y" />
+			<column name="supertype_id" prior="superclass_id" type="integer" length="10" decimal="0" />
+			<column name="typename" prior="name" type="text" length="256" />
+			<column name="is_abstract" type="integer" />
+			<column name="ade_id" type="integer" length="10" decimal="0" />
+			<column name="namespace_id" type="integer" />
+			<column name="schema" type="jsonb" />
+			<index name="datatype_pk" unique="PRIMARY_KEY" >
+				<column name="id" />
+			</index>
+			<index name="datatype_supertype_fkx" unique="NORMAL" >
+				<column name="supertype_id" />
+			</index>
+			<fk name="datatype_ade_fk" to_schema="citydb" to_table="ade" delete_action="cascade" >
+				<fk_column name="ade_id" pk="id" />
+			</fk>
+			<fk name="datatype_namespace_fk" to_schema="citydb" to_table="namespace" delete_action="cascade" >
+				<fk_column name="namespace_id" pk="id" />
+			</fk>
+			<fk name="datatype_supertype_fk" to_schema="citydb" to_table="datatype" delete_action="cascade" >
+				<fk_column name="supertype_id" pk="id" />
+			</fk>
+		</table>
+		<table name="feature" >
+			<column name="id" type="bigint" length="19" decimal="0" mandatory="y" >
+				<defo><![CDATA[nextval('feature_seq'::regclass)]]></defo>
+			</column>
+			<column name="objectclass_id" type="integer" length="10" decimal="0" mandatory="y" />
+			<column name="objectid" prior="featureid" type="text" length="256" />
+			<column name="identifier" type="text" length="256" />
+			<column name="identifier_codespace" prior="identifier_namespace" type="text" length="256" />
+			<column name="envelope" type="geometry(GEOMETRYZ)" />
+			<column name="last_modification_date" type="timestamptz" decimal="6" />
+			<column name="updating_person" type="text" length="256" />
+			<column name="reason_for_update" type="text" length="4000" />
+			<column name="lineage" type="text" length="256" />
+			<column name="creation_date" type="timestamptz" decimal="6" />
+			<column name="termination_date" type="timestamptz" decimal="6" />
+			<column name="valid_from" type="timestamptz" decimal="6" />
+			<column name="valid_to" type="timestamptz" decimal="6" />
+			<index name="feature_pk" unique="PRIMARY_KEY" >
+				<column name="id" />
+			</index>
+			<index name="feature_objectclass_inx" unique="NORMAL" >
+				<column name="objectclass_id" options="" />
+			</index>
+			<index name="feature_objectid_inx" unique="NORMAL" >
+				<column name="objectid" options="" />
+			</index>
+			<index name="feature_envelope_spx" unique="NORMAL" spec="USING GiST" virtual="y" >
+				<column name="envelope" />
+			</index>
+			<index name="feature_identifier_inx" unique="NORMAL" >
+				<column name="identifier" options="" />
+				<column name="identifier_codespace" />
+			</index>
+			<index name="feature_creation_date_inx" unique="NORMAL" >
+				<column name="creation_date" />
+			</index>
+			<index name="feature_termination_date_inx" unique="NORMAL" >
+				<column name="termination_date" />
+			</index>
+			<index name="feature_valid_from_inx" unique="NORMAL" >
+				<column name="valid_from" />
+			</index>
+			<index name="feature_valid_to_inx" unique="NORMAL" >
+				<column name="valid_to" />
+			</index>
+		</table>
+		<table name="geometry_data" prior="explicit_geometry" >
+			<column name="id" type="bigint" length="19" decimal="0" mandatory="y" >
+				<defo><![CDATA[nextval('geometry_data_seq'::regclass)]]></defo>
+			</column>
+			<column name="geometry" type="geometry(GEOMETRYZ)" />
+			<column name="implicit_geometry" type="geometry(GEOMETRYZ)" />
+			<column name="geometry_properties" prior="geom_properties" type="jsonb" />
+			<column name="feature_id" prior="cityobject_id" type="bigint" length="19" decimal="0" />
+			<index name="geometry_data_pk" unique="PRIMARY_KEY" >
+				<column name="id" />
+			</index>
+			<index name="geometry_data_feature_fkx" unique="NORMAL" >
+				<column name="feature_id" />
+			</index>
+			<index name="geometry_data_spx" unique="NORMAL" spec="USING GiST" virtual="y" >
+				<column name="geometry" />
+			</index>
+			<fk name="geometry_data_feature_fk" to_schema="citydb" to_table="feature" delete_action="setNull" >
+				<fk_column name="feature_id" pk="id" />
+			</fk>
+		</table>
+		<table name="implicit_geometry" >
+			<column name="id" type="bigint" length="19" decimal="0" mandatory="y" >
+				<defo><![CDATA[nextval('implicit_geometry_seq'::regclass)]]></defo>
+			</column>
+			<column name="objectid" prior="gmlid" type="text" length="256" />
+			<column name="mime_type" type="text" length="256" />
+			<column name="mime_type_codespace" type="text" />
+			<column name="reference_to_library" type="text" length="4000" />
+			<column name="library_object" type="bytea" decimal="0" />
+			<column name="relative_geometry_id" prior="relative_brep_id" type="bigint" length="19" decimal="0" />
+			<index name="implicit_geometry_pk" unique="PRIMARY_KEY" >
+				<column name="id" />
+			</index>
+			<index name="implicit_geometry_fkx" unique="NORMAL" >
+				<column name="relative_geometry_id" />
+			</index>
+			<index name="implicit_geometry_objectid_inx" unique="NORMAL" >
+				<column name="objectid" />
+			</index>
+			<fk name="implicit_geometry_fk" to_schema="citydb" to_table="geometry_data" delete_action="cascade" >
+				<fk_column name="relative_geometry_id" pk="id" />
+			</fk>
+		</table>
+		<table name="namespace" >
+			<column name="id" type="integer" mandatory="y" />
+			<column name="alias" prior="prefix" type="text" />
+			<column name="namespace" type="text" length="100" />
+			<column name="ade_id" type="integer" />
+			<index name="namespace_pk" unique="PRIMARY_KEY" >
+				<column name="id" />
+			</index>
+			<fk name="fk_namespace_ade" to_schema="citydb" to_table="ade" delete_action="cascade" >
+				<fk_column name="ade_id" pk="id" />
+			</fk>
+		</table>
+		<table name="objectclass" >
+			<column name="id" type="integer" length="10" decimal="0" mandatory="y" />
+			<column name="superclass_id" type="integer" length="10" decimal="0" />
+			<column name="classname" type="text" length="256" />
+			<column name="is_abstract" type="integer" />
+			<column name="is_toplevel" type="integer" />
+			<column name="ade_id" type="integer" length="10" decimal="0" />
+			<column name="namespace_id" prior="namespace_prefix" type="integer" />
+			<column name="schema" type="jsonb" />
+			<index name="objectclass_pk" unique="PRIMARY_KEY" >
+				<column name="id" />
+			</index>
+			<index name="objectclass_superclass_fkx" unique="NORMAL" >
+				<column name="superclass_id" />
+			</index>
+			<fk name="objectclass_ade_fk" to_schema="citydb" to_table="ade" delete_action="cascade" >
+				<fk_column name="ade_id" pk="id" />
+			</fk>
+			<fk name="objectclass_superclass_fk" to_schema="citydb" to_table="objectclass" delete_action="cascade" >
+				<fk_column name="superclass_id" pk="id" />
+			</fk>
+			<fk name="objectclass_namespace_fk" to_schema="citydb" to_table="namespace" delete_action="cascade" >
+				<fk_column name="namespace_id" pk="id" />
+			</fk>
+		</table>
+		<table name="property" >
+			<column name="id" type="bigint" length="19" decimal="0" mandatory="y" >
+				<defo><![CDATA[nextval('property_seq'::regclass)]]></defo>
+			</column>
+			<column name="feature_id" type="bigint" length="19" decimal="0" />
+			<column name="parent_id" type="bigint" length="19" decimal="0" />
+			<column name="datatype_id" type="integer" mandatory="y" />
+			<column name="namespace_id" prior="namespace_alias" type="integer" />
+			<column name="name" type="text" length="256" />
+			<column name="val_int" type="bigint" length="19" decimal="0" />
+			<column name="val_double" type="double precision" />
+			<column name="val_string" type="text" length="4000" />
+			<column name="val_timestamp" prior="val_date" type="timestamptz" decimal="6" />
+			<column name="val_uri" type="text" length="4000" />
+			<column name="val_codespace" prior="val_codelist_id" type="text" />
+			<column name="val_uom" type="text" />
+			<column name="val_array" prior="val_array_value" type="jsonb" />
+			<column name="val_lod" prior="lod" type="text" length="256" />
+			<column name="val_geometry_id" prior="val_geometry" type="bigint" length="19" decimal="0" />
+			<column name="val_implicitgeom_id" prior="val_implicitgeom" type="bigint" length="19" decimal="0" />
+			<column name="val_implicitgeom_refpoint" type="geometry(POINTZ)" />
+			<column name="val_appearance_id" prior="val_appearance" type="bigint" length="19" decimal="0" />
+			<column name="val_address_id" type="bigint" length="100" />
+			<column name="val_feature_id" prior="val_feature" type="bigint" length="19" decimal="0" />
+			<column name="val_relation_type" prior="val_reference_type" type="integer" length="10" decimal="0" />
+			<column name="val_content" prior="val_source" type="text" />
+			<column name="val_content_mime_type" prior="val_source_mime_type" type="text" length="256" />
+			<index name="property_pk" unique="PRIMARY_KEY" >
+				<column name="id" />
+			</index>
+			<index name="property_feature_fkx" unique="NORMAL" >
+				<column name="feature_id" />
+			</index>
+			<index name="property_parent_fkx" unique="NORMAL" >
+				<column name="parent_id" />
+			</index>
+			<index name="property_namespace_inx" unique="NORMAL" >
+				<column name="namespace_id" />
+			</index>
+			<index name="property_name_inx" unique="NORMAL" >
+				<column name="name" />
+			</index>
+			<index name="property_val_string_inx" unique="NORMAL" options="WHERE val_string IS NOT NULL" >
+				<column name="val_string" />
+			</index>
+			<index name="property_val_uom_inx" unique="NORMAL" options="WHERE val_uom IS NOT NULL" >
+				<column name="val_uom" />
+			</index>
+			<index name="property_val_uri_inx" unique="NORMAL" options="WHERE val_uri IS NOT NULL" >
+				<column name="val_uri" />
+			</index>
+			<index name="property_val_int_inx" unique="NORMAL" options="WHERE val_int IS NOT NULL" >
+				<column name="val_int" />
+			</index>
+			<index name="property_val_double_inx" unique="NORMAL" options="WHERE val_double IS NOT NULL" >
+				<column name="val_double" />
+			</index>
+			<index name="property_val_date_inx" unique="NORMAL" options="WHERE val_timestamp IS NOT NULL" >
+				<column name="val_timestamp" />
+			</index>
+			<index name="property_val_feature_fkx" unique="NORMAL" >
+				<column name="val_feature_id" />
+			</index>
+			<index name="property_val_geometry_fkx" unique="NORMAL" >
+				<column name="val_geometry_id" />
+			</index>
+			<index name="property_val_implicitgeom_fkx" unique="NORMAL" >
+				<column name="val_implicitgeom_id" />
+			</index>
+			<index name="property_val_appearance_fkx" unique="NORMAL" >
+				<column name="val_appearance_id" />
+			</index>
+			<index name="property_val_relation_type_inx" unique="NORMAL" >
+				<column name="val_relation_type" />
+			</index>
+			<index name="property_val_address_fkx" unique="NORMAL" >
+				<column name="val_address_id" />
+			</index>
+			<index name="property_val_lod_inx" unique="NORMAL" >
+				<column name="val_lod" />
+			</index>
+			<fk name="property_appearance_fk" to_schema="citydb" to_table="appearance" delete_action="cascade" >
+				<fk_column name="val_appearance_id" pk="id" />
+			</fk>
+			<fk name="property_feature_fk" to_schema="citydb" to_table="feature" >
+				<fk_column name="feature_id" pk="id" />
+			</fk>
+			<fk name="property_val_feature_fk" to_schema="citydb" to_table="feature" delete_action="setNull" >
+				<fk_column name="val_feature_id" pk="id" />
+			</fk>
+			<fk name="property_val_implicitgeom_fk" to_schema="citydb" to_table="implicit_geometry" delete_action="cascade" >
+				<fk_column name="val_implicitgeom_id" pk="id" />
+			</fk>
+			<fk name="property_parent_fk" to_schema="citydb" to_table="property" delete_action="setNull" options="" >
+				<fk_column name="parent_id" pk="id" />
+			</fk>
+			<fk name="property_val_geometry_fk" to_schema="citydb" to_table="geometry_data" delete_action="cascade" >
+				<fk_column name="val_geometry_id" pk="id" />
+			</fk>
+			<fk name="property_val_address_fk" to_schema="citydb" to_table="address" delete_action="cascade" >
+				<fk_column name="val_address_id" pk="id" />
+			</fk>
+		</table>
+		<table name="surface_data" >
+			<column name="id" type="bigint" length="19" decimal="0" mandatory="y" >
+				<defo><![CDATA[nextval('surface_data_seq'::regclass)]]></defo>
+			</column>
+			<column name="objectid" prior="surfacedataid" type="text" length="256" />
+			<column name="identifier" type="text" length="256" />
+			<column name="identifier_codespace" type="text" length="256" />
+			<column name="is_front" type="integer" />
+			<column name="objectclass_id" type="integer" length="10" decimal="0" mandatory="y" />
+			<column name="x3d_shininess" type="double precision" length="17" decimal="17" />
+			<column name="x3d_transparency" type="double precision" length="17" decimal="17" />
+			<column name="x3d_ambient_intensity" type="double precision" length="17" decimal="17" />
+			<column name="x3d_specular_color" type="text" length="256" />
+			<column name="x3d_diffuse_color" type="text" length="256" />
+			<column name="x3d_emissive_color" type="text" length="256" />
+			<column name="x3d_is_smooth" type="integer" />
+			<column name="tex_image_id" type="bigint" length="19" decimal="0" />
+			<column name="tex_texture_type" type="text" length="256" />
+			<column name="tex_wrap_mode" type="text" length="256" />
+			<column name="tex_border_color" type="text" length="256" />
+			<column name="gt_orientation" type="jsonb" />
+			<column name="gt_reference_point" type="geometry(POINT)" />
+			<index name="surface_data_pk" unique="PRIMARY_KEY" >
+				<column name="id" />
+			</index>
+			<index name="surface_data_tex_image_fkx" unique="NORMAL" >
+				<column name="tex_image_id" />
+			</index>
+			<index name="surface_data_objclass_fkx" unique="NORMAL" >
+				<column name="objectclass_id" />
+			</index>
+			<fk name="surface_data_tex_image_fk" to_schema="citydb" to_table="tex_image" delete_action="setNull" >
+				<fk_column name="tex_image_id" pk="id" />
+			</fk>
+		</table>
+		<table name="surface_data_mapping" prior="textureparam" >
+			<column name="surface_data_id" type="bigint" length="19" decimal="0" mandatory="y" />
+			<column name="geometry_data_id" prior="geometry_id" type="bigint" length="19" decimal="0" mandatory="y" />
+			<column name="material_mapping" prior="texture_coordinates" type="jsonb" />
+			<column name="texture_mapping" prior="is_texture_parametrization" type="jsonb" />
+			<column name="world_to_texture_mapping" prior="world_to_texture" type="jsonb" />
+			<column name="georeferenced_texture_mapping" type="jsonb" />
+			<index name="surface_data_mapping_pk" unique="PRIMARY_KEY" >
+				<column name="geometry_data_id" />
+				<column name="surface_data_id" />
+			</index>
+			<index name="surface_data_mapping_fkx1" unique="NORMAL" >
+				<column name="geometry_data_id" />
+			</index>
+			<index name="surface_data_mapping_fkx2" unique="NORMAL" >
+				<column name="surface_data_id" />
+			</index>
+			<fk name="surface_data_mapping_fk1" to_schema="citydb" to_table="geometry_data" delete_action="cascade" >
+				<fk_column name="geometry_data_id" pk="id" />
+			</fk>
+			<fk name="surface_data_mapping_fk2" to_schema="citydb" to_table="surface_data" delete_action="cascade" >
+				<fk_column name="surface_data_id" pk="id" />
+			</fk>
+		</table>
+		<table name="tex_image" >
+			<column name="id" type="bigint" length="19" decimal="0" mandatory="y" >
+				<defo><![CDATA[nextval('tex_image_seq'::regclass)]]></defo>
+			</column>
+			<column name="image_uri" prior="tex_image_uri" type="text" length="4000" />
+			<column name="image_data" prior="tex_image_data" type="bytea" decimal="0" />
+			<column name="mime_type" prior="tex_mime_type" type="text" length="256" />
+			<column name="mime_type_codespace" prior="tex_mime_type_codespace" type="text" length="4000" />
+			<index name="tex_image_pk" unique="PRIMARY_KEY" >
+				<column name="id" />
+			</index>
+		</table>
+		<sequence name="address_seq" options="START WITH 1  INCREMENT BY 1  MINVALUE 1  NO MAXVALUE CACHE 1  NO CYCLE" />
+		<sequence name="ade_seq" options="START WITH 1  INCREMENT BY 1  MINVALUE 1  MAXVALUE 2147483647  CACHE 1  NO CYCLE" />
+		<sequence name="appear_to_surface_data_seq" options="START WITH 1  INCREMENT BY 1  MINVALUE 1  NO MAXVALUE CACHE 1  NO CYCLE" />
+		<sequence name="appearance_seq" options="START WITH 1  INCREMENT BY 1  MINVALUE 1  NO MAXVALUE CACHE 1  NO CYCLE" />
+		<sequence name="codelist_entry_seq" options="START WITH 1  INCREMENT BY 1  MINVALUE 1  NO MAXVALUE CACHE 1  NO CYCLE" />
+		<sequence name="codelist_seq" options="START WITH 1  INCREMENT BY 1  MINVALUE 1  NO MAXVALUE CACHE 1  NO CYCLE" />
+		<sequence name="feature_seq" options="START WITH 1  INCREMENT BY 1  MINVALUE 1  NO MAXVALUE CACHE 1  NO CYCLE" />
+		<sequence name="geometry_data_seq" options="START WITH 1  INCREMENT BY 1  MINVALUE 1  NO MAXVALUE CACHE 1  NO CYCLE" />
+		<sequence name="implicit_geometry_seq" options="START WITH 1  INCREMENT BY 1  MINVALUE 1  NO MAXVALUE CACHE 1  NO CYCLE" />
+		<sequence name="property_seq" options="START WITH 1  INCREMENT BY 1  MINVALUE 1  NO MAXVALUE CACHE 1  NO CYCLE" />
+		<sequence name="surface_data_seq" options="START WITH 1  INCREMENT BY 1  MINVALUE 1  NO MAXVALUE CACHE 1  NO CYCLE" />
+		<sequence name="tex_image_seq" options="START WITH 1  INCREMENT BY 1  MINVALUE 1  NO MAXVALUE CACHE 1  NO CYCLE" />
+	</schema>
+	<schema name="feature_changelog" >
+		<table name="feature_changelog" prior="feature_changelof" >
+			<column name="id" type="bigint" mandatory="y" >
+				<defo><![CDATA[nextval('feature_changelog_seq'::regclass)]]></defo>
+			</column>
+			<column name="feature_id" type="bigint" />
+			<column name="objectclass_id" type="integer" mandatory="y" />
+			<column name="objectid" prior="identifier" type="text" />
+			<column name="identifier" type="text" />
+			<column name="identifier_codespace" type="text" />
+			<column name="envelope" type="geometry(GEOMETRYZ)" />
+			<column name="transaction_type" type="text" mandatory="y" />
+			<column name="transaction_date" type="timestamptz" mandatory="y" />
+			<column name="db_user" type="text" />
+			<column name="reason_for_update" type="text" />
+			<index name="feature_changelog_pk" unique="PRIMARY_KEY" >
+				<column name="id" options="" />
+			</index>
+			<index name="feature_changelog_feature_fkx" unique="NORMAL" options="WITH ( FILLFACTOR = 90 )" >
+				<column name="feature_id" />
+			</index>
+			<index name="feature_changelog_objectclass_inx" unique="NORMAL" options="WITH ( FILLFACTOR = 90 )" >
+				<column name="objectclass_id" />
+			</index>
+			<index name="feature_changelog_objectid_inx" unique="NORMAL" options="WITH ( FILLFACTOR = 90 )" >
+				<column name="objectid" />
+			</index>
+			<index name="feature_changelog_identifier_inx" unique="NORMAL" options="WITH ( FILLFACTOR = 90 )" >
+				<column name="identifier" />
+				<column name="identifier_codespace" />
+			</index>
+			<index name="feature_changelog_transaction_date_inx" unique="NORMAL" options="WITH ( FILLFACTOR = 100 )" >
+				<column name="transaction_date" />
+			</index>
+			<index name="feature_changelog_envelope_spx" unique="NORMAL" spec="USING GiST" virtual="y" >
+				<column name="envelope" />
+			</index>
+			<fk name="feature_changelog_feature_fk" to_schema="citydb" to_table="feature" delete_action="setNull" >
+				<fk_column name="feature_id" pk="id" />
+			</fk>
+		</table>
+		<sequence name="feature_changelog_seq" options="START WITH 1  INCREMENT BY 1  MINVALUE 1  NO MAXVALUE CACHE 1  NO CYCLE" />
+	</schema>
+	<layout name="3DCityDB" id="Layout-1758" confirmed="y" joined_routing="y" show_column_type="y" show_relation="no_text" >
+		<comment><![CDATA[3DCityDB]]></comment>
+		<entity schema="citydb" name="appearance" color="F4BEC7" x="798" y="399" />
+		<entity schema="citydb" name="property" color="F4DDBE" x="399" y="95" />
+		<entity schema="citydb" name="surface_data_mapping" color="F4BEC7" x="1083" y="399" />
+		<entity schema="citydb" name="ade" color="BEBEF4" x="304" y="893" />
+		<entity schema="citydb" name="objectclass" color="BEBEF4" x="57" y="893" />
+		<entity schema="citydb" name="implicit_geometry" color="C7F4BE" x="1159" y="95" />
+		<entity schema="citydb" name="datatype" color="BEBEF4" x="513" y="893" />
+		<entity schema="citydb" name="namespace" color="BEBEF4" x="304" y="1121" />
+		<entity schema="citydb" name="surface_data" color="F4BEC7" x="1083" y="589" />
+		<entity schema="citydb" name="appear_to_surface_data" color="F4BEC7" x="817" y="627" />
+		<entity schema="citydb" name="tex_image" color="F4BEC7" x="798" y="760" />
+		<entity schema="citydb" name="address" color="F4DDBE" x="57" y="437" />
+		<entity schema="citydb" name="database_srs" color="BEBEF4" x="57" y="1121" />
+		<entity schema="citydb" name="codelist" color="F4F3BE" x="798" y="1121" />
+		<entity schema="citydb" name="codelist_entry" color="F4F3BE" x="1216" y="1121" />
+		<entity schema="citydb" name="geometry_data" color="C7F4BE" x="798" y="95" />
+		<entity schema="citydb" name="feature" color="F4DDBE" x="57" y="95" />
+		<group name="Geometry" color="EEF7EC" >
+			<entity schema="citydb" name="implicit_geometry" />
+			<entity schema="citydb" name="geometry_data" />
+		</group>
+		<group name="Metadata" color="ECECF7" >
+			<entity schema="citydb" name="ade" />
+			<entity schema="citydb" name="objectclass" />
+			<entity schema="citydb" name="datatype" />
+			<entity schema="citydb" name="namespace" />
+			<entity schema="citydb" name="database_srs" />
+		</group>
+		<group name="Feature" color="F7F2EC" >
+			<entity schema="citydb" name="property" />
+			<entity schema="citydb" name="address" />
+			<entity schema="citydb" name="feature" />
+		</group>
+		<group name="Appearance" color="FFCCFF" >
+			<entity schema="citydb" name="appearance" />
+			<entity schema="citydb" name="surface_data_mapping" />
+			<entity schema="citydb" name="surface_data" />
+			<entity schema="citydb" name="appear_to_surface_data" />
+			<entity schema="citydb" name="tex_image" />
+		</group>
+		<group name="Codelist" color="F4F3BE" >
+			<entity schema="citydb" name="codelist" />
+			<entity schema="citydb" name="codelist_entry" />
+		</group>
+	</layout>
+	<layout name="Appearance module" id="Diagram-466" confirmed="y" joined_routing="y" show_column_type="y" show_relation="no_text" >
+		<entity schema="citydb" name="appearance" color="F4BEC7" x="57" y="57" />
+		<entity schema="citydb" name="appear_to_surface_data" color="F4BEC7" x="57" y="285" />
+		<entity schema="citydb" name="surface_data_mapping" color="F4BEC7" x="646" y="57" />
+		<entity schema="citydb" name="tex_image" color="F4BEC7" x="646" y="304" />
+		<entity schema="citydb" name="surface_data" color="F4BEC7" x="323" y="57" />
+	</layout>
+	<layout name="Changelog module" id="6875c26b-4764-4715-bf9b-7c3657f056a9" confirmed="y" joined_routing="y" show_column_type="y" show_relation="no_text" >
+		<entity schema="citydb" name="feature" color="F4DDBE" x="361" y="57" />
+		<entity schema="feature_changelog" name="feature_changelog" color="3986C1" x="57" y="57" />
+	</layout>
+	<layout name="Codelist module" id="Diagram-207" confirmed="y" joined_routing="y" show_column_type="y" show_relation="no_text" >
+		<entity schema="citydb" name="codelist" color="F4F3BE" x="57" y="57" />
+		<entity schema="citydb" name="codelist_entry" color="F4F3BE" x="266" y="57" />
+	</layout>
+	<layout name="Feature module" id="Diagram-1266" confirmed="y" joined_routing="y" show_column_type="y" show_relation="no_text" >
+		<comment><![CDATA[Feature module]]></comment>
+		<entity schema="citydb" name="feature" color="F4DDBE" x="57" y="57" />
+		<entity schema="citydb" name="property" color="F4DDBE" x="380" y="57" />
+		<entity schema="citydb" name="address" color="F4DDBE" x="760" y="57" />
+	</layout>
+	<layout name="Geometry module" id="Diagram-153a" confirmed="y" joined_routing="y" show_column_type="y" show_relation="no_text" >
+		<entity schema="citydb" name="geometry_data" color="C7F4BE" x="57" y="57" />
+		<entity schema="citydb" name="implicit_geometry" color="C7F4BE" x="399" y="57" />
+	</layout>
+	<layout name="Metadata module" id="Diagram-1691" confirmed="y" joined_routing="y" show_column_type="y" show_relation="no_text" >
+		<entity schema="citydb" name="objectclass" color="BEBEF4" x="57" y="57" />
+		<entity schema="citydb" name="database_srs" color="BEBEF4" x="57" y="285" />
+		<entity schema="citydb" name="ade" color="BEBEF4" x="304" y="57" />
+		<entity schema="citydb" name="datatype" color="BEBEF4" x="513" y="57" />
+		<entity schema="citydb" name="namespace" color="BEBEF4" x="304" y="247" />
+	</layout>
+</project>
