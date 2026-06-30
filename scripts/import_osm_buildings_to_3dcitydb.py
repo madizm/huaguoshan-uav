@@ -437,8 +437,8 @@ def ensure_metadata(conn: psycopg.Connection[Any], target_srid: int) -> None:
         cur.execute("select id from citydb.objectclass where id = 901 and classname = 'Building'")
         if cur.fetchone() is None:
             raise RuntimeError("Missing citydb.objectclass Building id=901")
-        cur.execute("select id from citydb.datatype where id in (1,3,5,11,14)")
-        if len(cur.fetchall()) < 5:
+        cur.execute("select id from citydb.datatype where id in (1,3,5,11,14,200)")
+        if len(cur.fetchall()) < 6:
             raise RuntimeError("Missing required 3DCityDB datatype rows")
         cur.execute(
             """
@@ -563,25 +563,26 @@ def insert_property_rows(cur: psycopg.Cursor[Any], feature_id: int, geometry_id:
         (feature_id, building.height),
     )
 
-    tags_json = json.dumps(building.tags, ensure_ascii=False, sort_keys=True)
-    if len(tags_json) <= 4000:
+    if building.tags:
         cur.execute(
             """
             insert into citydb.property
-              (feature_id, datatype_id, namespace_id, name, val_string)
-            values (%s, 5, 3, 'osmTags', %s)
+              (feature_id, datatype_id, namespace_id, name)
+            values (%s, 200, 3, 'osmTags')
+            returning id
             """,
-            (feature_id, tags_json),
+            (feature_id,),
         )
-    else:
-        cur.execute(
-            """
-            insert into citydb.property
-              (feature_id, datatype_id, namespace_id, name, val_content, val_content_mime_type)
-            values (%s, 1, 3, 'osmTags', %s, 'application/json')
-            """,
-            (feature_id, tags_json),
-        )
+        osm_tags_property_id = int(cur.fetchone()[0])
+        for key, value in sorted(building.tags.items()):
+            cur.execute(
+                """
+                insert into citydb.property
+                  (feature_id, parent_id, datatype_id, namespace_id, name, val_string)
+                values (%s, %s, 5, 3, %s, %s)
+                """,
+                (feature_id, osm_tags_property_id, key, value),
+            )
 
     if building.terrain_elevation_source is not None:
         cur.execute(
