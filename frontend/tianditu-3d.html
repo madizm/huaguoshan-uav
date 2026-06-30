@@ -279,6 +279,178 @@
       line-height: 1.55;
     }
 
+    .feature-panel {
+      position: fixed;
+      z-index: 10;
+      top: 24px;
+      right: 24px;
+      width: min(420px, calc(100vw - 48px));
+      max-height: calc(100vh - 332px);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      border: 1px solid rgba(215, 168, 70, 0.28);
+      border-radius: 22px;
+      background:
+        linear-gradient(145deg, rgba(16, 32, 27, 0.88), rgba(8, 61, 51, 0.72)),
+        radial-gradient(circle at 94% 8%, rgba(215, 168, 70, 0.18), transparent 34%);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px) saturate(1.12);
+      overflow: hidden;
+    }
+
+    .feature-panel header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid rgba(255, 247, 223, 0.14);
+    }
+
+    .feature-panel[hidden] {
+      display: none;
+    }
+
+    .feature-panel h2 {
+      margin: 0;
+      color: var(--gold);
+      font-size: 13px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .feature-panel p {
+      grid-column: 1 / -1;
+      margin: 7px 0 0;
+      color: rgba(255, 247, 223, 0.62);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .feature-close {
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      border-radius: 50%;
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .feature-content {
+      overflow: auto;
+      padding: 14px 16px 16px;
+    }
+
+    .feature-empty,
+    .feature-error,
+    .feature-loading {
+      padding: 12px;
+      border-radius: 14px;
+      color: rgba(255, 247, 223, 0.74);
+      background: rgba(0, 0, 0, 0.18);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .feature-error {
+      border-left: 3px solid var(--cinnabar);
+    }
+
+    .feature-card {
+      display: grid;
+      gap: 12px;
+    }
+
+    .feature-title {
+      padding: 12px;
+      border: 1px solid rgba(255, 247, 223, 0.14);
+      border-radius: 16px;
+      background: rgba(255, 247, 223, 0.06);
+    }
+
+    .feature-title strong {
+      display: block;
+      overflow-wrap: anywhere;
+      color: var(--paper-strong);
+      font-family: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
+      font-size: 18px;
+      line-height: 1.3;
+    }
+
+    .feature-title span,
+    .feature-meta-row span,
+    .feature-property span {
+      color: rgba(255, 247, 223, 0.52);
+      font-size: 11px;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    .feature-meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .feature-meta-row,
+    .feature-property {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid rgba(255, 247, 223, 0.10);
+      border-radius: 13px;
+      background: rgba(0, 0, 0, 0.14);
+    }
+
+    .feature-meta-row code,
+    .feature-property code {
+      display: block;
+      margin-top: 5px;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+      color: var(--paper-strong);
+      font-family: "DIN Condensed", "Avenir Next Condensed", monospace;
+      font-size: 14px;
+      line-height: 1.38;
+    }
+
+    .feature-properties {
+      display: grid;
+      gap: 8px;
+    }
+
+    .feature-property.has-children {
+      border-color: rgba(215, 168, 70, 0.24);
+      background: rgba(215, 168, 70, 0.08);
+    }
+
+    .tag-list {
+      display: grid;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .tag-row {
+      display: grid;
+      grid-template-columns: minmax(82px, 0.38fr) minmax(0, 1fr);
+      gap: 8px;
+      align-items: start;
+      padding: 7px 8px;
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.16);
+    }
+
+    .tag-row b {
+      overflow-wrap: anywhere;
+      color: var(--gold);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .tag-row code {
+      margin: 0;
+      font-size: 13px;
+    }
+
     .airspace-readout {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -320,6 +492,7 @@
     @media (max-width: 720px) {
       .hud { top: 12px; left: 12px; width: calc(100vw - 24px); padding: 18px; }
       .readout { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
+      .feature-panel { top: auto; right: 12px; bottom: 214px; width: calc(100vw - 24px); max-height: 36vh; }
       .badge { display: none; }
       .control-grid { grid-template-columns: 1fr; }
       h1 { font-size: 36px; }
@@ -409,6 +582,17 @@
     </div>
   </aside>
 
+  <aside class="feature-panel" aria-label="CityDB 模型属性">
+    <header>
+      <h2>Selected CityDB Feature</h2>
+      <button class="feature-close" id="closeFeaturePanel" type="button" aria-label="关闭 CityDB 属性面板" title="关闭属性面板">×</button>
+      <p>点击本工程导出的建筑 3D Tiles，读取模型 metadata 并通过 PostgREST RPC 查询 CityDB 属性。</p>
+    </header>
+    <div class="feature-content" id="featureProperties">
+      <div class="feature-empty">尚未选择建筑模型。</div>
+    </div>
+  </aside>
+
   <div class="badge" aria-hidden="true">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l7 4v7c0 5-3 8-7 9-4-1-7-4-7-9V6l7-4z"/><path d="M9 12l2 2 4-5"/></svg>
     TK 已配置 · 2444…9347
@@ -423,6 +607,7 @@
       var subdomains = ['0', '1', '2', '3', '4', '5', '6', '7'];
       var localTilesetUrl = '../exports/citydb-3dtiler/huaguoshan_3dtiles/tileset.json';
       var demTilesetUrl = '../exports/terrain/huaguoshan_dem_3dtiles/tileset.json';
+      var citydbFeatureRpcUrl = 'http://10.1.109.151:13000/rpc/get_citydb_feature_properties';
       var huaguoshan = { lon: 119.2683, lat: 34.6469 };
       var state = {
         viewer: null,
@@ -437,7 +622,9 @@
         wtfs: null,
         wtfsVisible: true,
         airspaceGrid: null,
-        airspaceEnabled: false
+        airspaceEnabled: false,
+        featurePropertyCache: {},
+        selectedFeatureIdentifier: null
       };
 
       var $ = function (selector) { return document.querySelector(selector); };
@@ -446,6 +633,238 @@
       function log(message) {
         status.textContent = message;
         console.info('[Tianditu3D]', message);
+      }
+
+      function escapeHtml(value) {
+        return String(value == null ? '' : value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      function featurePanel() {
+        return $('#featureProperties');
+      }
+
+      function showFeaturePanel() {
+        var panel = document.querySelector('.feature-panel');
+        if (panel) panel.hidden = false;
+      }
+
+      function hideFeaturePanel() {
+        var panel = document.querySelector('.feature-panel');
+        if (panel) panel.hidden = true;
+      }
+
+      function formatPropertyValue(value, uom) {
+        if (value == null) return '--';
+        var text = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+        return uom ? text + ' ' + uom : text;
+      }
+
+      function renderFeatureMessage(className, message) {
+        showFeaturePanel();
+        featurePanel().innerHTML = '<div class="' + className + '">' + escapeHtml(message) + '</div>';
+      }
+
+      function renderFeatureLoading(identifier, metadata) {
+        showFeaturePanel();
+        var metadataHtml = '';
+        if (metadata && Object.keys(metadata).length) {
+          metadataHtml = '<div class="tag-list">' + Object.keys(metadata).slice(0, 6).map(function (key) {
+            return '<div class="tag-row"><b>' + escapeHtml(key) + '</b><code>' + escapeHtml(metadata[key]) + '</code></div>';
+          }).join('') + '</div>';
+        }
+
+        featurePanel().innerHTML =
+          '<div class="feature-loading">正在查询 CityDB 属性：<code>' + escapeHtml(identifier) + '</code>' + metadataHtml + '</div>';
+      }
+
+      function renderFeatureError(message) {
+        renderFeatureMessage('feature-error', message);
+      }
+
+      function renderFeatureProperties(data, sourceIdentifier) {
+        showFeaturePanel();
+        if (!data || !data.feature) {
+          renderFeatureError('CityDB 未找到对应要素：' + sourceIdentifier);
+          return;
+        }
+
+        var feature = data.feature;
+        var properties = Array.isArray(data.properties) ? data.properties : [];
+        var title = feature.objectid || feature.identifier || ('Feature #' + feature.id);
+        var featureRows = [
+          ['DB ID', feature.id],
+          ['ObjectClass', feature.objectclass || feature.objectclass_id],
+          ['Picked ID', sourceIdentifier],
+          ['Identifier', feature.identifier],
+          ['ObjectID', feature.objectid],
+          ['Lineage', feature.lineage]
+        ].filter(function (row) { return row[1] != null && row[1] !== ''; });
+
+        var propertyHtml = properties.map(function (property) {
+          var children = Array.isArray(property.children) ? property.children : [];
+          var value = formatPropertyValue(property.value, property.uom);
+          var label = property.namespace_alias ? property.namespace_alias + ':' + property.name : property.name;
+          var childHtml = '';
+          if (children.length) {
+            childHtml = '<div class="tag-list">' + children.map(function (child) {
+              return '<div class="tag-row"><b>' + escapeHtml(child.name) + '</b><code>' +
+                escapeHtml(formatPropertyValue(child.value, child.uom)) + '</code></div>';
+            }).join('') + '</div>';
+          }
+          return '<div class="feature-property' + (children.length ? ' has-children' : '') + '">' +
+            '<span>' + escapeHtml(label) + (property.datatype ? ' · ' + escapeHtml(property.datatype) : '') + '</span>' +
+            (property.value == null ? '' : '<code>' + escapeHtml(value) + '</code>') +
+            childHtml +
+            '</div>';
+        }).join('');
+
+        featurePanel().innerHTML =
+          '<div class="feature-card">' +
+            '<div class="feature-title"><span>CityDB Feature</span><strong>' + escapeHtml(title) + '</strong></div>' +
+            '<div class="feature-meta">' + featureRows.map(function (row) {
+              return '<div class="feature-meta-row"><span>' + escapeHtml(row[0]) + '</span><code>' + escapeHtml(row[1]) + '</code></div>';
+            }).join('') + '</div>' +
+            '<div class="feature-properties">' + (propertyHtml || '<div class="feature-empty">该要素没有属性记录。</div>') + '</div>' +
+          '</div>';
+      }
+
+      function getPickedPropertyIds(picked) {
+        if (!picked || typeof picked.getPropertyIds !== 'function') return [];
+        try {
+          var result = picked.getPropertyIds([]) || [];
+          return Array.isArray(result) ? result : [];
+        } catch (error) {
+          console.warn('[Tianditu3D] Failed to read picked property ids:', error);
+          return [];
+        }
+      }
+
+      function getPickedProperty(picked, name) {
+        if (!picked || typeof picked.getProperty !== 'function') return undefined;
+        try {
+          return picked.getProperty(name);
+        } catch (error) {
+          return undefined;
+        }
+      }
+
+      function readPickedMetadata(picked) {
+        var known = ['id', 'objectid', 'identifier', 'class', 'gen_derivedheight', 'gen_terrainelevation', 'gen_osmurl'];
+        var ids = getPickedPropertyIds(picked);
+        known.forEach(function (name) {
+          if (ids.indexOf(name) === -1) ids.push(name);
+        });
+
+        return ids.reduce(function (metadata, name) {
+          var value = getPickedProperty(picked, name);
+          if (value != null && value !== '') metadata[name] = value;
+          return metadata;
+        }, {});
+      }
+
+      function metadataValue(metadata, names) {
+        for (var index = 0; index < names.length; index += 1) {
+          var name = names[index];
+          if (metadata[name] != null && metadata[name] !== '') return metadata[name];
+          var lower = name.toLowerCase();
+          var match = Object.keys(metadata).find(function (key) { return key.toLowerCase() === lower; });
+          if (match && metadata[match] != null && metadata[match] !== '') return metadata[match];
+        }
+        return null;
+      }
+
+      function getPickedIdentifiers(metadata) {
+        var candidates = [
+          metadataValue(metadata, ['id']),
+          metadataValue(metadata, ['objectid']),
+          metadataValue(metadata, ['identifier']),
+          metadataValue(metadata, ['gen_osmurl', 'osmUrl', 'osmurl'])
+        ];
+
+        Object.keys(metadata).forEach(function (key) {
+          var value = metadata[key];
+          if (typeof value === 'string' && (/^osm:/.test(value) || /openstreetmap\.org/.test(value))) {
+            candidates.push(value);
+          }
+        });
+
+        return candidates.map(function (value) {
+          return value == null ? '' : String(value).trim();
+        }).filter(function (value, index, list) {
+          return value && list.indexOf(value) === index;
+        });
+      }
+
+      function isPickedCitydbFeature(picked) {
+        if (!picked || typeof picked.getProperty !== 'function') return false;
+        if (state.buildingsTileset && picked.tileset && picked.tileset !== state.buildingsTileset) return false;
+        if (state.buildingsTileset && picked.content && picked.content.tileset && picked.content.tileset !== state.buildingsTileset) return false;
+        return true;
+      }
+
+      function requestCitydbFeature(identifiers, index) {
+        var identifier = identifiers[index];
+        if (!identifier) return Promise.resolve(null);
+        if (state.featurePropertyCache[identifier]) return Promise.resolve(state.featurePropertyCache[identifier]);
+
+        return fetch(citydbFeatureRpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_feature_identifier: identifier })
+        }).then(function (response) {
+          if (!response.ok) throw new Error('PostgREST RPC HTTP ' + response.status);
+          return response.text();
+        }).then(function (text) {
+          var data = text ? JSON.parse(text) : null;
+          if (data && data.feature) {
+            state.featurePropertyCache[identifier] = data;
+            return data;
+          }
+          if (index + 1 < identifiers.length) return requestCitydbFeature(identifiers, index + 1);
+          return null;
+        });
+      }
+
+      function bindFeaturePicking(viewer) {
+        var handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+        handler.setInputAction(function (movement) {
+          var picked = viewer.scene.pick(movement.position);
+          if (!isPickedCitydbFeature(picked)) return;
+
+          var metadata = readPickedMetadata(picked);
+          var identifiers = getPickedIdentifiers(metadata);
+          if (!identifiers.length) {
+            renderFeatureError('已选中 3D Tiles 要素，但模型 metadata 中没有可用于查询 CityDB 的 id/objectid/identifier。');
+            log('无法查询 CityDB：选中模型缺少 id metadata。');
+            return;
+          }
+
+          var requestToken = identifiers.join('|') + '|' + Date.now();
+          state.selectedFeatureIdentifier = requestToken;
+          renderFeatureLoading(identifiers[0], metadata);
+          log('已选中建筑模型，正在通过 PostgREST 查询 CityDB 属性。');
+
+          requestCitydbFeature(identifiers, 0).then(function (data) {
+            if (state.selectedFeatureIdentifier !== requestToken) return;
+            if (!data) {
+              renderFeatureError('CityDB 未找到对应要素。已尝试：' + identifiers.join(', '));
+              log('CityDB 查询无结果：' + identifiers.join(', '));
+              return;
+            }
+            renderFeatureProperties(data, identifiers[0]);
+            log('CityDB 属性查询完成：' + (data.feature.objectid || data.feature.identifier || data.feature.id));
+          }).catch(function (error) {
+            if (state.selectedFeatureIdentifier !== requestToken) return;
+            console.error('[Tianditu3D] CityDB RPC failed:', error);
+            renderFeatureError('CityDB 属性查询失败：' + error.message + '。请确认 PostgREST 服务与 RPC 函数可访问。');
+            log('CityDB 属性查询失败，请检查 PostgREST。');
+          });
+        }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
       }
 
       function formatNumber(value, digits) {
@@ -854,6 +1273,15 @@
       }
 
       function bindControls() {
+        var closeFeaturePanel = $('#closeFeaturePanel');
+        if (closeFeaturePanel) {
+          closeFeaturePanel.addEventListener('click', function (event) {
+            event.stopPropagation();
+            hideFeaturePanel();
+            log('CityDB 属性面板已关闭；再次点击建筑模型可重新打开。');
+          });
+        }
+
         document.addEventListener('click', function (event) {
           var actionButton = event.target.closest('[data-action]');
           var layerButton = event.target.closest('[data-layer]');
@@ -978,6 +1406,7 @@
         addDemTileset(state.viewer);
         bindControls();
         bindAirspaceControls();
+        bindFeaturePicking(state.viewer);
 
         state.viewer.scene.postRender.addEventListener(updateCameraReadout);
         flyToHuaguoshan();
