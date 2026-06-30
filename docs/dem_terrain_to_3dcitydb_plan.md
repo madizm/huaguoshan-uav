@@ -486,3 +486,49 @@ uv run scripts/import_osm_buildings_to_3dcitydb.py \
 2. 基于 `terrain.dem_tile` 和建筑 roof_z 生成 `terrain.height_grid` / `terrain.clearance_grid`。
 3. 为路径规划服务明确输入/输出高度基准，避免混用椭球高和正高。
 4. 如后续需要 CityGML 地形导出，可从 DEM 生成简化 `TINRelief`。
+
+## 14. DEM 可视化图层实施
+
+状态：**已实施为独立 3D Tiles 可视化图层**。
+
+新增脚本：
+
+- `scripts/export_dem_3dtiles.py`
+
+生成命令：
+
+```bash
+uv run scripts/export_dem_3dtiles.py --execute
+```
+
+默认输入：
+
+```text
+data/dem/copernicus-dem-glo30-huaguoshan_epsg32650.tif
+```
+
+默认输出：
+
+```text
+exports/terrain/huaguoshan_dem_3dtiles/
+├─ tileset.json
+└─ content/dem_mesh.glb
+```
+
+前端页面 `frontend/tianditu-3d.html` 已增加：
+
+- `查看 DEM` 相机按钮
+- `DEM 网格` 图层开关
+- `../exports/terrain/huaguoshan_dem_3dtiles/tileset.json` 挂载逻辑
+
+该图层用于可视化检查本工程 DEM 高程面，不替代 Cesium `terrainProvider`。运行页面时需从工程根目录启动静态服务：
+
+```bash
+python3 -m http.server 4173
+```
+
+访问：
+
+```text
+http://127.0.0.1:4173/frontend/tianditu-3d.html
+```

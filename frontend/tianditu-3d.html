@@ -259,11 +259,12 @@
     <div class="kicker">Tianditu 3D Base Map Test</div>
     <h1 id="page-title">天地图三维<br />底图服务</h1>
     <p class="intro">
-      使用 Cesium 1.108 + 天地图 Cesium 扩展加载影像、国界、地形、三维地名与本工程导出的 3D Tiles；默认飞行至连云港花果山景区。
+      使用 Cesium 1.108 + 天地图 Cesium 扩展加载影像、国界、地形、三维地名、本工程导出的 3D Tiles 与 DEM 可视化网格；默认飞行至连云港花果山景区。
     </p>
     <div class="actions" aria-label="相机操作">
       <button class="primary" type="button" data-action="huaguoshan">飞到花果山</button>
       <button type="button" data-action="tileset">查看 3D Tiles</button>
+      <button type="button" data-action="dem">查看 DEM</button>
       <button type="button" data-action="china">全国视角</button>
       <button type="button" data-action="tilt">低空斜视</button>
     </div>
@@ -272,6 +273,7 @@
       <button type="button" data-layer="boundary" aria-pressed="true">国界叠加</button>
       <button type="button" data-layer="terrain" aria-pressed="true">三维地形</button>
       <button type="button" data-layer="tileset" aria-pressed="true">导出模型</button>
+      <button type="button" data-layer="dem" aria-pressed="false">DEM 网格</button>
       <button type="button" data-layer="place" aria-pressed="true">三维地名</button>
     </div>
   </section>
@@ -299,6 +301,7 @@
       var tdtUrl = 'https://t{s}.tianditu.gov.cn/';
       var subdomains = ['0', '1', '2', '3', '4', '5', '6', '7'];
       var localTilesetUrl = '../exports/citydb-3dtiler/huaguoshan_3dtiles/tileset.json';
+      var demTilesetUrl = '../exports/terrain/huaguoshan_dem_3dtiles/tileset.json';
       var huaguoshan = { lon: 119.2683, lat: 34.6469 };
       var state = {
         viewer: null,
@@ -307,6 +310,9 @@
         terrainProvider: null,
         buildingsTileset: null,
         buildingsReady: false,
+        demTileset: null,
+        demReady: false,
+        demVisible: false,
         wtfs: null,
         wtfsVisible: true
       };
@@ -512,6 +518,41 @@
         });
       }
 
+      function addDemTileset(viewer) {
+        if (!Cesium.Cesium3DTileset) {
+          log('当前 Cesium 版本不支持 Cesium3DTileset，无法挂载 DEM 网格。');
+          return Promise.resolve(null);
+        }
+
+        var demOptions = {
+          maximumScreenSpaceError: 4,
+          dynamicScreenSpaceError: true,
+          skipLevelOfDetail: false,
+          show: state.demVisible
+        };
+
+        var createTileset = Cesium.Cesium3DTileset.fromUrl
+          ? Cesium.Cesium3DTileset.fromUrl(demTilesetUrl, demOptions)
+          : Promise.resolve(new Cesium.Cesium3DTileset(Object.assign({ url: demTilesetUrl }, demOptions)));
+
+        return createTileset.then(function (tileset) {
+          tileset.show = state.demVisible;
+          state.demTileset = viewer.scene.primitives.add(tileset);
+
+          var ready = tileset.readyPromise || Promise.resolve(tileset);
+          return ready.then(function () {
+            state.demReady = true;
+            state.demTileset.show = state.demVisible;
+            log('DEM 网格已挂载：exports/terrain/huaguoshan_dem_3dtiles/tileset.json');
+            return tileset;
+          });
+        }).catch(function (error) {
+          console.error('[Tianditu3D] DEM tileset load failed:', error);
+          log('DEM 网格挂载失败。请先运行 uv run scripts/export_dem_3dtiles.py --execute，并从工程根目录启动服务。');
+          return null;
+        });
+      }
+
       function flyToTileset() {
         if (state.buildingsTileset && state.buildingsReady) {
           state.viewer.flyTo(state.buildingsTileset, {
@@ -531,6 +572,37 @@
           orientation: {
             heading: Cesium.Math.toRadians(24),
             pitch: Cesium.Math.toRadians(-28),
+            roll: 0
+          },
+          duration: 1.6
+        });
+      }
+
+      function flyToDem() {
+        state.demVisible = true;
+        var demButton = document.querySelector('[data-layer="dem"]');
+        if (demButton) demButton.setAttribute('aria-pressed', 'true');
+        if (state.demTileset) state.demTileset.show = true;
+
+        if (state.demTileset && state.demReady) {
+          state.viewer.flyTo(state.demTileset, {
+            duration: 1.8,
+            offset: new Cesium.HeadingPitchRange(
+              Cesium.Math.toRadians(26),
+              Cesium.Math.toRadians(-32),
+              10500
+            )
+          });
+          log('DEM 网格已显示。该图层用于可视化验证，不替代 Cesium terrainProvider。');
+          return;
+        }
+
+        log('DEM 网格仍在加载，先切换到 DEM 覆盖范围视角。');
+        state.viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(119.2683, 34.6469, 10500),
+          orientation: {
+            heading: Cesium.Math.toRadians(26),
+            pitch: Cesium.Math.toRadians(-32),
             roll: 0
           },
           duration: 1.6
@@ -557,6 +629,7 @@
             var action = actionButton.dataset.action;
             if (action === 'huaguoshan') flyToHuaguoshan();
             if (action === 'tileset') flyToTileset();
+            if (action === 'dem') flyToDem();
             if (action === 'china') {
               state.viewer.camera.flyTo({
                 destination: Cesium.Cartesian3.fromDegrees(103.84, 31.15, 17850000),
@@ -593,6 +666,11 @@
             if (layer === 'tileset' && state.buildingsTileset) {
               state.buildingsTileset.show = active;
               log(active ? '本工程导出的 3D Tiles 模型已显示。' : '本工程导出的 3D Tiles 模型已隐藏。');
+            }
+            if (layer === 'dem') {
+              state.demVisible = active;
+              if (state.demTileset) state.demTileset.show = active;
+              log(active ? 'DEM 网格已显示：用于检查本工程 GeoTIFF 高程面。' : 'DEM 网格已隐藏。');
             }
             if (layer === 'place' && state.wtfs) {
               state.wtfsVisible = active;
@@ -632,11 +710,12 @@
         addPlaceNames(state.viewer);
         addHuaguoshanMarker(state.viewer);
         addLocalTileset(state.viewer);
+        addDemTileset(state.viewer);
         bindControls();
 
         state.viewer.scene.postRender.addEventListener(updateCameraReadout);
         flyToHuaguoshan();
-        log('天地图影像、国界、三维地形、三维地名与本地 3D Tiles 正在初始化。右键/滚轮缩放，中键或 Ctrl+拖拽倾斜视角。');
+        log('天地图影像、国界、三维地形、三维地名、本地 3D Tiles 与 DEM 网格正在初始化。右键/滚轮缩放，中键或 Ctrl+拖拽倾斜视角。');
       }
 
       window.addEventListener('error', function (event) {
