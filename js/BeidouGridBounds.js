@@ -101,6 +101,34 @@
         return Number(signed);
     }
 
+    function heightLevelStep(level) {
+        var bits = HEIGHT_LEVEL_BITS[level];
+
+        return 1n << BigInt(32 - bits);
+    }
+
+    function heightBoundsFromUnsignedMin(unsignedMin, level, layer) {
+        var step = heightLevelStep(level);
+        var unsignedMaxExclusive = unsignedMin + step;
+        var minLayer = unsigned32ToSignedNumber(unsignedMin);
+        var maxLayerExclusive = unsignedMaxExclusive === (1n << 32n) ?
+            0 :
+            unsigned32ToSignedNumber(unsignedMaxExclusive);
+        var minHeight = layerToHeight(minLayer);
+        var maxHeight = layerToHeight(maxLayerExclusive);
+
+        return {
+            level: level,
+            layer: layer == null ? minLayer : layer,
+            minLayer: minLayer,
+            maxLayerExclusive: maxLayerExclusive,
+            minHeight: minHeight,
+            maxHeight: maxHeight,
+            centerHeight: minHeight + (maxHeight - minHeight) / 2,
+            heightMeters: maxHeight - minHeight
+        };
+    }
+
     function distanceMeters(lon1, lat1, lon2, lat2) {
         var phi1 = toRadians(lat1);
         var phi2 = toRadians(lat2);
@@ -118,38 +146,55 @@
         var targetLevel = assertLevel(level);
         var layer;
         var unsignedLayer;
-        var bits;
         var shift;
         var unsignedMin;
-        var unsignedMaxExclusive;
-        var minLayer;
-        var maxLayerExclusive;
-        var minHeight;
-        var maxHeight;
 
         layer = heightToLayer(height);
         unsignedLayer = toUnsigned32(layer);
-        bits = HEIGHT_LEVEL_BITS[targetLevel];
-        shift = 32 - bits;
+        shift = 32 - HEIGHT_LEVEL_BITS[targetLevel];
         unsignedMin = (unsignedLayer >> BigInt(shift)) << BigInt(shift);
-        unsignedMaxExclusive = unsignedMin + (1n << BigInt(shift));
-        minLayer = unsigned32ToSignedNumber(unsignedMin);
-        maxLayerExclusive = unsignedMaxExclusive === (1n << 32n) ?
-            0 :
-            unsigned32ToSignedNumber(unsignedMaxExclusive);
-        minHeight = layerToHeight(minLayer);
-        maxHeight = layerToHeight(maxLayerExclusive);
 
-        return {
-            level: targetLevel,
-            layer: layer,
-            minLayer: minLayer,
-            maxLayerExclusive: maxLayerExclusive,
-            minHeight: minHeight,
-            maxHeight: maxHeight,
-            centerHeight: minHeight + (maxHeight - minHeight) / 2,
-            heightMeters: maxHeight - minHeight
-        };
+        return heightBoundsFromUnsignedMin(unsignedMin, targetLevel, layer);
+    }
+
+    function getHeightBoundsByLayer(layer, level) {
+        var targetLevel = assertLevel(level);
+        var integerLayer;
+        var unsignedLayer;
+        var shift;
+        var unsignedMin;
+
+        assertFiniteNumber(layer, "layer");
+        integerLayer = Math.floor(layer);
+        unsignedLayer = toUnsigned32(integerLayer);
+        shift = 32 - HEIGHT_LEVEL_BITS[targetLevel];
+        unsignedMin = (unsignedLayer >> BigInt(shift)) << BigInt(shift);
+
+        return heightBoundsFromUnsignedMin(unsignedMin, targetLevel, integerLayer);
+    }
+
+    function getStackedHeightBounds(anchorHeight, level, stackCount) {
+        var targetLevel = assertLevel(level);
+        var count = stackCount == null ? 1 : stackCount;
+        var anchor = getHeightBounds(anchorHeight, targetLevel);
+        var step = Number(heightLevelStep(targetLevel));
+        var layers = [];
+        var i;
+        var layer;
+
+        if (Math.floor(count) !== count || count < 0) {
+            throw new RangeError("stackCount must be a non-negative integer");
+        }
+
+        for (i = 0; i < count; i++) {
+            layer = anchor.minLayer + step * i;
+            if (layer > 2147483647) {
+                break;
+            }
+            layers.push(getHeightBoundsByLayer(layer, targetLevel));
+        }
+
+        return layers;
     }
 
     function firstLevelBounds(longitude, latitude) {
@@ -229,6 +274,8 @@
     return {
         getCellBounds: getCellBounds,
         getHeightBounds: getHeightBounds,
+        getHeightBoundsByLayer: getHeightBoundsByLayer,
+        getStackedHeightBounds: getStackedHeightBounds,
         distanceMeters: distanceMeters
     };
 }));

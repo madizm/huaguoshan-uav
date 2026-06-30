@@ -13,6 +13,9 @@
   <script type="text/javascript" cesium="true" src="https://api.tianditu.gov.cn/cdn/plugins/cesium/long.min.js"></script>
   <script type="text/javascript" cesium="true" src="https://api.tianditu.gov.cn/cdn/plugins/cesium/bytebuffer.min.js"></script>
   <script type="text/javascript" cesium="true" src="https://api.tianditu.gov.cn/cdn/plugins/cesium/protobuf.min.js"></script>
+  <script src="../js/BeidouGridCode.js"></script>
+  <script src="../js/BeidouGridBounds.js"></script>
+  <script src="../js/BeidouAirspaceGrid.js"></script>
   <link rel="stylesheet" cesium="true" href="https://api.tianditu.gov.cn/cdn/demo/sanwei/static/cesium/Widgets/widgets.css" />
   <style>
     :root {
@@ -156,6 +159,63 @@
       background: rgba(0, 0, 0, 0.14);
     }
 
+    .airspace-controls {
+      margin-top: 16px;
+      padding: 14px;
+      border: 1px solid rgba(215, 168, 70, 0.24);
+      border-radius: 16px;
+      background:
+        linear-gradient(135deg, rgba(215, 168, 70, 0.10), rgba(8, 61, 51, 0.22)),
+        rgba(0, 0, 0, 0.16);
+    }
+
+    .airspace-controls h2 {
+      margin: 0 0 10px;
+      color: var(--gold);
+      font-size: 12px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+
+    .control-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+      color: rgba(255, 247, 223, 0.68);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .field select,
+    .field input {
+      width: 100%;
+      border: 1px solid rgba(255, 247, 223, 0.22);
+      border-radius: 12px;
+      padding: 8px 10px;
+      color: var(--paper-strong);
+      background: rgba(8, 20, 17, 0.72);
+      font: inherit;
+      font-size: 13px;
+      outline: none;
+    }
+
+    .field input[type="range"] {
+      padding: 0;
+      accent-color: var(--gold);
+    }
+
+    .field select:focus-visible,
+    .field input:focus-visible {
+      border-color: var(--gold);
+      box-shadow: 0 0 0 3px rgba(215, 168, 70, 0.16);
+    }
+
     .readout {
       position: fixed;
       z-index: 10;
@@ -219,6 +279,25 @@
       line-height: 1.55;
     }
 
+    .airspace-readout {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .airspace-readout .wide { grid-column: 1 / -1; }
+
+    .airspace-readout code {
+      display: block;
+      margin-top: 4px;
+      overflow-wrap: anywhere;
+      color: var(--paper-strong);
+      font-family: "DIN Condensed", "Avenir Next Condensed", monospace;
+      font-size: 15px;
+      letter-spacing: 0.03em;
+    }
+
     .badge {
       position: fixed;
       z-index: 10;
@@ -242,6 +321,7 @@
       .hud { top: 12px; left: 12px; width: calc(100vw - 24px); padding: 18px; }
       .readout { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
       .badge { display: none; }
+      .control-grid { grid-template-columns: 1fr; }
       h1 { font-size: 36px; }
       .intro { font-size: 14px; }
     }
@@ -259,7 +339,7 @@
     <div class="kicker">Tianditu 3D Base Map Test</div>
     <h1 id="page-title">天地图三维<br />底图服务</h1>
     <p class="intro">
-      使用 Cesium 1.108 + 天地图 Cesium 扩展加载影像、国界、地形、三维地名、本工程导出的 3D Tiles 与 DEM 可视化网格；默认飞行至连云港花果山景区。
+      使用 Cesium 1.108 + 天地图 Cesium 扩展加载影像、国界、地形、三维地名、本工程导出的 3D Tiles、DEM 与北斗空域网格；默认飞行至连云港花果山景区。
     </p>
     <div class="actions" aria-label="相机操作">
       <button class="primary" type="button" data-action="huaguoshan">飞到花果山</button>
@@ -275,6 +355,40 @@
       <button type="button" data-layer="tileset" aria-pressed="true">导出模型</button>
       <button type="button" data-layer="dem" aria-pressed="false">DEM 网格</button>
       <button type="button" data-layer="place" aria-pressed="true">三维地名</button>
+      <button type="button" data-layer="bgc" aria-pressed="false">北斗网格</button>
+      <button type="button" data-layer="airspace" aria-pressed="false">空域柱网</button>
+      <button type="button" data-layer="slice" aria-pressed="false">高度切片</button>
+      <button type="button" data-layer="bgcLabels" aria-pressed="false">网格编码</button>
+    </div>
+    <div class="airspace-controls" aria-label="北斗空域网格参数">
+      <h2>BeiDou Airspace Grid</h2>
+      <div class="control-grid">
+        <label class="field">Level
+          <select id="bgcLevelMode">
+            <option value="auto">Auto</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+          </select>
+        </label>
+        <label class="field">Max cells
+          <input id="bgcMaxCells" type="number" min="200" max="8000" step="100" value="3000" />
+        </label>
+        <label class="field">Anchor height
+          <input id="bgcAnchorHeight" type="number" step="10" value="0" />
+        </label>
+        <label class="field">Stack count
+          <input id="bgcStackCount" type="number" min="1" max="10" step="1" value="3" />
+        </label>
+        <label class="field" style="grid-column: 1 / -1;">Current height <span id="bgcCurrentHeightValue">120m</span>
+          <input id="bgcCurrentHeight" type="range" min="0" max="300" step="1" value="120" />
+        </label>
+      </div>
     </div>
   </section>
 
@@ -286,6 +400,13 @@
       <div class="metric"><span>Alt</span><strong id="alt">--</strong></div>
     </div>
     <div class="status" id="status">正在初始化天地图三维服务……</div>
+    <div class="airspace-readout" aria-label="北斗网格状态">
+      <div class="metric"><span>BGC Level</span><strong id="bgcLevel">--</strong></div>
+      <div class="metric"><span>Cells</span><strong id="bgcCells">--</strong></div>
+      <div class="metric wide"><span>Height Layer</span><code id="bgcHeightLayer">--</code></div>
+      <div class="metric wide"><span>Selected 2D BGC</span><code id="bgcSelected2D">--</code></div>
+      <div class="metric wide"><span>Selected 3D BGC</span><code id="bgcSelected3D">--</code></div>
+    </div>
   </aside>
 
   <div class="badge" aria-hidden="true">
@@ -314,7 +435,9 @@
         demReady: false,
         demVisible: false,
         wtfs: null,
-        wtfsVisible: true
+        wtfsVisible: true,
+        airspaceGrid: null,
+        airspaceEnabled: false
       };
 
       var $ = function (selector) { return document.querySelector(selector); };
@@ -478,6 +601,115 @@
             horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           }
+        });
+      }
+
+      function formatMeters(value, digits) {
+        return Number.isFinite(value) ? value.toFixed(digits == null ? 2 : digits) + 'm' : '--';
+      }
+
+      function updateCurrentHeightRange(info) {
+        var current = $('#bgcCurrentHeight');
+        if (!info || !Number.isFinite(info.stackMinHeight) || !Number.isFinite(info.stackMaxHeight)) return;
+        current.min = String(info.stackMinHeight);
+        current.max = String(info.stackMaxHeight);
+        current.step = info.unitHeightMeters < 1 ? String(Math.max(info.unitHeightMeters / 4, 0.001)) : (info.unitHeightMeters < 10 ? '0.1' : '1');
+        current.value = String(Math.min(Math.max(Number(current.value), Number(current.min)), Number(current.max)));
+        $('#bgcCurrentHeightValue').textContent = formatMeters(Number(current.value));
+      }
+
+      function updateAirspaceStatus(info) {
+        if (!info) return;
+        $('#bgcLevel').textContent = info.enabled ? 'L' + info.level : '--';
+        $('#bgcCells').textContent = info.enabled ? String(info.cells || 0) : '--';
+        if (Number.isFinite(info.currentHeight) && info.currentLayer) {
+          $('#bgcHeightLayer').textContent =
+            '单层 ' + formatMeters(info.unitHeightMeters) +
+            ' · 堆叠 ' + info.stackCount + ' 层 ' + formatMeters(info.stackMinHeight) + ' - ' + formatMeters(info.stackMaxHeight) +
+            ' · 当前层 ' + formatMeters(info.currentLayer.minHeight) + ' - ' + formatMeters(info.currentLayer.maxHeight);
+          updateCurrentHeightRange(info);
+        } else {
+          $('#bgcHeightLayer').textContent = '--';
+        }
+        if (info.message) log(info.message);
+      }
+
+      function updateAirspaceSelection(selection) {
+        if (!selection) {
+          $('#bgcSelected2D').textContent = '--';
+          $('#bgcSelected3D').textContent = '--';
+          return;
+        }
+
+        $('#bgcSelected2D').textContent = selection.code2D;
+        $('#bgcSelected3D').textContent = selection.code3D;
+        $('#bgcHeightLayer').textContent =
+          '选中层 ' + formatMeters(selection.heightBounds.minHeight) + ' - ' + formatMeters(selection.heightBounds.maxHeight) +
+          ' · 单层 ' + formatMeters(selection.unitHeightMeters) +
+          ' · 堆叠 ' + selection.stackCount + ' 层';
+      }
+
+      function syncCurrentHeightInput() {
+        var current = $('#bgcCurrentHeight');
+        $('#bgcCurrentHeightValue').textContent = formatMeters(Number(current.value));
+      }
+
+      function initAirspaceGrid(viewer) {
+        if (!window.BeidouAirspaceGrid || !window.BeidouGridCode || !window.BeidouGridBounds) {
+          log('北斗网格模块未加载，空域分割图层不可用。');
+          return;
+        }
+
+        syncCurrentHeightInput();
+        state.airspaceGrid = window.BeidouAirspaceGrid.create(viewer, {
+          enabled: false,
+          verticalEnabled: false,
+          sliceEnabled: false,
+          labelsEnabled: false,
+          anchorHeight: Number($('#bgcAnchorHeight').value),
+          stackCount: Number($('#bgcStackCount').value),
+          currentHeight: Number($('#bgcCurrentHeight').value),
+          maxCells: Number($('#bgcMaxCells').value),
+          maxAutoLevel: 7,
+          targetCellPixels: 120,
+          onStatus: updateAirspaceStatus,
+          onSelection: updateAirspaceSelection
+        });
+      }
+
+      function bindAirspaceControls() {
+        var levelMode = $('#bgcLevelMode');
+        var anchorHeight = $('#bgcAnchorHeight');
+        var stackCount = $('#bgcStackCount');
+        var currentHeight = $('#bgcCurrentHeight');
+        var maxCells = $('#bgcMaxCells');
+
+        levelMode.addEventListener('change', function () {
+          if (!state.airspaceGrid) return;
+          if (levelMode.value === 'auto') {
+            state.airspaceGrid.setAutoLevel(true);
+          } else {
+            state.airspaceGrid.setLevel(Number(levelMode.value));
+          }
+        });
+
+        anchorHeight.addEventListener('change', function () {
+          if (!state.airspaceGrid) return;
+          state.airspaceGrid.setAnchorHeight(Number(anchorHeight.value));
+        });
+
+        stackCount.addEventListener('change', function () {
+          if (!state.airspaceGrid) return;
+          state.airspaceGrid.setStackCount(Number(stackCount.value));
+        });
+
+        currentHeight.addEventListener('input', function () {
+          syncCurrentHeightInput();
+          if (state.airspaceGrid) state.airspaceGrid.setCurrentHeight(Number(currentHeight.value));
+        });
+
+        maxCells.addEventListener('change', function () {
+          if (state.airspaceGrid) state.airspaceGrid.setMaxCells(Number(maxCells.value));
         });
       }
 
@@ -678,6 +910,38 @@
               if (state.wtfs.labels) state.wtfs.labels.show = active;
               log(active ? '三维地名服务已开启。' : '三维地名开关已切换；如插件版本不支持 show 属性，刷新瓦片后生效。');
             }
+            if (layer === 'bgc' && state.airspaceGrid) {
+              state.airspaceEnabled = active;
+              state.airspaceGrid.setEnabled(active);
+              log(active ? '北斗网格已开启：按当前视域自动选择 BGC 层级。' : '北斗网格已关闭。');
+            }
+            if (layer === 'airspace' && state.airspaceGrid) {
+              if (active && !state.airspaceEnabled) {
+                state.airspaceEnabled = true;
+                document.querySelector('[data-layer="bgc"]').setAttribute('aria-pressed', 'true');
+                state.airspaceGrid.setEnabled(true);
+              }
+              state.airspaceGrid.setVerticalEnabled(active);
+              log(active ? '空域柱网已开启：按 BGC 高度层向上堆叠显示三维线框。' : '空域柱网已关闭。');
+            }
+            if (layer === 'slice' && state.airspaceGrid) {
+              if (active && !state.airspaceEnabled) {
+                state.airspaceEnabled = true;
+                document.querySelector('[data-layer="bgc"]').setAttribute('aria-pressed', 'true');
+                state.airspaceGrid.setEnabled(true);
+              }
+              state.airspaceGrid.setSliceEnabled(active);
+              log(active ? '高度切片已开启：显示当前高度所在 BGC 高度层。' : '高度切片已关闭。');
+            }
+            if (layer === 'bgcLabels' && state.airspaceGrid) {
+              if (active && !state.airspaceEnabled) {
+                state.airspaceEnabled = true;
+                document.querySelector('[data-layer="bgc"]').setAttribute('aria-pressed', 'true');
+                state.airspaceGrid.setEnabled(true);
+              }
+              state.airspaceGrid.setLabelsEnabled(active);
+              log(active ? '北斗网格编码标签已开启。' : '北斗网格编码标签已关闭。');
+            }
           }
         });
       }
@@ -709,9 +973,11 @@
         addTerrain(state.viewer);
         addPlaceNames(state.viewer);
         addHuaguoshanMarker(state.viewer);
+        initAirspaceGrid(state.viewer);
         addLocalTileset(state.viewer);
         addDemTileset(state.viewer);
         bindControls();
+        bindAirspaceControls();
 
         state.viewer.scene.postRender.addEventListener(updateCameraReadout);
         flyToHuaguoshan();
