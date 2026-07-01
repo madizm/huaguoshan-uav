@@ -38,6 +38,9 @@ DEFAULT_SAMPLE_SIZE = 5
 DEFAULT_TERRAIN_CLEARANCE_M = 30.0
 DEFAULT_UNDERGROUND_TOLERANCE_M = 0.0
 DEFAULT_ZONE_MAX_HEIGHT_M = 500.0
+DEFAULT_AIRSPACE_MODE = "bbox"
+DEFAULT_TERRAIN_MODE = "tile-bbox"
+DEFAULT_TERRAIN_BLOCK_SIZE_PIXELS = 4
 
 SOURCE_TO_VIEW = {
     "buildings": "obstacles_buildings",
@@ -104,6 +107,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--underground-tolerance-m", type=float, default=DEFAULT_UNDERGROUND_TOLERANCE_M, help="Meters subtracted below DEM min_elevation.")
     parser.add_argument("--default-zone-max-height", type=float, default=DEFAULT_ZONE_MAX_HEIGHT_M, help="Fallback max_height for airspace zones with NULL max_height.")
     parser.add_argument("--planning-time", default=None, help="Optional timestamptz literal for temp-control active filtering; default uses now() at refresh time.")
+    parser.add_argument(
+        "--airspace-mode",
+        choices=["bbox", "polygon-prism"],
+        default=DEFAULT_AIRSPACE_MODE,
+        help="How no-fly/temp-control polygons are converted to 3D obstacle volumes.",
+    )
+    parser.add_argument(
+        "--terrain-mode",
+        choices=["tile-bbox", "block-prism"],
+        default=DEFAULT_TERRAIN_MODE,
+        help="How DEM terrain is converted to 3D obstacle volumes.",
+    )
+    parser.add_argument(
+        "--terrain-block-size-pixels",
+        type=int,
+        default=DEFAULT_TERRAIN_BLOCK_SIZE_PIXELS,
+        help="DEM pixel block width/height for --terrain-mode block-prism.",
+    )
 
     refresh_group = parser.add_mutually_exclusive_group()
     refresh_group.add_argument("--refresh-only", action="store_true", help="Refresh existing materialized views only; do not rebuild DDL.")
@@ -147,6 +168,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ScriptError("--underground-tolerance-m cannot be negative")
     if args.default_zone_max_height <= 0:
         raise ScriptError("--default-zone-max-height must be positive")
+    if args.terrain_block_size_pixels < 1:
+        raise ScriptError("--terrain-block-size-pixels must be positive")
     if args.refresh_only and (args.objectid_like or args.objectclass_id or args.limit is not None):
         raise ScriptError("building filters affect view DDL and cannot be changed with --refresh-only; rebuild instead")
 
@@ -193,7 +216,12 @@ def ensure_database_support(conn: psycopg.Connection[Any], args: argparse.Namesp
               to_regprocedure('public.st_transform(geometry,integer)') is not null as has_transform,
               to_regprocedure('public.st_force2d(geometry)') is not null as has_force2d,
               to_regprocedure('public.st_isempty(geometry)') is not null as has_isempty,
-              to_regprocedure('public.st_buffer(geography,double precision)') is not null as has_geography_buffer
+              to_regprocedure('public.st_buffer(geography,double precision)') is not null as has_geography_buffer,
+              to_regprocedure('public.st_force3dz(geometry,double precision)') is not null as has_force3dz,
+              to_regprocedure('public.st_makevalid(geometry)') is not null as has_makevalid,
+              to_regprocedure('public.st_collectionextract(geometry,integer)') is not null as has_collectionextract,
+              to_regprocedure('public.st_extrude(geometry,double precision,double precision,double precision)') is not null as has_extrude,
+              to_regprocedure('public.st_pixelaspolygons(raster,integer,boolean)') is not null as has_pixelaspolygons
             """
         )
         support = dict(zip([desc.name for desc in cur.description], cur.fetchone(), strict=True))
@@ -226,6 +254,7 @@ def ensure_schemas_and_helpers(cur: psycopg.Cursor[Any], args: argparse.Namespac
     cur.execute(sql.SQL("create schema if not exists {}").format(sql.Identifier(args.grid_schema)))
     cur.execute(sql.SQL("create schema if not exists {}").format(sql.Identifier(args.airspace_schema)))
     cur.execute(build_bbox_prism_function_sql(args))
+    cur.execute(build_polygon_prism_function_sql(args))
     cur.execute(build_airspace_tables_sql(args))
 
 
@@ -282,6 +311,47 @@ def build_bbox_prism_function_sql(args: argparse.Namespace) -> sql.Composed:
                 ')',
                 minx, miny, maxx, maxy, lo_z, hi_z
             )), srid);
+        end;
+        $func$
+        """
+    ).format(grid_schema=sql.Identifier(args.grid_schema))
+
+
+def build_polygon_prism_function_sql(args: argparse.Namespace) -> sql.Composed:
+    return sql.SQL(
+        r"""
+        create or replace function {grid_schema}.make_polygon_prism_3d(
+            p_footprint geometry,
+            p_min_z double precision,
+            p_max_z double precision
+        ) returns geometry
+        language plpgsql
+        immutable
+        parallel safe
+        as $func$
+        declare
+            lo_z double precision;
+            hi_z double precision;
+            clean_footprint geometry;
+            srid integer;
+        begin
+            if p_footprint is null or public.ST_IsEmpty(p_footprint) or p_min_z is null or p_max_z is null then
+                return null;
+            end if;
+
+            lo_z := least(p_min_z, p_max_z);
+            hi_z := greatest(p_min_z, p_max_z);
+            if lo_z = hi_z then
+                hi_z := lo_z + 0.01;
+            end if;
+
+            srid := public.ST_SRID(p_footprint);
+            clean_footprint := public.ST_CollectionExtract(public.ST_MakeValid(public.ST_Force2D(p_footprint)), 3);
+            if clean_footprint is null or public.ST_IsEmpty(clean_footprint) then
+                return null;
+            end if;
+
+            return public.ST_SetSRID(public.ST_Extrude(public.ST_Force3DZ(clean_footprint, lo_z), 0, 0, hi_z - lo_z), srid);
         end;
         $func$
         """
@@ -441,6 +511,81 @@ def build_obstacles_terrain_sql(args: argparse.Namespace, has_terrain_tables: bo
     if args.terrain_dataset_key is not None:
         dataset_filter = sql.SQL("and ds.dataset_key = {} ").format(sql.Literal(args.terrain_dataset_key))
 
+    if args.terrain_mode == "block-prism":
+        return sql.SQL(
+            """
+            create materialized view {target_view} as
+            with pixels as (
+                select
+                    t.id as tile_pk,
+                    coalesce(ds.dataset_key, ds.id::text) as dataset_key,
+                    coalesce(t.tile_id, t.id::text) as tile_name,
+                    ((px.x - 1) / {block_size})::integer as block_x,
+                    ((px.y - 1) / {block_size})::integer as block_y,
+                    px.geom,
+                    px.val::double precision as elevation
+                from terrain.dem_tile t
+                join terrain.dem_dataset ds on ds.id = t.dataset_id
+                cross join lateral public.ST_PixelAsPolygons(t.rast, 1, true) as px(geom, val, x, y)
+                where t.rast is not null
+                  {dataset_filter}
+            ), blocks as (
+                select
+                    tile_pk,
+                    dataset_key,
+                    tile_name,
+                    block_x,
+                    block_y,
+                    public.ST_Envelope(public.ST_Collect(geom)) as extent,
+                    (min(elevation) - {underground_tolerance})::double precision as min_z,
+                    (max(elevation) + {terrain_clearance})::double precision as max_z
+                from pixels
+                where elevation is not null
+                group by tile_pk, dataset_key, tile_name, block_x, block_y
+            ), generated_grids as (
+                select
+                    'terrain'::text as source_kind,
+                    (dataset_key || ':' || tile_pk::text || ':block:' || block_x::text || ':' || block_y::text) as source_id,
+                    (dataset_key || ':' || tile_name || ':block:' || block_x::text || ':' || block_y::text) as source_name,
+                    3::smallint as dimension,
+                    {is_agg}::boolean as is_agg,
+                    public.ST_AsGrids3D(
+                        public.ST_Transform({grid_schema}.make_bbox_prism_3d(extent, min_z, max_z), 4326),
+                        {detail_level},
+                        {is_agg}
+                    ) as grids,
+                    now() as generated_at
+                from blocks
+                where extent is not null
+                  and not public.ST_IsEmpty(extent)
+                  and max_z > min_z
+            )
+            select
+                source_kind,
+                source_id,
+                source_name,
+                dimension,
+                public.ST_DetailLevel(grids)::integer as detail_level,
+                is_agg,
+                grids,
+                null::timestamptz as valid_from,
+                null::timestamptz as valid_to,
+                50::integer as priority,
+                generated_at
+            from generated_grids
+            where grids is not null
+            """
+        ).format(
+            target_view=qname(args.grid_schema, SOURCE_TO_VIEW["terrain"]),
+            block_size=sql.Literal(args.terrain_block_size_pixels),
+            underground_tolerance=sql.Literal(args.underground_tolerance_m),
+            terrain_clearance=sql.Literal(args.terrain_clearance_m),
+            dataset_filter=dataset_filter,
+            grid_schema=sql.Identifier(args.grid_schema),
+            detail_level=detail_literal(args),
+            is_agg=bool_literal(args.is_agg),
+        )
+
     return sql.SQL(
         """
         create materialized view {target_view} as
@@ -501,6 +646,7 @@ def build_obstacles_terrain_sql(args: argparse.Namespace, has_terrain_tables: bo
 
 
 def build_obstacles_no_fly_zones_sql(args: argparse.Namespace) -> sql.Composed:
+    airspace_volume = sql.SQL("{grid_schema}.make_polygon_prism_3d(footprint, min_z, max_z)") if args.airspace_mode == "polygon-prism" else sql.SQL("{grid_schema}.make_bbox_prism_3d(footprint, min_z, max_z)")
     return sql.SQL(
         """
         create materialized view {target_view} as
@@ -527,7 +673,7 @@ def build_obstacles_no_fly_zones_sql(args: argparse.Namespace) -> sql.Composed:
                 3::smallint as dimension,
                 {is_agg}::boolean as is_agg,
                 public.ST_AsGrids3D(
-                    public.ST_Transform({grid_schema}.make_bbox_prism_3d(footprint, min_z, max_z), 4326),
+                    public.ST_Transform({airspace_volume}, 4326),
                     {detail_level},
                     {is_agg}
                 ) as grids,
@@ -554,6 +700,7 @@ def build_obstacles_no_fly_zones_sql(args: argparse.Namespace) -> sql.Composed:
         target_view=qname(args.grid_schema, SOURCE_TO_VIEW["no-fly-zones"]),
         airspace_schema=sql.Identifier(args.airspace_schema),
         default_max_height=sql.Literal(args.default_zone_max_height),
+        airspace_volume=airspace_volume.format(grid_schema=sql.Identifier(args.grid_schema)),
         grid_schema=sql.Identifier(args.grid_schema),
         detail_level=detail_literal(args),
         is_agg=bool_literal(args.is_agg),
@@ -568,6 +715,7 @@ def planning_time_expression(args: argparse.Namespace) -> sql.Composable:
 
 def build_obstacles_temp_control_sql(args: argparse.Namespace) -> sql.Composed:
     planning_time = planning_time_expression(args)
+    airspace_volume = sql.SQL("{grid_schema}.make_polygon_prism_3d(footprint, min_z, max_z)") if args.airspace_mode == "polygon-prism" else sql.SQL("{grid_schema}.make_bbox_prism_3d(footprint, min_z, max_z)")
     return sql.SQL(
         """
         create materialized view {target_view} as
@@ -598,7 +746,7 @@ def build_obstacles_temp_control_sql(args: argparse.Namespace) -> sql.Composed:
                 3::smallint as dimension,
                 {is_agg}::boolean as is_agg,
                 public.ST_AsGrids3D(
-                    public.ST_Transform({grid_schema}.make_bbox_prism_3d(footprint, min_z, max_z), 4326),
+                    public.ST_Transform({airspace_volume}, 4326),
                     {detail_level},
                     {is_agg}
                 ) as grids,
@@ -628,6 +776,7 @@ def build_obstacles_temp_control_sql(args: argparse.Namespace) -> sql.Composed:
         airspace_schema=sql.Identifier(args.airspace_schema),
         default_max_height=sql.Literal(args.default_zone_max_height),
         planning_time=planning_time,
+        airspace_volume=airspace_volume.format(grid_schema=sql.Identifier(args.grid_schema)),
         grid_schema=sql.Identifier(args.grid_schema),
         detail_level=detail_literal(args),
         is_agg=bool_literal(args.is_agg),
@@ -965,6 +1114,7 @@ def print_post_action_hint(args: argparse.Namespace) -> None:
         print(f"Source view: {qname_literal(args.grid_schema, SOURCE_TO_VIEW[source])}")
     print(f"GGER display view: {qname_literal(args.grid_schema, args.codes_view_name)}")
     print(f"ST_FindGridsPath wrapper: {qname_literal(args.public_wrapper_schema, args.public_wrapper_name)} (id, grids)")
+    print(f"Generation modes: airspace={args.airspace_mode}, terrain={args.terrain_mode}")
     print("External display contract: GGER only; BGC is not emitted by generated views.")
 
 

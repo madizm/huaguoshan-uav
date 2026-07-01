@@ -303,13 +303,13 @@ uv run scripts/refresh_citydb_obstacle_grids.py --source all --grant-role web_an
 当前实现内容：
 
 - `citydb_grid.obstacles_buildings`：由 `citydb.feature` / `citydb.geometry_data` 生成建筑障碍。
-- `citydb_grid.obstacles_terrain`：由 `terrain.dem_tile` 生成第一版 DEM tile 级粗粒度 3D bbox prism 障碍，使用 `min_elevation - underground_tolerance` 到 `max_elevation + terrain_clearance_m`。
+- `citydb_grid.obstacles_terrain`：支持 `tile-bbox` 与 `block-prism` 两种模式；当前数据库已使用 `block-prism` 将 DEM tile 拆为 4x4 像元块，按局部 `min_elevation - underground_tolerance` 到 `max_elevation + terrain_clearance_m` 生成精细地形障碍。
 - `airspace.no_fly_zone` / `airspace.temp_control_zone`：脚本自动创建业务表。
-- `citydb_grid.obstacles_no_fly_zones` / `citydb_grid.obstacles_temp_control_active`：由 airspace polygon 生成第一版粗粒度 3D bbox prism 障碍；临时管制区按 `valid_from` / `valid_to` 与 `status` 筛选。
+- `citydb_grid.obstacles_no_fly_zones` / `citydb_grid.obstacles_temp_control_active`：支持 `bbox` 与 `polygon-prism` 两种模式；当前推荐使用 `polygon-prism` 按 airspace polygon footprint 精确挤出，临时管制区按 `valid_from` / `valid_to` 与 `status` 筛选。
 - `citydb_grid.flight_obstacles`：统一 `UNION ALL` 总物化视图，已建 `(source_kind, source_id)` 唯一索引与 `grids gin_grids_ops` GIN 索引。
 - `public.flight_obstacles(id, grids)`：保留给 `ST_FindGridsPath` 的兼容包装。
 - `citydb_grid.flight_obstacles_codes_view`：仅输出 GGER 展示码，不输出 BGC。
 - `public/citydb.list_flight_obstacles_gger(...)`：新增前端列表 RPC，按 `source_kind` 返回 GGER 与可选 `ST_WithBox` bbox。
 - `frontend/tianditu-3d.html`：新增“飞行障碍”图层、source_kind 过滤、刷新/定位/清除操作，以及多源障碍线框渲染和详情面板。
 
-注意：地形、禁飞区、临时管制区第一版为了安全和 SQL 可维护性，使用 footprint envelope 的 3D bbox prism 表达占用体，可能在 XY 上保守扩大障碍范围。后续如需更精细避障，可升级为按 polygon 精确挤出或按 DEM cell/mesh 切片生成；详细实施方案见 `docs/refined_flight_obstacles_plan.md`。
+注意：早期版本为了安全和 SQL 可维护性，地形、禁飞区、临时管制区使用 footprint envelope 的 3D bbox prism 表达占用体，可能在 XY 上保守扩大障碍范围。当前已开始落地精细避障：airspace 可用 `polygon-prism`，terrain 可用 `block-prism`；详细实施状态见 `docs/refined_flight_obstacles_plan.md`。

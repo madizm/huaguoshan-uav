@@ -563,3 +563,47 @@ frontend/tianditu-3d.html
 - `citydb_grid.flight_obstacles` 字段契约不变。
 - 前端和 RPC 无需 schema-breaking 变更即可展示精细化结果。
 - `ST_FindGridsPath` 仍可通过 `public.flight_obstacles(id, grids)` 使用所有来源障碍。
+
+## 15. 实施状态
+
+状态：**第一阶段已实施并在当前数据库验证通过**。
+
+已在 `scripts/refresh_citydb_obstacle_grids.py` 中新增：
+
+- `--airspace-mode bbox|polygon-prism`
+- `--terrain-mode tile-bbox|block-prism`
+- `--terrain-block-size-pixels`
+- `citydb_grid.make_polygon_prism_3d(...)` helper，基于 `ST_MakeValid` / `ST_CollectionExtract` / `ST_Extrude` 将 polygon footprint 精确挤出为 3D 占用体。
+- DEM block-prism 生成逻辑，基于 `ST_PixelAsPolygons` 按像元块计算局部 `min_elevation` / `max_elevation`。
+
+当前刷新命令：
+
+```bash
+uv run scripts/refresh_citydb_obstacle_grids.py \
+  --source all \
+  --airspace-mode polygon-prism \
+  --terrain-mode block-prism \
+  --terrain-block-size-pixels 4 \
+  --grant-role web_anon
+```
+
+当前数据库结果：
+
+```text
+citydb_grid.obstacles_buildings: 18 rows
+citydb_grid.obstacles_terrain: 3750 rows
+citydb_grid.obstacles_no_fly_zones: 0 rows
+citydb_grid.obstacles_temp_control_active: 0 rows
+citydb_grid.flight_obstacles: 3768 rows
+```
+
+验证结果：
+
+- L 形 polygon 测试：`polygon-prism` 为 96 cells，`bbox` 为 121 cells，证明凹形缺口不会被完整 bbox 占用。
+- `public.flight_obstacles(id, grids)` wrapper 可查询，保持 `ST_FindGridsPath` 兼容。
+- `list_flight_obstacles_gger` RPC 可查询 terrain 精细障碍，且响应不包含 BGC。
+- `citydb_grid.obstacles_terrain` 已重建唯一索引、`source_kind` 索引和 `grids gin_grids_ops` GIN 索引。
+
+与原方案的差异：
+
+- 第一阶段未新增持久化 `obstacle_work` staging 表；当前采用物化视图内直接生成方式，减少迁移面并保持现有刷新流程简单。若后续需要审计、分块复用或增量刷新，再引入 `obstacle_work.airspace_volume_piece` / `obstacle_work.terrain_block`。
