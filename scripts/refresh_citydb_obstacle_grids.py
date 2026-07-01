@@ -34,6 +34,7 @@ External display contract:
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
 from dataclasses import dataclass
@@ -142,6 +143,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--terrain-dataset-key", default=None, help="Optional terrain.dem_dataset.dataset_key filter.")
     parser.add_argument("--terrain-clearance-m", type=float, default=DEFAULT_TERRAIN_CLEARANCE_M, help="Meters added above DEM max_elevation.")
     parser.add_argument("--underground-tolerance-m", type=float, default=DEFAULT_UNDERGROUND_TOLERANCE_M, help="Meters subtracted below DEM min_elevation.")
+    parser.add_argument(
+        "--terrain-min-max-elevation-m",
+        type=float,
+        default=None,
+        help=(
+            "Optional absolute terrain filter: skip terrain tiles/blocks whose raw DEM max_elevation "
+            "is below this orthometric height in metres. Use only when a separate ground/AGL "
+            "constraint already prevents ground collision."
+        ),
+    )
     parser.add_argument("--default-zone-max-height", type=float, default=DEFAULT_ZONE_MAX_HEIGHT_M, help="Fallback max_height for airspace zones with NULL max_height.")
     parser.add_argument("--planning-time", default=None, help="Optional timestamptz literal for temp-control active filtering; default uses now() at refresh time.")
     parser.add_argument(
@@ -248,6 +259,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ScriptError("--terrain-clearance-m cannot be negative")
     if args.underground_tolerance_m < 0:
         raise ScriptError("--underground-tolerance-m cannot be negative")
+    if args.terrain_min_max_elevation_m is not None and not math.isfinite(args.terrain_min_max_elevation_m):
+        raise ScriptError("--terrain-min-max-elevation-m must be a finite number")
     if args.default_zone_max_height <= 0:
         raise ScriptError("--default-zone-max-height must be positive")
     if args.terrain_block_size_pixels < 1:
@@ -255,6 +268,8 @@ def validate_args(args: argparse.Namespace) -> None:
     parse_terrain_lod_spec(args.terrain_lod_spec)
     if args.refresh_only and (args.objectid_like or args.objectclass_id or args.limit is not None):
         raise ScriptError("building filters affect view DDL and cannot be changed with --refresh-only; rebuild instead")
+    if args.refresh_only and args.terrain_min_max_elevation_m is not None:
+        raise ScriptError("--terrain-min-max-elevation-m affects terrain view DDL and cannot be applied with --refresh-only; rebuild instead")
 
 
 def selected_sources(args: argparse.Namespace) -> tuple[str, ...]:
@@ -279,6 +294,19 @@ def detail_literal(args: argparse.Namespace) -> sql.Literal:
 
 def bool_literal(value: bool) -> sql.Literal:
     return sql.Literal(value)
+
+
+def terrain_min_max_elevation_filter(args: argparse.Namespace, expression: sql.Composable) -> sql.Composable:
+    """Optional SQL predicate for skipping low-elevation terrain obstacles.
+
+    The threshold is applied to the raw DEM maximum elevation before adding
+    ``--terrain-clearance-m``. It is an absolute orthometric height in metres,
+    not AGL and not WGS84 ellipsoidal height.
+    """
+
+    if args.terrain_min_max_elevation_m is None:
+        return sql.SQL("")
+    return sql.SQL("and {} >= {}").format(expression, sql.Literal(args.terrain_min_max_elevation_m))
 
 
 def regclass_exists(conn: psycopg.Connection[Any], schema_name: str, relation_name: str) -> bool:
@@ -567,6 +595,7 @@ def build_obstacles_terrain_lod_sql(args: argparse.Namespace, has_terrain_tables
     dataset_filter = sql.SQL("")
     if args.terrain_dataset_key is not None:
         dataset_filter = sql.SQL("and ds.dataset_key = {} ").format(sql.Literal(args.terrain_dataset_key))
+    terrain_threshold_filter = terrain_min_max_elevation_filter(args, sql.SQL("raw_max_elevation"))
 
     return sql.SQL(
         """
@@ -600,6 +629,7 @@ def build_obstacles_terrain_lod_sql(args: argparse.Namespace, has_terrain_tables
                 ((p.y - 1) / s.block_size_px)::integer as block_y,
                 public.ST_Envelope(public.ST_Collect(p.geom)) as extent,
                 (min(p.elevation) - {underground_tolerance})::double precision as min_z,
+                max(p.elevation)::double precision as raw_max_elevation,
                 (max(p.elevation) + {terrain_clearance})::double precision as max_z
             from pixels p
             cross join lod_spec s
@@ -628,6 +658,7 @@ def build_obstacles_terrain_lod_sql(args: argparse.Namespace, has_terrain_tables
             where extent is not null
               and not public.ST_IsEmpty(extent)
               and max_z > min_z
+              {terrain_threshold_filter}
         )
         select
             source_kind,
@@ -653,6 +684,7 @@ def build_obstacles_terrain_lod_sql(args: argparse.Namespace, has_terrain_tables
         underground_tolerance=sql.Literal(args.underground_tolerance_m),
         terrain_clearance=sql.Literal(args.terrain_clearance_m),
         dataset_filter=dataset_filter,
+        terrain_threshold_filter=terrain_threshold_filter,
         grid_schema=sql.Identifier(args.grid_schema),
     )
 
@@ -754,6 +786,8 @@ def build_obstacles_terrain_sql(args: argparse.Namespace, has_terrain_tables: bo
     dataset_filter = sql.SQL("")
     if args.terrain_dataset_key is not None:
         dataset_filter = sql.SQL("and ds.dataset_key = {} ").format(sql.Literal(args.terrain_dataset_key))
+    terrain_tile_threshold_filter = terrain_min_max_elevation_filter(args, sql.SQL("t.max_elevation"))
+    terrain_block_threshold_filter = terrain_min_max_elevation_filter(args, sql.SQL("raw_max_elevation"))
 
     if args.terrain_mode == "block-prism":
         return sql.SQL(
@@ -782,6 +816,7 @@ def build_obstacles_terrain_sql(args: argparse.Namespace, has_terrain_tables: bo
                     block_y,
                     public.ST_Envelope(public.ST_Collect(geom)) as extent,
                     (min(elevation) - {underground_tolerance})::double precision as min_z,
+                    max(elevation)::double precision as raw_max_elevation,
                     (max(elevation) + {terrain_clearance})::double precision as max_z
                 from pixels
                 where elevation is not null
@@ -803,6 +838,7 @@ def build_obstacles_terrain_sql(args: argparse.Namespace, has_terrain_tables: bo
                 where extent is not null
                   and not public.ST_IsEmpty(extent)
                   and max_z > min_z
+                  {terrain_block_threshold_filter}
             )
             select
                 source_kind,
@@ -825,6 +861,7 @@ def build_obstacles_terrain_sql(args: argparse.Namespace, has_terrain_tables: bo
             underground_tolerance=sql.Literal(args.underground_tolerance_m),
             terrain_clearance=sql.Literal(args.terrain_clearance_m),
             dataset_filter=dataset_filter,
+            terrain_block_threshold_filter=terrain_block_threshold_filter,
             grid_schema=sql.Identifier(args.grid_schema),
             detail_level=detail_literal(args),
             is_agg=bool_literal(args.is_agg),
@@ -848,6 +885,7 @@ def build_obstacles_terrain_sql(args: argparse.Namespace, has_terrain_tables: bo
               and t.min_elevation is not null
               and t.max_elevation is not null
               {dataset_filter}
+              {terrain_tile_threshold_filter}
         ), generated_grids as (
             select
                 'terrain'::text as source_kind,
@@ -883,6 +921,7 @@ def build_obstacles_terrain_sql(args: argparse.Namespace, has_terrain_tables: bo
         underground_tolerance=sql.Literal(args.underground_tolerance_m),
         terrain_clearance=sql.Literal(args.terrain_clearance_m),
         dataset_filter=dataset_filter,
+        terrain_tile_threshold_filter=terrain_tile_threshold_filter,
         grid_schema=sql.Identifier(args.grid_schema),
         detail_level=detail_literal(args),
         is_agg=bool_literal(args.is_agg),
@@ -1281,18 +1320,23 @@ def source_base_counts(conn: psycopg.Connection[Any], args: argparse.Namespace) 
         counts["buildings"] = int(cur.fetchone()[0])
 
         if regclass_exists(conn, "terrain", "dem_tile") and regclass_exists(conn, "terrain", "dem_dataset"):
+            where_parts: list[str] = []
+            params: list[Any] = []
             if args.terrain_dataset_key:
-                cur.execute(
-                    """
-                    select count(*)
-                    from terrain.dem_tile t
-                    join terrain.dem_dataset ds on ds.id = t.dataset_id
-                    where ds.dataset_key = %s
-                    """,
-                    (args.terrain_dataset_key,),
-                )
-            else:
-                cur.execute("select count(*) from terrain.dem_tile")
+                where_parts.append("ds.dataset_key = %s")
+                params.append(args.terrain_dataset_key)
+            if args.terrain_min_max_elevation_m is not None:
+                where_parts.append("t.max_elevation is not null and t.max_elevation >= %s")
+                params.append(args.terrain_min_max_elevation_m)
+            where_clause = " where " + " and ".join(where_parts) if where_parts else ""
+            cur.execute(
+                """
+                select count(*)
+                from terrain.dem_tile t
+                join terrain.dem_dataset ds on ds.id = t.dataset_id
+                """ + where_clause,
+                params,
+            )
             counts["terrain"] = int(cur.fetchone()[0])
         else:
             counts["terrain"] = "missing terrain.dem_dataset/dem_tile (will create empty obstacle view)"
@@ -1434,6 +1478,12 @@ def print_post_action_hint(args: argparse.Namespace) -> None:
     print(f"GGER display view: {qname_literal(args.grid_schema, args.codes_view_name)}")
     print(f"ST_FindGridsPath wrapper: {qname_literal(args.public_wrapper_schema, args.public_wrapper_name)} (id, grids)")
     print(f"Generation modes: airspace={args.airspace_mode}, terrain={args.terrain_mode}")
+    if args.terrain_min_max_elevation_m is not None:
+        print(
+            "Terrain obstacle filter: "
+            f"raw DEM max_elevation >= {args.terrain_min_max_elevation_m} m "
+            "(absolute EGM2008 orthometric height; not AGL)"
+        )
     print("External display contract: GGER only; BGC is not emitted by generated views.")
 
 
