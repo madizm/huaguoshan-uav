@@ -312,4 +312,4 @@ uv run scripts/refresh_citydb_obstacle_grids.py --source all --grant-role web_an
 - `public/citydb.list_flight_obstacles_gger(...)`：新增前端列表 RPC，按 `source_kind` 返回 GGER 与可选 `ST_WithBox` bbox。
 - `frontend/tianditu-3d.html`：新增“飞行障碍”图层、source_kind 过滤、刷新/定位/清除操作，以及多源障碍线框渲染和详情面板。
 
-注意：地形、禁飞区、临时管制区第一版为了安全和 SQL 可维护性，使用 footprint envelope 的 3D bbox prism 表达占用体，可能在 XY 上保守扩大障碍范围。后续如需更精细避障，可升级为按 polygon 精确挤出或按 DEM cell/mesh 切片生成。
+注意：地形、禁飞区、临时管制区第一版为了安全和 SQL 可维护性，使用 footprint envelope 的 3D bbox prism 表达占用体，可能在 XY 上保守扩大障碍范围。后续如需更精细避障，可升级为按 polygon 精确挤出或按 DEM cell/mesh 切片生成；详细实施方案见 `docs/refined_flight_obstacles_plan.md`。
