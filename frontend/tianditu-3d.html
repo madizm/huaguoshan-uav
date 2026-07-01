@@ -817,6 +817,7 @@
         no_fly_zone: { label: '禁飞区', color: '#ff3b30' },
         temp_control: { label: '临时管制', color: '#ffb000' }
       };
+      var gridLayerColors = ['#5eead4', '#f6c85f', '#ff8f5f', '#8bd17c', '#80b7ff', '#c084fc', '#f472b6', '#67e8f9', '#facc15', '#a3e635'];
       var huaguoshan = { lon: 119.2683, lat: 34.6469 };
       var state = {
         viewer: null,
@@ -943,6 +944,54 @@
         }).filter(Boolean);
       }
 
+      function getGridLayerColor(layerIndex) {
+        var index = Math.abs(parseInt(layerIndex, 10) || 0) % gridLayerColors.length;
+        return gridLayerColors[index];
+      }
+
+      function gridLayerKey(cell) {
+        return cell.minHeight.toFixed(3) + ':' + cell.maxHeight.toFixed(3);
+      }
+
+      function sortedGridLayers(cells) {
+        var byKey = {};
+        var layers = [];
+        cells.forEach(function (cell) {
+          var key = gridLayerKey(cell);
+          if (!byKey[key]) {
+            byKey[key] = {
+              key: key,
+              minHeight: cell.minHeight,
+              maxHeight: cell.maxHeight
+            };
+            layers.push(byKey[key]);
+          }
+        });
+        return layers.sort(function (a, b) {
+          return (a.minHeight - b.minHeight) || (a.maxHeight - b.maxHeight);
+        });
+      }
+
+      function gridLayerIndex(cell, layers) {
+        var key = gridLayerKey(cell);
+        var i;
+        for (i = 0; i < layers.length; i += 1) {
+          if (layers[i].key === key) return i;
+        }
+        return 0;
+      }
+
+      function gridLayerMaterial(CesiumRuntime, cache, layerIndex, alpha) {
+        var color = getGridLayerColor(layerIndex);
+        var key = color + ':' + alpha;
+        if (!cache[key]) {
+          cache[key] = CesiumRuntime.Material.fromType(CesiumRuntime.Material.ColorType || 'Color', {
+            color: CesiumRuntime.Color.fromCssColorString(color).withAlpha(alpha)
+          });
+        }
+        return cache[key];
+      }
+
       function clearSelectedGridHighlight() {
         if (state.selectedGridPrimitive && state.viewer) {
           try {
@@ -962,16 +1011,24 @@
         return first < second ? first + '|' + second : second + '|' + first;
       }
 
-      function addBoxEdge(edges, lon1, lat1, h1, lon2, lat2, h2) {
+      function addBoxEdge(edges, lon1, lat1, h1, lon2, lat2, h2, layerIndex) {
         var a = [lon1.toFixed(9), lat1.toFixed(9), h1.toFixed(3)];
         var b = [lon2.toFixed(9), lat2.toFixed(9), h2.toFixed(3)];
         var key = makeEdgeKey(a, b);
         if (!edges[key]) {
-          edges[key] = [lon1, lat1, h1, lon2, lat2, h2];
+          edges[key] = {
+            lon1: lon1,
+            lat1: lat1,
+            h1: h1,
+            lon2: lon2,
+            lat2: lat2,
+            h2: h2,
+            layerIndex: layerIndex
+          };
         }
       }
 
-      function addBoxEdges(edges, cell) {
+      function addBoxEdges(edges, cell, layerIndex) {
         var west = cell.minLon;
         var south = cell.minLat;
         var east = cell.maxLon;
@@ -979,18 +1036,18 @@
         var bottom = cell.minHeight;
         var top = cell.maxHeight;
 
-        addBoxEdge(edges, west, south, bottom, east, south, bottom);
-        addBoxEdge(edges, east, south, bottom, east, north, bottom);
-        addBoxEdge(edges, east, north, bottom, west, north, bottom);
-        addBoxEdge(edges, west, north, bottom, west, south, bottom);
-        addBoxEdge(edges, west, south, top, east, south, top);
-        addBoxEdge(edges, east, south, top, east, north, top);
-        addBoxEdge(edges, east, north, top, west, north, top);
-        addBoxEdge(edges, west, north, top, west, south, top);
-        addBoxEdge(edges, west, south, bottom, west, south, top);
-        addBoxEdge(edges, east, south, bottom, east, south, top);
-        addBoxEdge(edges, east, north, bottom, east, north, top);
-        addBoxEdge(edges, west, north, bottom, west, north, top);
+        addBoxEdge(edges, west, south, bottom, east, south, bottom, layerIndex);
+        addBoxEdge(edges, east, south, bottom, east, north, bottom, layerIndex);
+        addBoxEdge(edges, east, north, bottom, west, north, bottom, layerIndex);
+        addBoxEdge(edges, west, north, bottom, west, south, bottom, layerIndex);
+        addBoxEdge(edges, west, south, top, east, south, top, layerIndex);
+        addBoxEdge(edges, east, south, top, east, north, top, layerIndex);
+        addBoxEdge(edges, east, north, top, west, north, top, layerIndex);
+        addBoxEdge(edges, west, north, top, west, south, top, layerIndex);
+        addBoxEdge(edges, west, south, bottom, west, south, top, layerIndex);
+        addBoxEdge(edges, east, south, bottom, east, south, top, layerIndex);
+        addBoxEdge(edges, east, north, bottom, east, north, top, layerIndex);
+        addBoxEdge(edges, west, north, bottom, west, north, top, layerIndex);
       }
 
       function showSelectedGridHighlight(gridData) {
@@ -999,8 +1056,9 @@
         var edges = {};
         var keys;
         var primitive;
-        var material;
+        var materialCache = {};
         var bounds;
+        var layers;
 
         clearSelectedGridHighlight();
         if (!state.viewer || !CesiumRuntime || !cells.length) return;
@@ -1023,22 +1081,22 @@
           maxHeight: Number.NEGATIVE_INFINITY
         });
 
-        cells.forEach(function (cell) { addBoxEdges(edges, cell); });
+        layers = sortedGridLayers(cells);
+        cells.forEach(function (cell) {
+          addBoxEdges(edges, cell, gridLayerIndex(cell, layers));
+        });
         keys = Object.keys(edges);
         primitive = new CesiumRuntime.PolylineCollection();
-        material = CesiumRuntime.Material.fromType(CesiumRuntime.Material.ColorType || 'Color', {
-          color: CesiumRuntime.Color.fromCssColorString('#5eead4').withAlpha(0.88)
-        });
 
         keys.forEach(function (key) {
           var edge = edges[key];
           primitive.add({
             positions: [
-              CesiumRuntime.Cartesian3.fromDegrees(edge[0], edge[1], edge[2]),
-              CesiumRuntime.Cartesian3.fromDegrees(edge[3], edge[4], edge[5])
+              CesiumRuntime.Cartesian3.fromDegrees(edge.lon1, edge.lat1, edge.h1),
+              CesiumRuntime.Cartesian3.fromDegrees(edge.lon2, edge.lat2, edge.h2)
             ],
-            width: 2.2,
-            material: material
+            width: layers.length > 1 ? 2.4 : 2.2,
+            material: gridLayerMaterial(CesiumRuntime, materialCache, edge.layerIndex, 0.9)
           });
         });
 
@@ -1307,31 +1365,31 @@
       function renderFlightObstaclePrimitives(obstacles) {
         var CesiumRuntime = window.Cesium;
         var primitive;
-        var materials = {};
+        var materialCache = {};
+        var layers;
 
         clearFlightObstaclePrimitives();
         if (!state.viewer || !CesiumRuntime || !obstacles.length) return;
 
+        layers = sortedGridLayers(obstacles.reduce(function (cells, obstacle) {
+          return cells.concat(obstacle.cells || []);
+        }, []));
         primitive = new CesiumRuntime.PolylineCollection();
         obstacles.forEach(function (obstacle) {
           var edges = {};
           var sourceKind = obstacle.source_kind;
-          var materialKey = sourceKind || 'unknown';
-          if (!materials[materialKey]) {
-            materials[materialKey] = CesiumRuntime.Material.fromType(CesiumRuntime.Material.ColorType || 'Color', {
-              color: CesiumRuntime.Color.fromCssColorString(flightObstacleColor(sourceKind)).withAlpha(sourceKind === 'terrain' ? 0.46 : 0.78)
-            });
-          }
-          obstacle.cells.forEach(function (cell) { addBoxEdges(edges, cell); });
+          obstacle.cells.forEach(function (cell) {
+            addBoxEdges(edges, cell, gridLayerIndex(cell, layers));
+          });
           Object.keys(edges).forEach(function (key) {
             var edge = edges[key];
             primitive.add({
               positions: [
-                CesiumRuntime.Cartesian3.fromDegrees(edge[0], edge[1], edge[2]),
-                CesiumRuntime.Cartesian3.fromDegrees(edge[3], edge[4], edge[5])
+                CesiumRuntime.Cartesian3.fromDegrees(edge.lon1, edge.lat1, edge.h1),
+                CesiumRuntime.Cartesian3.fromDegrees(edge.lon2, edge.lat2, edge.h2)
               ],
-              width: sourceKind === 'terrain' ? 1.2 : 2.0,
-              material: materials[materialKey],
+              width: sourceKind === 'terrain' ? 1.4 : 2.2,
+              material: gridLayerMaterial(CesiumRuntime, materialCache, edge.layerIndex, sourceKind === 'terrain' ? 0.62 : 0.86),
               id: {
                 type: 'flightObstacle',
                 source_kind: obstacle.source_kind,

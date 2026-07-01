@@ -49,6 +49,19 @@
         {height: 0, level: 24}
     ];
 
+    var STACK_LAYER_COLORS = [
+        "#5eead4",
+        "#f6c85f",
+        "#ff8f5f",
+        "#8bd17c",
+        "#80b7ff",
+        "#c084fc",
+        "#f472b6",
+        "#67e8f9",
+        "#facc15",
+        "#a3e635"
+    ];
+
     function extend(target) {
         var i;
         var source;
@@ -108,6 +121,12 @@
 
         return Cesium.Material.fromType(Cesium.Material.ColorType || "Color", {
             color: color
+        });
+    }
+
+    function createLayerMaterials(alpha) {
+        return STACK_LAYER_COLORS.map(function(color) {
+            return createColorMaterial(createColor(color, alpha));
         });
     }
 
@@ -301,12 +320,12 @@
         return first < second ? first + "|" + second : second + "|" + first;
     }
 
-    function addEdge(edges, lon1, lat1, height1, lon2, lat2, height2, type) {
+    function addEdge(edges, lon1, lat1, height1, lon2, lat2, height2, type, layerIndex) {
         var a = [roundCoord(lon1), roundCoord(lat1), Math.round(height1 * 1000) / 1000];
         var b = [roundCoord(lon2), roundCoord(lat2), Math.round(height2 * 1000) / 1000];
         var key = normalizeSegmentKey(a, b);
 
-        if (!edges[key]) {
+        if (!edges[key] || type === "slice") {
             edges[key] = {
                 lon1: lon1,
                 lat1: lat1,
@@ -314,23 +333,24 @@
                 lon2: lon2,
                 lat2: lat2,
                 height2: height2,
-                type: type
+                type: type,
+                layerIndex: isFiniteNumber(layerIndex) ? layerIndex : null
             };
         }
     }
 
-    function addRectangleEdges(edges, bounds, height, type) {
-        addEdge(edges, bounds.west, bounds.south, height, bounds.east, bounds.south, height, type);
-        addEdge(edges, bounds.east, bounds.south, height, bounds.east, bounds.north, height, type);
-        addEdge(edges, bounds.east, bounds.north, height, bounds.west, bounds.north, height, type);
-        addEdge(edges, bounds.west, bounds.north, height, bounds.west, bounds.south, height, type);
+    function addRectangleEdges(edges, bounds, height, type, layerIndex) {
+        addEdge(edges, bounds.west, bounds.south, height, bounds.east, bounds.south, height, type, layerIndex);
+        addEdge(edges, bounds.east, bounds.south, height, bounds.east, bounds.north, height, type, layerIndex);
+        addEdge(edges, bounds.east, bounds.north, height, bounds.west, bounds.north, height, type, layerIndex);
+        addEdge(edges, bounds.west, bounds.north, height, bounds.west, bounds.south, height, type, layerIndex);
     }
 
-    function addVerticalEdges(edges, bounds, minHeight, maxHeight) {
-        addEdge(edges, bounds.west, bounds.south, minHeight, bounds.west, bounds.south, maxHeight, "vertical");
-        addEdge(edges, bounds.east, bounds.south, minHeight, bounds.east, bounds.south, maxHeight, "vertical");
-        addEdge(edges, bounds.east, bounds.north, minHeight, bounds.east, bounds.north, maxHeight, "vertical");
-        addEdge(edges, bounds.west, bounds.north, minHeight, bounds.west, bounds.north, maxHeight, "vertical");
+    function addVerticalEdges(edges, bounds, minHeight, maxHeight, layerIndex) {
+        addEdge(edges, bounds.west, bounds.south, minHeight, bounds.west, bounds.south, maxHeight, "vertical", layerIndex);
+        addEdge(edges, bounds.east, bounds.south, minHeight, bounds.east, bounds.south, maxHeight, "vertical", layerIndex);
+        addEdge(edges, bounds.east, bounds.north, minHeight, bounds.east, bounds.north, maxHeight, "vertical", layerIndex);
+        addEdge(edges, bounds.west, bounds.north, minHeight, bounds.west, bounds.north, maxHeight, "vertical", layerIndex);
     }
 
     function clearCollection(collection) {
@@ -362,7 +382,8 @@
             base: createColorMaterial(createColor("#5eead4", 0.58)),
             top: createColorMaterial(createColor("#d7a846", 0.72)),
             vertical: createColorMaterial(createColor("#fff7df", 0.34)),
-            slice: createColorMaterial(createColor("#ffb84d", 0.84))
+            slice: createColorMaterial(createColor("#ffb84d", 0.84)),
+            layers: createLayerMaterials(0.82)
         };
         var selectedEntity = null;
         var handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
@@ -467,12 +488,16 @@
             clearCollection(collections.labels);
 
             cells.forEach(function(cell) {
-                addRectangleEdges(edges, cell.bounds, heightModel.stackMinHeight, "base");
                 if (options.verticalEnabled) {
-                    heightModel.layers.forEach(function(layer) {
-                        addRectangleEdges(edges, cell.bounds, layer.maxHeight, "top");
+                    heightModel.layers.forEach(function(layer, layerIndex) {
+                        if (layerIndex === 0) {
+                            addRectangleEdges(edges, cell.bounds, layer.minHeight, "layer", layerIndex);
+                        }
+                        addRectangleEdges(edges, cell.bounds, layer.maxHeight, "layer", layerIndex);
+                        addVerticalEdges(edges, cell.bounds, layer.minHeight, layer.maxHeight, layerIndex);
                     });
-                    addVerticalEdges(edges, cell.bounds, heightModel.stackMinHeight, heightModel.stackMaxHeight);
+                } else {
+                    addRectangleEdges(edges, cell.bounds, heightModel.stackMinHeight, "base");
                 }
                 if (options.sliceEnabled) {
                     addRectangleEdges(edges, cell.bounds, heightModel.currentLayer.minHeight, "slice");
@@ -483,13 +508,13 @@
             keys = Object.keys(edges);
             for (i = 0; i < keys.length; i++) {
                 edge = edges[keys[i]];
-                material = materials[edge.type] || materials.base;
+                material = isFiniteNumber(edge.layerIndex) ? materials.layers[Math.abs(edge.layerIndex) % materials.layers.length] : materials[edge.type] || materials.base;
                 collections.lines.add({
                     positions: [
                         Cesium.Cartesian3.fromDegrees(edge.lon1, edge.lat1, edge.height1),
                         Cesium.Cartesian3.fromDegrees(edge.lon2, edge.lat2, edge.height2)
                     ],
-                    width: edge.type === "slice" ? 2.4 : 1.2,
+                    width: edge.type === "slice" ? 2.4 : (isFiniteNumber(edge.layerIndex) ? 1.5 : 1.2),
                     material: material
                 });
             }
