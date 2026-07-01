@@ -62,7 +62,7 @@ generated_at    timestamptz
 
 ### 4.1 建筑障碍
 
-当前 `citydb_grid.flight_obstacles` 中的建筑逻辑后续应重命名为：
+建筑障碍已独立为：
 
 ```sql
 citydb_grid.obstacles_buildings
@@ -98,28 +98,22 @@ terrain.dem_dataset
 terrain.dem_tile
 ```
 
-地形不能只做 2D footprint。对于飞行避障，应把地形转换为 3D 占用体：
+地形不能只做 2D footprint。对于飞行避障，应把地形转换为 3D 占用体后执行 `ST_AsGrids3D(...)`。
 
-```text
-DEM footprint + min/max elevation + terrain clearance
-        ↓
-3D prism / box
-        ↓
-ST_AsGrids3D(...)
+当前实现支持两种模式，均生成同一个物化视图：
+
+```sql
+citydb_grid.obstacles_terrain
 ```
 
-第一版可按 DEM tile 生成粗粒度体：
+- `tile-bbox`：按 DEM tile 的 footprint envelope 与 tile 级 `min_elevation/max_elevation` 生成粗粒度 bbox prism，作为兼容/回退模式。
+- `block-prism`：按 DEM raster 像元块生成局部 prism；当前数据库使用 `terrain_block_size_pixels = 4`，即 4x4 DEM 像元一个 block。
 
-```text
-min_z = min_elevation - underground_tolerance
-max_z = max_elevation + terrain_clearance_m
-```
-
-后续可按更细 DEM cell 或预处理 mesh 切片生成更精细体。
+详细计算公式、`source_id` 规则和精细化验收见 `docs/refined_flight_obstacles_plan.md`。
 
 ### 4.3 禁飞区
 
-建议新增业务 schema/table：
+业务 schema/table 已由刷新脚本自动创建：
 
 ```sql
 create schema if not exists airspace;
@@ -237,21 +231,15 @@ from citydb_grid.flight_obstacles;
 
 该视图不包含 BGC 字段。
 
-## 7. 脚本改造计划
+## 7. 脚本与刷新入口
 
-将当前建筑专用脚本：
-
-```bash
-scripts/refresh_citydb_flight_obstacles.py
-```
-
-扩展或拆分为多源脚本：
+多源障碍刷新脚本已落地：
 
 ```bash
 scripts/refresh_citydb_obstacle_grids.py
 ```
 
-建议参数：
+常用来源参数：
 
 ```bash
 uv run scripts/refresh_citydb_obstacle_grids.py --source buildings
@@ -259,6 +247,14 @@ uv run scripts/refresh_citydb_obstacle_grids.py --source terrain
 uv run scripts/refresh_citydb_obstacle_grids.py --source no-fly-zones
 uv run scripts/refresh_citydb_obstacle_grids.py --source temp-control
 uv run scripts/refresh_citydb_obstacle_grids.py --source all
+```
+
+精细化模式参数：
+
+```bash
+--airspace-mode bbox|polygon-prism
+--terrain-mode tile-bbox|block-prism
+--terrain-block-size-pixels 4
 ```
 
 `--source all` 顺序：
@@ -272,13 +268,25 @@ uv run scripts/refresh_citydb_obstacle_grids.py --source all
 7. 重建 `citydb_grid.flight_obstacles_codes_view`
 8. 执行 `notify pgrst, 'reload schema'`
 
-## 8. 落地顺序
+## 8. 落地状态与后续
 
-1. 保持当前功能不变，将现有建筑物化视图逻辑迁移为 `obstacles_buildings`。
-2. 新建总视图 `flight_obstacles`，第一阶段只 union 建筑来源。
-3. 新增 `airspace.no_fly_zone` 与 `obstacles_no_fly_zones`。
-4. 新增 `airspace.temp_control_zone` 与 `obstacles_temp_control_active`。
-5. 最后实现地形障碍，因为地形 3D volume、clearance 和粒度策略最复杂。
+已完成：
+
+1. 将建筑障碍迁移为 `citydb_grid.obstacles_buildings`。
+2. 新建统一总视图 `citydb_grid.flight_obstacles`。
+3. 新增 `airspace.no_fly_zone` 与 `citydb_grid.obstacles_no_fly_zones`。
+4. 新增 `airspace.temp_control_zone` 与 `citydb_grid.obstacles_temp_control_active`。
+5. 实现地形障碍 `citydb_grid.obstacles_terrain`，当前推荐 `block-prism`。
+6. 新增 `public.flight_obstacles(id, grids)` 兼容包装。
+7. 新增 GGER-only 展示视图与 PostgREST RPC。
+8. 前端已支持飞行障碍图层和 `source_kind` 过滤。
+
+后续工作集中在精细避障文档中维护：
+
+- terrain 视域 bbox RPC。
+- 实际 no-fly/temp-control 业务数据 E2E 验收。
+- 可选 `obstacle_work` staging 表。
+- 可选 `terrain.clearance_grid` / height-band 路径规划主输入。
 
 ## 9. 验收项
 
@@ -294,22 +302,64 @@ uv run scripts/refresh_citydb_obstacle_grids.py --source all
 
 ## 10. 实施状态
 
-已新增多源刷新脚本：
+状态：**多源飞行障碍已实施，精细避障第一阶段已落地**。
+
+本文只保留当前整体架构、统一契约和运行入口；精细避障的算法细节、计算公式、测试记录和后续路线集中维护在 `docs/refined_flight_obstacles_plan.md`，避免两份文档重复发散。
+
+当前推荐刷新命令：
+
+```bash
+uv run scripts/refresh_citydb_obstacle_grids.py \
+  --source all \
+  --airspace-mode polygon-prism \
+  --terrain-mode block-prism \
+  --terrain-block-size-pixels 4 \
+  --grant-role web_anon
+```
+
+兼容粗粒度/回退模式仍可使用默认参数：
 
 ```bash
 uv run scripts/refresh_citydb_obstacle_grids.py --source all --grant-role web_anon
 ```
 
-当前实现内容：
+当前已落地对象：
 
-- `citydb_grid.obstacles_buildings`：由 `citydb.feature` / `citydb.geometry_data` 生成建筑障碍。
-- `citydb_grid.obstacles_terrain`：支持 `tile-bbox` 与 `block-prism` 两种模式；当前数据库已使用 `block-prism` 将 DEM tile 拆为 4x4 像元块，按局部 `min_elevation - underground_tolerance` 到 `max_elevation + terrain_clearance_m` 生成精细地形障碍。
-- `airspace.no_fly_zone` / `airspace.temp_control_zone`：脚本自动创建业务表。
-- `citydb_grid.obstacles_no_fly_zones` / `citydb_grid.obstacles_temp_control_active`：支持 `bbox` 与 `polygon-prism` 两种模式；当前推荐使用 `polygon-prism` 按 airspace polygon footprint 精确挤出，临时管制区按 `valid_from` / `valid_to` 与 `status` 筛选。
-- `citydb_grid.flight_obstacles`：统一 `UNION ALL` 总物化视图，已建 `(source_kind, source_id)` 唯一索引与 `grids gin_grids_ops` GIN 索引。
-- `public.flight_obstacles(id, grids)`：保留给 `ST_FindGridsPath` 的兼容包装。
-- `citydb_grid.flight_obstacles_codes_view`：仅输出 GGER 展示码，不输出 BGC。
-- `public/citydb.list_flight_obstacles_gger(...)`：新增前端列表 RPC，按 `source_kind` 返回 GGER 与可选 `ST_WithBox` bbox。
-- `frontend/tianditu-3d.html`：新增“飞行障碍”图层、source_kind 过滤、刷新/定位/清除操作，以及多源障碍线框渲染和详情面板。
+- `scripts/refresh_citydb_obstacle_grids.py`：统一创建/刷新多源障碍物化视图。
+- `citydb_grid.obstacles_buildings`
+- `citydb_grid.obstacles_terrain`
+- `citydb_grid.obstacles_no_fly_zones`
+- `citydb_grid.obstacles_temp_control_active`
+- `citydb_grid.flight_obstacles`
+- `public.flight_obstacles(id, grids)`
+- `citydb_grid.flight_obstacles_codes_view`
+- `public/citydb.list_flight_obstacles_gger(...)` / `citydb.list_flight_obstacles_gger(...)`
+- 前端 `frontend/tianditu-3d.html` 的飞行障碍图层、来源过滤、刷新/定位/清除与详情面板。
 
-注意：早期版本为了安全和 SQL 可维护性，地形、禁飞区、临时管制区使用 footprint envelope 的 3D bbox prism 表达占用体，可能在 XY 上保守扩大障碍范围。当前已开始落地精细避障：airspace 可用 `polygon-prism`，terrain 可用 `block-prism`；详细实施状态见 `docs/refined_flight_obstacles_plan.md`。
+当前数据库快照：
+
+```text
+citydb_grid.obstacles_buildings: 18 rows
+citydb_grid.obstacles_terrain: 3750 rows
+citydb_grid.obstacles_no_fly_zones: 0 rows
+citydb_grid.obstacles_temp_control_active: 0 rows
+citydb_grid.flight_obstacles: 3768 rows
+```
+
+当前关键模式：
+
+- airspace：推荐 `polygon-prism`，保留 `bbox` 回退。
+- terrain：推荐 `block-prism`，保留 `tile-bbox` 回退。
+- 对外展示/RPC：仍保持 GGER-only，不输出 BGC。
+- 路径规划兼容：`public.flight_obstacles(id, grids)` 仍可作为 `ST_FindGridsPath` 障碍输入。
+
+已完成验证摘要：
+
+- 统一物化视图字段一致，可 `UNION ALL`。
+- `citydb_grid.flight_obstacles` 与各 source view 已建立 `(source_kind, source_id)` 唯一索引、`source_kind` 索引和 `grids gin_grids_ops` GIN 索引。
+- `public.flight_obstacles(id, grids)` wrapper 可查询。
+- `citydb_grid.flight_obstacles_codes_view` 与 PostgREST RPC 保持 GGER-only。
+- `list_flight_obstacles_gger` 可查询 terrain 精细障碍。
+- L 形 polygon 测试中 `polygon-prism` 比 `bbox` 生成更少 cells，验证凹形缺口不再被完整 bbox 误占用。
+
+精细化实现细节见：`docs/refined_flight_obstacles_plan.md`。

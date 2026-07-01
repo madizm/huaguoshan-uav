@@ -1,16 +1,18 @@
 # 精细飞行障碍 geomgrids 避障实施方案
 
-## 1. 背景与目标
+## 1. 背景、文档分工与目标
 
-当前多源飞行障碍第一版已落地：
+`docs/multi_source_flight_obstacles_plan.md` 维护多源飞行障碍的**整体架构、统一字段契约、刷新入口和当前数据库状态**。
 
-- 建筑：直接使用 3DCityDB 几何生成 `ST_AsGrids3D`。
-- 地形：使用 DEM tile 的 footprint envelope + min/max elevation 生成粗粒度 3D bbox prism。
-- 禁飞区 / 临时管制区：使用 polygon footprint envelope + 高度范围生成粗粒度 3D bbox prism。
+本文专门维护精细避障的**算法设计、计算公式、实现模式、验证方法和后续路线**，避免两份文档重复记录同一套状态。
 
-该方案安全、SQL 简单，但对非矩形 polygon 和地形起伏会保守扩大障碍范围，导致路径规划可通行空间被过度占用。
+当前状态：
 
-本方案目标是在保持现有对外契约不变的前提下，将地形、禁飞区、临时管制区升级为更精细的占用体生成流程：
+- 建筑：直接使用 3DCityDB 3D geometry 生成 `ST_AsGrids3D`，无需 bbox 替代。
+- 地形：已从 DEM tile 级 bbox 回退模式升级出 `block-prism` 精细模式。
+- 禁飞区 / 临时管制区：已从 envelope bbox 回退模式升级出 `polygon-prism` 精确 footprint 挤出模式。
+
+本方案目标是在保持现有对外契约不变的前提下，持续提高地形、禁飞区、临时管制区的占用体精度：
 
 ```text
 精确 polygon / DEM cell / mesh slice
@@ -61,29 +63,26 @@ citydb_grid.flight_obstacles
    - 在需要更高精度时，引入 DEM mesh/TIN 或 DSM/LiDAR 数据。
    - 按高度切片生成更精细 geomgrids。
 
-## 3. 数据库设计
+## 3. 数据库设计边界
 
-### 3.1 保持现有输出契约
+### 3.1 输出契约
 
-所有源物化视图仍输出：
+精细化实现不改变多源障碍统一字段契约。所有 `citydb_grid.obstacles_*` 物化视图仍输出 `source_kind/source_id/source_name/dimension/detail_level/is_agg/grids/valid_from/valid_to/priority/generated_at`。
 
-```sql
-source_kind     text,
-source_id       text,
-source_name     text,
-dimension       smallint,
-detail_level    integer,
-is_agg          boolean,
-grids           geomgrids,
-valid_from      timestamptz,
-valid_to        timestamptz,
-priority        integer,
-generated_at    timestamptz
-```
+完整契约以 `docs/multi_source_flight_obstacles_plan.md` 为准；本文只描述各来源如何把业务 geometry / DEM 转换为 `grids geomgrids`。
 
-### 3.2 新增派生 staging schema
+### 3.2 当前实现：直接在物化视图内生成
 
-建议新增 schema，用于保存可审计的中间占用体：
+第一阶段没有新增持久化 `obstacle_work` staging 表，而是在 `scripts/refresh_citydb_obstacle_grids.py` 生成物化视图 SQL 时直接完成：
+
+- airspace polygon → `make_polygon_prism_3d(...)` / `make_bbox_prism_3d(...)` → `ST_AsGrids3D(...)`
+- DEM raster pixels → block aggregate → `make_bbox_prism_3d(...)` → `ST_AsGrids3D(...)`
+
+这样可以减少迁移面，并保持现有刷新流程简单。
+
+### 3.3 后续可选 staging schema
+
+如后续需要审计中间结果、复用 terrain block、做增量刷新或分析局部误差，可再引入可重建的派生 schema：
 
 ```sql
 create schema if not exists obstacle_work;
@@ -94,11 +93,11 @@ create schema if not exists obstacle_work;
 ```sql
 create table if not exists obstacle_work.airspace_volume_piece (
   id bigserial primary key,
-  source_kind text not null,      -- no_fly_zone / temp_control
+  source_kind text not null,
   source_id text not null,
   source_name text,
   piece_id integer not null,
-  geom geometry not null,         -- 4326 geometry with Z or 2D footprint depending on method
+  geom geometry not null,
   min_height double precision not null,
   max_height double precision not null,
   valid_from timestamptz,
@@ -108,13 +107,6 @@ create table if not exists obstacle_work.airspace_volume_piece (
   unique (source_kind, source_id, piece_id)
 );
 
-create index if not exists airspace_volume_piece_geom_gix
-on obstacle_work.airspace_volume_piece using gist (geom);
-```
-
-地形分块表：
-
-```sql
 create table if not exists obstacle_work.terrain_block (
   id bigserial primary key,
   dataset_key text not null,
@@ -128,40 +120,22 @@ create table if not exists obstacle_work.terrain_block (
   generated_at timestamptz not null default now(),
   unique (dataset_key, tile_id, block_id)
 );
-
-create index if not exists terrain_block_geom_gix
-on obstacle_work.terrain_block using gist (geom);
 ```
 
-说明：
-
-- `obstacle_work.*` 是可删除、可重建的派生数据，不是业务主数据。
-- 物化视图可直接从这些 staging 表生成，也可在脚本中 rebuild staging 后 rebuild views。
+`obstacle_work.*` 应视为可删除、可重建的派生数据，不是业务主数据。
 
 ## 4. Airspace polygon 精细化方案
 
-### 4.1 首选方法：2D 精确网格 + 垂直层组合
+Airspace 来源包括：
 
-如果 iBEST-DB 的 `ST_AsGrids3D(geometry)` 对复杂 `POLYHEDRALSURFACE Z` 的支持或性能不稳定，则采用更稳健路线：
+- `airspace.no_fly_zone` → `citydb_grid.obstacles_no_fly_zones`
+- `airspace.temp_control_zone` → `citydb_grid.obstacles_temp_control_active`
 
-1. 对 airspace polygon 做安全缓冲。
-2. 使用 `ST_AsGrids` 生成 2D footprint grids。
-3. 将 2D cell 与高度层组合成 3D grid cells。
-4. 汇总为 `geomgrids`。
+两类来源共用同一套占用体生成逻辑。临时管制区额外按 `valid_from/valid_to/status` 过滤当前 active 窗口。
 
-优点：
+### 4.1 已实现模式：`polygon-prism`
 
-- XY 精度由 polygon 本体决定，不再使用 bbox envelope。
-- 可控地生成高度层，避免复杂 polyhedral surface 兼容性问题。
-- 适合禁飞区、临时管制区这种规则高度范围。
-
-风险：
-
-- 需要确认 iBEST-DB 是否提供从 2D cell + height layer 构造 3D `gridcell` 的函数；若缺失，退回 4.2。
-
-### 4.2 备选方法：polygon extrusion volume
-
-新增 helper function：
+当前精细模式新增 helper：
 
 ```sql
 citydb_grid.make_polygon_prism_3d(
@@ -171,100 +145,193 @@ citydb_grid.make_polygon_prism_3d(
 ) returns geometry
 ```
 
-输出 `POLYHEDRALSURFACE Z`：
+实现要点：
 
-- bottom face：polygon exterior + holes，z = min_z
-- top face：polygon exterior + holes，z = max_z
-- side faces：外环与内环逐边生成 vertical patch
+1. `ST_Force2D(p_footprint)` 去除旧 Z。
+2. `ST_MakeValid(...)` 修复无效 polygon。
+3. `ST_CollectionExtract(..., 3)` 只保留 polygon/multipolygon 面要素。
+4. `ST_Force3DZ(clean_footprint, min_z)` 给底面赋 Z。
+5. `ST_Extrude(..., 0, 0, max_z - min_z)` 沿 Z 方向挤出。
+6. 如果 `min_z = max_z`，自动给 `0.01m` 最小厚度。
 
-然后：
+物化视图中最终网格化：
 
 ```sql
-public.ST_AsGrids3D(
-  public.ST_Transform(citydb_grid.make_polygon_prism_3d(footprint, min_z, max_z), 4326),
+ST_AsGrids3D(
+  ST_Transform(citydb_grid.make_polygon_prism_3d(footprint, min_z, max_z), 4326),
   :detail_level,
   :is_agg
 )
 ```
 
-注意事项：
+相比 `bbox` 模式，`polygon-prism` 使用 polygon 本体 footprint，不会把 L 形、凹多边形等缺口整体填成 envelope。
 
-- polygon 必须先 `ST_MakeValid`。
-- MultiPolygon 应拆成 piece，避免单个复杂 volume 过大。
-- hole 需要生成内壁，否则 volume 语义不完整。
-- 对极小 polygon，应保留最小高度厚度，例如 `max_z = min_z + 0.01`。
+### 4.2 回退模式：`bbox`
 
-### 4.3 分片规则
-
-对大型禁飞区/临时管制区：
+`bbox` 模式继续保留，用于兼容和快速回退：
 
 ```sql
-ST_Subdivide(geom, max_vertices)
+citydb_grid.make_bbox_prism_3d(footprint, min_z, max_z)
 ```
 
-建议参数：
+它对 `ST_Envelope(ST_Force2D(footprint))` 生成 3D bbox prism，计算简单但会扩大 XY 占用范围。
+
+### 4.3 高度与安全缓冲
+
+Airspace 预处理逻辑：
 
 ```text
-max_vertices = 128 或 256
+footprint = ST_Buffer(geom::geography, safety_buffer_m)::geometry  -- safety_buffer_m > 0
+footprint = geom                                                  -- safety_buffer_m <= 0
+min_z     = coalesce(min_height, 0)
+max_z     = coalesce(max_height, default_zone_max_height)
 ```
 
-每个 piece 生成独立 `source_id`：
+禁飞区输出：
 
 ```text
-source_id = zone_id || ':piece:' || piece_id
+source_kind = 'no_fly_zone'
+source_id   = no_fly_zone.id::text
+priority    = 1000
+valid_from  = null
+valid_to    = null
 ```
 
-总视图仍可 `UNION ALL`，但唯一键变为：
+临时管制区输出：
 
 ```text
-(source_kind, source_id)
+source_kind = 'temp_control'
+source_id   = temp_control_zone.id::text
+priority    = 1100
+valid_from  = temp_control_zone.valid_from
+valid_to    = temp_control_zone.valid_to
 ```
+
+active 筛选：
+
+```sql
+status in ('planned', 'active')
+and planning_time >= valid_from
+and planning_time < valid_to
+```
+
+### 4.4 后续增强：分片与 grid-stack
+
+后续如遇大型/复杂 polygon，可增加：
+
+- `ST_Subdivide(geom, max_vertices)` 分片，避免单个复杂 volume 过大。
+- `grid-stack` 模式：先生成精确 2D footprint grids，再按垂直高度层组合为 3D grids。
+
+`grid-stack` 对复杂 polyhedral surface 更稳健，但需要确认 iBEST-DB 是否提供从 2D cell + height layer 构造 3D `gridcell` / `geomgrids` 的函数。
 
 ## 5. 地形精细化方案
 
-### 5.1 Phase B1：DEM block prism
+地形来源：
 
-将当前 tile 级 prism 改为 block 级 prism。
-
-流程：
-
-```text
-terrain.dem_tile raster
-        ↓ split into blocks, e.g. 8x8 / 16x16 pixels
-        ↓ per-block min/max/mean elevation
-        ↓ block footprint polygon
-        ↓ prism: min_z = min_elevation - tolerance
-                 max_z = max_elevation + clearance
-        ↓ ST_AsGrids3D
+```sql
+terrain.dem_dataset
+terrain.dem_tile
 ```
 
-建议 block 策略：
+输出物化视图：
 
-| DEM 分辨率 | block pixels | 约等效地面尺寸 | 适用 |
-|---|---:|---:|---|
-| 30m | 4x4 | 120m | 第一版精细化，数据量适中 |
-| 30m | 2x2 | 60m | 更精细，网格数更多 |
-| 30m | 1x1 | 30m | 最精细但可能过重 |
+```sql
+citydb_grid.obstacles_terrain
+```
 
-默认建议：
+公共输出：
 
 ```text
-block_size_pixels = 4
+source_kind   = 'terrain'
+dimension     = 3
+is_agg        = :is_agg
+detail_level  = ST_DetailLevel(grids)
+priority      = 50
+valid_from    = null
+valid_to      = null
+generated_at  = now()
+```
+
+### 5.1 已实现精细模式：`block-prism`
+
+`block-prism` 将 DEM raster 拆为像元 polygon，再按 `terrain_block_size_pixels` 聚合成局部 block。当前推荐/已验证参数：
+
+```text
+terrain_block_size_pixels = 4
 terrain_clearance_m = 30
 underground_tolerance_m = 0
 ```
 
-### 5.2 Phase B2：DEM cell exact prism
+在 30m DEM 下，4x4 像元约等于 120m x 120m 的地面块。
 
-如果 block 级仍过粗，则按 DEM 像元生成：
+计算流程：
+
+```sql
+ST_PixelAsPolygons(dem_tile.rast, 1, true)
+```
+
+像元分组键：
+
+```text
+block_x = floor((pixel_x - 1) / terrain_block_size_pixels)
+block_y = floor((pixel_y - 1) / terrain_block_size_pixels)
+```
+
+每个 block 生成一个局部地形 prism：
+
+```text
+footprint = ST_Envelope(ST_Collect(pixel_geom))
+min_z     = min(pixel_elevation) - underground_tolerance_m
+max_z     = max(pixel_elevation) + terrain_clearance_m
+volume    = citydb_grid.make_bbox_prism_3d(footprint, min_z, max_z)
+grids     = ST_AsGrids3D(ST_Transform(volume, 4326), detail_level, is_agg)
+```
+
+记录标识：
+
+```text
+source_id   = dataset_key || ':' || dem_tile.id || ':block:' || block_x || ':' || block_y
+source_name = dataset_key || ':' || coalesce(dem_tile.tile_id, dem_tile.id) || ':block:' || block_x || ':' || block_y
+```
+
+收益：
+
+- 平地 block 不再被同一 DEM tile 内的山顶 max elevation 抬高。
+- 相比 tile 级 bbox，局部高度约束更接近真实地形。
+- 与现有 `public.flight_obstacles(id, grids)` 兼容。
+
+代价：
+
+- `citydb_grid.obstacles_terrain` 行数从 tile 数增加到 block 数。
+- 前端不应默认全量打开 terrain；应继续限制行数，后续增加按视域加载。
+
+### 5.2 回退模式：`tile-bbox`
+
+`tile-bbox` 每条 `terrain.dem_tile` 生成一条地形障碍：
+
+```text
+footprint = terrain.dem_tile.extent
+min_z     = terrain.dem_tile.min_elevation - underground_tolerance_m
+max_z     = terrain.dem_tile.max_elevation + terrain_clearance_m
+volume    = citydb_grid.make_bbox_prism_3d(footprint, min_z, max_z)
+grids     = ST_AsGrids3D(ST_Transform(volume, 4326), detail_level, is_agg)
+```
+
+记录标识：
+
+```text
+source_id   = dataset_key || ':' || dem_tile.id
+source_name = dataset_key || ':' || coalesce(dem_tile.tile_id, dem_tile.id)
+```
+
+该模式计算最快，但一个 tile 内所有位置共享 tile 级 `min/max_elevation`，会保守扩大高度占用。
+
+### 5.3 后续模式：`cell-prism`
+
+如果 block 级仍过粗，可按 DEM 像元生成：
 
 ```text
 one raster pixel → one terrain prism
-```
-
-每个 prism：
-
-```text
 footprint = pixel polygon
 min_z = elevation - tolerance
 max_z = elevation + clearance
@@ -279,20 +346,24 @@ max_z = elevation + clearance
 
 - 行数和 geomgrids cell 数显著增加。
 - `ST_AsGrids3D` 对大量小 geometry 的计算成本高。
-- 前端不应默认加载全部地形障碍 bbox。
+- 前端必须按视域加载。
 
-### 5.3 Phase B3：terrain height bands
+### 5.4 后续模式：terrain height bands / clearance grid
 
-对路径规划来说，地形障碍可表达为：
+路径规划更理想的表达是：
 
 ```text
 cell below terrain_z + clearance is occupied
 cell above terrain_z + clearance is free/unknown
 ```
 
-因此可预生成高度层占用，而不是构造完整 prism 几何。
+后续可预生成：
 
-建议表：
+```sql
+terrain.clearance_grid
+```
+
+建议字段：
 
 ```sql
 create table if not exists terrain.clearance_grid (
@@ -310,7 +381,7 @@ create table if not exists terrain.clearance_grid (
 );
 ```
 
-后续路径规划可优先使用 `clearance_grid`，而 `citydb_grid.obstacles_terrain` 继续作为 `ST_FindGridsPath` 兼容层。
+`citydb_grid.obstacles_terrain` 继续作为 `ST_FindGridsPath` 兼容层，`terrain.clearance_grid` 可作为未来路径规划主输入。
 
 ## 6. 建筑精细化补充
 
@@ -327,55 +398,56 @@ create table if not exists terrain.clearance_grid (
 3. LoD2/roof shape：
    - 若未来导入 LoD2，直接使用更精细 roof geometry。
 
-## 7. 脚本改造计划
+## 7. 脚本实现状态与参数
 
-扩展现有脚本：
+实施脚本：
 
 ```bash
 scripts/refresh_citydb_obstacle_grids.py
 ```
 
-新增参数建议：
+第一阶段已实现参数：
 
 ```bash
---airspace-mode bbox|polygon-prism|grid-stack
---airspace-subdivide-vertices 128
-
---terrain-mode tile-bbox|block-prism|cell-prism|height-band
+--airspace-mode bbox|polygon-prism
+--terrain-mode tile-bbox|block-prism
 --terrain-block-size-pixels 4
 --terrain-clearance-m 30
 --underground-tolerance-m 0
+```
 
+当前推荐执行：
+
+```bash
+uv run scripts/refresh_citydb_obstacle_grids.py \
+  --source all \
+  --airspace-mode polygon-prism \
+  --terrain-mode block-prism \
+  --terrain-block-size-pixels 4 \
+  --grant-role web_anon
+```
+
+保留回退执行：
+
+```bash
+uv run scripts/refresh_citydb_obstacle_grids.py \
+  --source all \
+  --airspace-mode bbox \
+  --terrain-mode tile-bbox \
+  --grant-role web_anon
+```
+
+尚未实现、后续可增加：
+
+```bash
+--airspace-mode grid-stack
+--airspace-subdivide-vertices 128
+--terrain-mode cell-prism|height-band
 --rebuild-staging
 --skip-staging
 ```
 
-推荐默认值演进：
-
-```text
-当前：
-  airspace-mode = bbox
-  terrain-mode  = tile-bbox
-
-Phase A 后：
-  airspace-mode = polygon-prism 或 grid-stack
-  terrain-mode  = tile-bbox
-
-Phase B 后：
-  airspace-mode = polygon-prism/grid-stack
-  terrain-mode  = block-prism
-```
-
-新增脚本内部步骤：
-
-1. `ensure_obstacle_work_schema()`
-2. `rebuild_airspace_volume_piece()`
-3. `rebuild_terrain_block()`
-4. `build_obstacles_no_fly_zones_sql()` 从 staging 或精确 helper 生成
-5. `build_obstacles_temp_control_sql()` 从 staging 或精确 helper 生成
-6. `build_obstacles_terrain_sql()` 从 `obstacle_work.terrain_block` 生成
-7. rebuild `citydb_grid.flight_obstacles`
-8. rebuild GGER codes view / PostgREST notify
+当前脚本仍直接生成物化视图，不创建持久化 `obstacle_work` staging 表。
 
 ## 8. 前端展示策略
 
@@ -497,14 +569,17 @@ polygon-prism/grid-stack mode cell_count
 
 ### 11.2 DEM block 测试
 
-选择一个包含山谷和平地的 DEM tile，生成 block：
+当前第一阶段没有持久化 `obstacle_work.terrain_block`，可直接检查 `citydb_grid.obstacles_terrain`：
 
 ```sql
-select min(max_elevation), max(max_elevation), count(*)
-from obstacle_work.terrain_block;
+select count(*)
+from citydb_grid.obstacles_terrain
+where source_id like '%:block:%';
 ```
 
-预期：不同 block 的 max_elevation 有明显差异。
+预期：行数大于 DEM tile 数。当前数据库为 3750 条 terrain block 障碍。
+
+也可通过 RPC 抽样检查 `ST_WithBox` 输出，确认不同 block 的高度范围不再统一使用整 tile 的最大高程。
 
 ### 11.3 E2E 测试
 
@@ -540,29 +615,38 @@ frontend/tianditu-3d.html
 | 高程基准混用 | 路径高度判断错误 | 继续使用 `docs/terrain_vertical_datum.md` 约束 |
 | `ST_FindGridsPath` 仅接受表名字段名 | 难以按时间/视域动态过滤 | 维护 active materialized view 或临时障碍表 |
 
-## 13. 推荐实施顺序
+## 13. 实施路线
 
-1. 新增 `obstacle_work` schema 和 staging 表。
-2. 实现 `--airspace-mode polygon-prism`：
-   - 先支持无 hole polygon。
-   - 再支持 MultiPolygon / hole / subdivide。
-3. 对 no-fly-zone 做 L 形 polygon 精度验收。
-4. 将 temp-control 复用同一 airspace pipeline。
-5. 实现 `--terrain-mode block-prism --terrain-block-size-pixels 4`。
-6. 对 DEM block 局部 elevation 做验收。
-7. 前端增加 terrain 视域加载 RPC，避免一次加载全部 terrain cells。
-8. 评估是否需要 `terrain.clearance_grid` 作为路径规划主输入。
+### 13.1 已完成
 
-## 14. 第一阶段完成定义
+1. 实现 `--airspace-mode polygon-prism`。
+2. 将 no-fly-zone 与 temp-control 复用同一 airspace pipeline。
+3. 对 L 形 polygon 做 bbox vs polygon-prism 精度对比。
+4. 实现 `--terrain-mode block-prism --terrain-block-size-pixels 4`。
+5. 重建 `citydb_grid.obstacles_terrain` 与 `citydb_grid.flight_obstacles`。
+6. 验证 RPC 与展示输出仍为 GGER-only。
 
-第一阶段完成后应达到：
+### 13.2 下一步
 
-- 禁飞区 / 临时管制区不再使用 envelope bbox prism。
-- airspace polygon 的凹形缺口不会被误标记为障碍。
-- 地形至少支持 block-prism 模式，且默认 block 级别可配置。
-- `citydb_grid.flight_obstacles` 字段契约不变。
-- 前端和 RPC 无需 schema-breaking 变更即可展示精细化结果。
-- `ST_FindGridsPath` 仍可通过 `public.flight_obstacles(id, grids)` 使用所有来源障碍。
+1. 为 terrain 增加按当前视域 bbox 查询的 RPC，避免前端一次加载全部 terrain blocks。
+2. 对实际 no-fly-zone / temp-control 业务数据做 polygon-prism E2E 验收。
+3. 评估是否需要 `obstacle_work` staging 表以支持审计与增量刷新。
+4. 评估是否需要 `terrain.clearance_grid` 作为路径规划主输入。
+5. 如引入更高精度 DSM/LiDAR，再评估 `cell-prism` 或 mesh slicing。
+
+## 14. 第一阶段完成定义与达成情况
+
+第一阶段目标与当前达成情况：
+
+| 目标 | 当前状态 |
+|---|---|
+| 禁飞区 / 临时管制区支持非 envelope bbox 模式 | 已实现 `polygon-prism`，保留 `bbox` 回退 |
+| airspace polygon 凹形缺口不被完整 bbox 误占用 | 已通过 L 形 polygon 对比测试验证 |
+| 地形支持 block-prism 模式 | 已实现，当前数据库使用 4x4 DEM 像元块 |
+| `citydb_grid.flight_obstacles` 字段契约不变 | 已保持不变 |
+| 前端和 RPC 无 schema-breaking 变更 | 已保持兼容 |
+| `public.flight_obstacles(id, grids)` 继续可用于 `ST_FindGridsPath` | 已保持兼容 |
+
 
 ## 15. 实施状态
 
