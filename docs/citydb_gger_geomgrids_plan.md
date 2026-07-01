@@ -365,10 +365,196 @@ uv run scripts/refresh_citydb_flight_obstacles.py \
 | 8 | 不新增大量 `citydb.property` 网格码子属性 | 已通过 | 新脚本不写 `citydb.property`；旧 BGC 属性脚本已删除。 |
 | 9 | 不修改 `citydb.geometry_data` 表结构 | 已通过 | 仅新增 `citydb_grid` 派生视图/索引和可选 `public` 包装视图。 |
 
-## 13. 后续增强
+## 13. 实施状态：PostgREST GGER + Box RPC
+
+目标：为前端拾取模型后的属性面板增加一个轻量 RPC，按 feature 标识查询 GGER 网格文本，并通过 iBEST-DB `ST_WithBox(grids, 'GGER')` 同时返回每个网格的包围盒信息，供前端做网格高亮、bbox 调试和详情展示。
+
+当前状态：已实施并部署到数据库。SQL 文件为 `backend/create_citydb_feature_gger_grids_rpc.sql`。
+
+### 13.1 RPC 设计
+
+新增 SQL 文件：
+
+```text
+backend/create_citydb_feature_gger_grids_rpc.sql
+```
+
+函数命名：
+
+```sql
+public.get_citydb_feature_gger_grids(p_feature_identifier text)
+citydb.get_citydb_feature_gger_grids(p_feature_identifier text) -- PostgREST wrapper
+```
+
+PostgREST 调用：
+
+```http
+POST /rpc/get_citydb_feature_gger_grids
+Content-Type: application/json
+
+{"p_feature_identifier":"osm:way:1002427134"}
+```
+
+`p_feature_identifier` 匹配规则与现有 `get_citydb_feature_properties` 保持一致：
+
+1. 优先匹配 `citydb.feature.objectid`
+2. 其次匹配 `citydb.feature.identifier`
+3. 若参数为纯数字，则匹配 `citydb.feature.id`
+
+### 13.2 返回结构
+
+RPC 返回 `jsonb`：
+
+```json
+{
+  "feature": {
+    "id": 1,
+    "objectid": "osm:way:1002427134",
+    "identifier": null,
+    "objectclass_id": 901
+  },
+  "grid": {
+    "geometry_id": 73,
+    "dimension": 3,
+    "detail_level": 19,
+    "is_agg": true,
+    "cell_count": 7,
+    "gger_grids": "{...}",
+    "gger_grids_with_box": "{...}",
+    "generated_at": "2026-07-01T..."
+  }
+}
+```
+
+字段说明：
+
+- `gger_grids`：`ST_AsText(grids, 'GGER')` 输出，只包含 GGER 编码集合。
+- `gger_grids_with_box`：`ST_WithBox(grids, 'GGER')` 输出，包含 GGER 编码及每个 cell 的 bbox。
+- 不返回 BGC 字段，保持“对外展示只使用 GGER”的接口契约。
+
+### 13.3 SQL 实现
+
+```sql
+create or replace function public.get_citydb_feature_gger_grids(p_feature_identifier text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, citydb, citydb_grid, pg_temp
+as $$
+with matched_feature as (
+    select f.id, f.objectid, f.identifier, f.objectclass_id
+    from citydb.feature f
+    where f.objectid = p_feature_identifier
+       or f.identifier = p_feature_identifier
+       or (
+            p_feature_identifier ~ '^[0-9]+$'
+            and f.id = p_feature_identifier::bigint
+       )
+    order by
+        case
+            when f.objectid = p_feature_identifier then 1
+            when f.identifier = p_feature_identifier then 2
+            else 3
+        end,
+        f.id
+    limit 1
+), matched_grid as (
+    select fo.*
+    from citydb_grid.flight_obstacles fo
+    join matched_feature f on f.id = fo.feature_id
+    order by fo.geometry_id
+    limit 1
+)
+select case
+    when not exists (select 1 from matched_feature) then null::jsonb
+    when not exists (select 1 from matched_grid) then jsonb_build_object(
+        'feature', (select to_jsonb(f) from matched_feature f),
+        'grid', null
+    )
+    else jsonb_build_object(
+        'feature', (select to_jsonb(f) from matched_feature f),
+        'grid', (
+            select jsonb_build_object(
+                'geometry_id', g.geometry_id,
+                'dimension', g.dimension,
+                'detail_level', g.detail_level,
+                'is_agg', g.is_agg,
+                'cell_count', ST_nCells(g.grids),
+                'gger_grids', ST_AsText(g.grids, 'GGER'),
+                'gger_grids_with_box', ST_WithBox(g.grids, 'GGER'),
+                'generated_at', g.generated_at
+            )
+            from matched_grid g
+        )
+    )
+end;
+$$;
+```
+
+同时创建 `citydb` schema 下的 thin wrapper，以适配当前 `pgrest.conf` 中 `db-schemas = "citydb, public, terrain"` 的默认 RPC 暴露方式：
+
+```sql
+create or replace function citydb.get_citydb_feature_gger_grids(p_feature_identifier text)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public, citydb, citydb_grid, pg_temp
+as $$
+    select public.get_citydb_feature_gger_grids(p_feature_identifier);
+$$;
+```
+
+权限与 PostgREST schema cache：
+
+```sql
+grant usage on schema citydb_grid to web_anon;
+grant select on citydb_grid.flight_obstacles to web_anon;
+grant select on citydb_grid.flight_obstacles_codes_view to web_anon;
+grant execute on function public.get_citydb_feature_gger_grids(text) to web_anon;
+grant execute on function citydb.get_citydb_feature_gger_grids(text) to web_anon;
+notify pgrst, 'reload schema';
+```
+
+### 13.4 前端使用状态
+
+已在 `frontend/tianditu-3d.html` 实现拾取建筑后的 GGER 包围网格展示：
+
+- 拾取 3D Tiles feature 后，沿用当前 metadata 中的 `id` / `objectid` / `identifier` 作为 `p_feature_identifier`。
+- 并行调用：
+  - `/rpc/get_citydb_feature_properties` 获取业务属性。
+  - `/rpc/get_citydb_feature_gger_grids` 获取 `gger_grids` 与 `gger_grids_with_box`。
+- 属性面板新增 `GGER Bounding Grid` 卡片，展示：
+  - `detail_level`
+  - `cell_count`
+  - `dimension`
+  - `geometry_id`
+  - GGER cells 和 bbox 样例
+- 前端解析 `ST_WithBox` 返回 JSON 中的 `cells[].bbox`，使用 Cesium `PolylineCollection` 绘制选中 feature 的 3D bbox 线框。
+- 支持面板按钮：
+  - `定位包围网格`：飞到当前选中 feature 的网格整体范围。
+  - `清除高亮`：移除当前网格高亮。
+- 关闭属性面板时同步清除当前 GGER bbox 高亮。
+
+### 13.5 验收状态
+
+| # | 验收项 | 状态 | 结果 |
+|---|---|---|---|
+| 1 | `backend/create_citydb_feature_gger_grids_rpc.sql` 可重复执行 | 已通过 | 已成功执行 SQL 文件创建/替换函数。 |
+| 2 | `POST /rpc/get_citydb_feature_gger_grids` 可通过 `objectid`、`identifier`、数字 `feature.id` 查询 | 已通过 | 已验证 `osm:way:1002427134`、`https://www.openstreetmap.org/way/1002427134`、`1` 均返回 feature 1。 |
+| 3 | 返回 JSON 包含 `gger_grids` 和 `gger_grids_with_box` | 已通过 | PostgREST 返回 `grid.gger_grids` 与 `grid.gger_grids_with_box`。 |
+| 4 | `gger_grids_with_box` 来自 `ST_WithBox(grids, 'GGER')` | 已通过 | 返回内容包含 `cells[].code` 与 `cells[].bbox`。 |
+| 5 | 返回结构不包含任何 BGC 字段 | 已通过 | 已验证响应体不包含 `bgc` / `BGC`。 |
+| 6 | 对不存在的 feature 返回 `null`；对存在 feature 但无网格的记录返回 `grid: null` | 部分通过 | 不存在 feature 已验证返回 `null`；当前样例数据中未发现“有 feature 但无网格”的前端拾取用例。 |
+| 7 | `web_anon` 具备执行函数所需权限 | 已通过 | SQL 已授予 `citydb_grid` usage/select 及 public/citydb RPC execute。 |
+| 8 | `notify pgrst, 'reload schema'` 后 PostgREST 可直接调用 | 已通过 | 已通过 `http://10.1.109.151:13000/rpc/get_citydb_feature_gger_grids` 验证。 |
+| 9 | 前端可解析 bbox 并高亮显示包围网格 | 已通过 | 前端拾取模型验收通过：属性面板可展示 GGER bbox 信息，Cesium 中可高亮显示包围网格，并支持定位与清除；脚本语法已通过 `node --check`。 |
+
+## 14. 后续增强
 
 - `--auto-detail-level`：按模型尺寸、目标 cell 数或飞行安全裕度自动选择 GGER/GeoSOT 层级；对外展示仍统一输出 GGER。
 - 支持安全缓冲区：生成障碍前对模型 footprint/体积进行水平或垂直膨胀。
 - 支持多套障碍视图：建筑、地形、禁飞区、临时管制区分别生成，再 union 成飞行障碍视图。
-- 为 PostgREST 增加 RPC：按 feature 查询 GGER 文本、按查询几何检索相交模型、触发刷新。
-- 前端拾取模型时，通过 `feature_id/objectid` 查询 `citydb_grid.flight_obstacles_codes_view` 展示 GGER 网格集合。
+- 为 PostgREST 增加 RPC：按查询几何检索相交模型、触发刷新。
+- 前端拾取模型时，通过 `feature_id/objectid` 查询 GGER + bbox RPC 展示 GGER 网格集合和 bbox 信息。

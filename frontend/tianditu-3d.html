@@ -418,6 +418,65 @@
       gap: 8px;
     }
 
+    .feature-grid-card {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid rgba(94, 234, 212, 0.28);
+      border-radius: 16px;
+      background:
+        linear-gradient(135deg, rgba(94, 234, 212, 0.10), rgba(8, 61, 51, 0.20)),
+        rgba(0, 0, 0, 0.16);
+    }
+
+    .feature-grid-card h3 {
+      margin: 0;
+      color: #5eead4;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .feature-grid-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .feature-grid-actions button {
+      padding: 8px 11px;
+      font-size: 12px;
+    }
+
+    .feature-grid-cells {
+      display: grid;
+      gap: 6px;
+      max-height: 168px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .feature-grid-cell {
+      display: grid;
+      gap: 4px;
+      padding: 8px;
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.18);
+    }
+
+    .feature-grid-cell b {
+      overflow-wrap: anywhere;
+      color: #5eead4;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+    }
+
+    .feature-grid-cell code {
+      margin: 0;
+      color: rgba(255, 247, 223, 0.78);
+      font-size: 12px;
+    }
+
     .feature-property.has-children {
       border-color: rgba(215, 168, 70, 0.24);
       background: rgba(215, 168, 70, 0.08);
@@ -632,6 +691,7 @@
       var localTilesetUrl = '../exports/citydb-3dtiler/huaguoshan_3dtiles/tileset.json';
       var demTilesetUrl = '../exports/terrain/huaguoshan_dem_3dtiles/tileset.json';
       var citydbFeatureRpcUrl = 'http://10.1.109.151:13000/rpc/get_citydb_feature_properties';
+      var citydbFeatureGridRpcUrl = 'http://10.1.109.151:13000/rpc/get_citydb_feature_gger_grids';
       var huaguoshan = { lon: 119.2683, lat: 34.6469 };
       var state = {
         viewer: null,
@@ -648,7 +708,11 @@
         airspaceGrid: null,
         airspaceEnabled: false,
         featurePropertyCache: {},
-        selectedFeatureIdentifier: null
+        featureGridCache: {},
+        selectedFeatureIdentifier: null,
+        selectedGridPrimitive: null,
+        selectedGridBounds: null,
+        selectedGridCells: []
       };
 
       var $ = function (selector) { return document.querySelector(selector); };
@@ -688,6 +752,169 @@
         return uom ? text + ' ' + uom : text;
       }
 
+      function parseJsonText(value) {
+        if (!value) return null;
+        if (typeof value === 'object') return value;
+        try {
+          return JSON.parse(String(value).trim());
+        } catch (error) {
+          console.warn('[Tianditu3D] Failed to parse GGER JSON text:', error, value);
+          return null;
+        }
+      }
+
+      function parseBboxText(bboxText) {
+        var parts;
+        var minParts;
+        var maxParts;
+        if (!bboxText) return null;
+        parts = String(bboxText).replace(/[()]/g, '').split(',');
+        if (parts.length !== 2) return null;
+        minParts = parts[0].trim().split(/\s+/).map(Number);
+        maxParts = parts[1].trim().split(/\s+/).map(Number);
+        if (minParts.length < 3 || maxParts.length < 3) return null;
+        if (minParts.concat(maxParts).some(function (value) { return !Number.isFinite(value); })) return null;
+        return {
+          minLon: minParts[0],
+          minLat: minParts[1],
+          minHeight: minParts[2],
+          maxLon: maxParts[0],
+          maxLat: maxParts[1],
+          maxHeight: maxParts[2]
+        };
+      }
+
+      function extractGridCells(gridData) {
+        var grid = gridData && gridData.grid;
+        var withBox = parseJsonText(grid && grid.gger_grids_with_box);
+        var cells = withBox && Array.isArray(withBox.cells) ? withBox.cells : [];
+        return cells.map(function (cell) {
+          var bbox = parseBboxText(cell && cell.bbox);
+          return bbox ? Object.assign({ code: cell.code || '' }, bbox) : null;
+        }).filter(Boolean);
+      }
+
+      function clearSelectedGridHighlight() {
+        if (state.selectedGridPrimitive && state.viewer) {
+          try {
+            state.viewer.scene.primitives.remove(state.selectedGridPrimitive);
+          } catch (error) {
+            console.warn('[Tianditu3D] Failed to remove selected grid primitive:', error);
+          }
+        }
+        state.selectedGridPrimitive = null;
+        state.selectedGridBounds = null;
+        state.selectedGridCells = [];
+      }
+
+      function makeEdgeKey(a, b) {
+        var first = a.join(',');
+        var second = b.join(',');
+        return first < second ? first + '|' + second : second + '|' + first;
+      }
+
+      function addBoxEdge(edges, lon1, lat1, h1, lon2, lat2, h2) {
+        var a = [lon1.toFixed(9), lat1.toFixed(9), h1.toFixed(3)];
+        var b = [lon2.toFixed(9), lat2.toFixed(9), h2.toFixed(3)];
+        var key = makeEdgeKey(a, b);
+        if (!edges[key]) {
+          edges[key] = [lon1, lat1, h1, lon2, lat2, h2];
+        }
+      }
+
+      function addBoxEdges(edges, cell) {
+        var west = cell.minLon;
+        var south = cell.minLat;
+        var east = cell.maxLon;
+        var north = cell.maxLat;
+        var bottom = cell.minHeight;
+        var top = cell.maxHeight;
+
+        addBoxEdge(edges, west, south, bottom, east, south, bottom);
+        addBoxEdge(edges, east, south, bottom, east, north, bottom);
+        addBoxEdge(edges, east, north, bottom, west, north, bottom);
+        addBoxEdge(edges, west, north, bottom, west, south, bottom);
+        addBoxEdge(edges, west, south, top, east, south, top);
+        addBoxEdge(edges, east, south, top, east, north, top);
+        addBoxEdge(edges, east, north, top, west, north, top);
+        addBoxEdge(edges, west, north, top, west, south, top);
+        addBoxEdge(edges, west, south, bottom, west, south, top);
+        addBoxEdge(edges, east, south, bottom, east, south, top);
+        addBoxEdge(edges, east, north, bottom, east, north, top);
+        addBoxEdge(edges, west, north, bottom, west, north, top);
+      }
+
+      function showSelectedGridHighlight(gridData) {
+        var CesiumRuntime = window.Cesium;
+        var cells = extractGridCells(gridData);
+        var edges = {};
+        var keys;
+        var primitive;
+        var material;
+        var bounds;
+
+        clearSelectedGridHighlight();
+        if (!state.viewer || !CesiumRuntime || !cells.length) return;
+
+        bounds = cells.reduce(function (acc, cell) {
+          return {
+            west: Math.min(acc.west, cell.minLon),
+            south: Math.min(acc.south, cell.minLat),
+            east: Math.max(acc.east, cell.maxLon),
+            north: Math.max(acc.north, cell.maxLat),
+            minHeight: Math.min(acc.minHeight, cell.minHeight),
+            maxHeight: Math.max(acc.maxHeight, cell.maxHeight)
+          };
+        }, {
+          west: Number.POSITIVE_INFINITY,
+          south: Number.POSITIVE_INFINITY,
+          east: Number.NEGATIVE_INFINITY,
+          north: Number.NEGATIVE_INFINITY,
+          minHeight: Number.POSITIVE_INFINITY,
+          maxHeight: Number.NEGATIVE_INFINITY
+        });
+
+        cells.forEach(function (cell) { addBoxEdges(edges, cell); });
+        keys = Object.keys(edges);
+        primitive = new CesiumRuntime.PolylineCollection();
+        material = CesiumRuntime.Material.fromType(CesiumRuntime.Material.ColorType || 'Color', {
+          color: CesiumRuntime.Color.fromCssColorString('#5eead4').withAlpha(0.88)
+        });
+
+        keys.forEach(function (key) {
+          var edge = edges[key];
+          primitive.add({
+            positions: [
+              CesiumRuntime.Cartesian3.fromDegrees(edge[0], edge[1], edge[2]),
+              CesiumRuntime.Cartesian3.fromDegrees(edge[3], edge[4], edge[5])
+            ],
+            width: 2.2,
+            material: material
+          });
+        });
+
+        state.selectedGridPrimitive = state.viewer.scene.primitives.add(primitive);
+        state.selectedGridBounds = bounds;
+        state.selectedGridCells = cells;
+      }
+
+      function flyToSelectedGridHighlight() {
+        if (!state.viewer || !state.selectedGridBounds) {
+          log('当前没有可定位的 GGER 包围网格。');
+          return;
+        }
+        state.viewer.camera.flyTo({
+          destination: Cesium.Rectangle.fromDegrees(
+            state.selectedGridBounds.west,
+            state.selectedGridBounds.south,
+            state.selectedGridBounds.east,
+            state.selectedGridBounds.north
+          ),
+          duration: 1.2
+        });
+        log('已定位到当前要素的 GGER 包围网格。');
+      }
+
       function renderFeatureMessage(className, message) {
         showFeaturePanel();
         featurePanel().innerHTML = '<div class="' + className + '">' + escapeHtml(message) + '</div>';
@@ -703,14 +930,50 @@
         }
 
         featurePanel().innerHTML =
-          '<div class="feature-loading">正在查询 CityDB 属性：<code>' + escapeHtml(identifier) + '</code>' + metadataHtml + '</div>';
+          '<div class="feature-loading">正在查询 CityDB 属性与 GGER 包围网格：<code>' + escapeHtml(identifier) + '</code>' + metadataHtml + '</div>';
       }
 
       function renderFeatureError(message) {
         renderFeatureMessage('feature-error', message);
       }
 
-      function renderFeatureProperties(data, sourceIdentifier) {
+      function renderGridCard(gridData) {
+        var grid = gridData && gridData.grid;
+        var cells = extractGridCells(gridData);
+        var visibleCells = cells.slice(0, 10);
+        var gridRows;
+
+        if (!grid) {
+          return '<div class="feature-grid-card"><h3>GGER Bounding Grid</h3>' +
+            '<div class="feature-empty">该要素暂无 GGER 包围网格。</div></div>';
+        }
+
+        gridRows = visibleCells.map(function (cell) {
+          return '<div class="feature-grid-cell"><b>' + escapeHtml(cell.code) + '</b>' +
+            '<code>' + escapeHtml([
+              cell.minLon.toFixed(8), cell.minLat.toFixed(8), cell.minHeight.toFixed(2),
+              cell.maxLon.toFixed(8), cell.maxLat.toFixed(8), cell.maxHeight.toFixed(2)
+            ].join(' · ')) + '</code></div>';
+        }).join('');
+
+        return '<div class="feature-grid-card">' +
+          '<h3>GGER Bounding Grid</h3>' +
+          '<div class="feature-meta">' +
+            '<div class="feature-meta-row"><span>Detail</span><code>L' + escapeHtml(grid.detail_level) + '</code></div>' +
+            '<div class="feature-meta-row"><span>Cells</span><code>' + escapeHtml(grid.cell_count || cells.length || 0) + '</code></div>' +
+            '<div class="feature-meta-row"><span>Dimension</span><code>' + escapeHtml(grid.dimension) + 'D</code></div>' +
+            '<div class="feature-meta-row"><span>Geometry</span><code>#' + escapeHtml(grid.geometry_id) + '</code></div>' +
+          '</div>' +
+          '<div class="feature-grid-actions">' +
+            '<button type="button" data-action="zoomSelectedGrid">定位包围网格</button>' +
+            '<button type="button" data-action="clearGridHighlight">清除高亮</button>' +
+          '</div>' +
+          '<div class="feature-grid-cells">' + (gridRows || '<div class="feature-empty">ST_WithBox 未返回可解析 bbox。</div>') + '</div>' +
+          (cells.length > visibleCells.length ? '<div class="feature-empty">面板仅展示前 ' + visibleCells.length + ' / ' + cells.length + ' 个 cell；地图高亮已绘制全部 bbox。</div>' : '') +
+        '</div>';
+      }
+
+      function renderFeatureProperties(data, sourceIdentifier, gridData) {
         showFeaturePanel();
         if (!data || !data.feature) {
           renderFeatureError('CityDB 未找到对应要素：' + sourceIdentifier);
@@ -753,6 +1016,7 @@
             '<div class="feature-meta">' + featureRows.map(function (row) {
               return '<div class="feature-meta-row"><span>' + escapeHtml(row[0]) + '</span><code>' + escapeHtml(row[1]) + '</code></div>';
             }).join('') + '</div>' +
+            renderGridCard(gridData) +
             '<div class="feature-properties">' + (propertyHtml || '<div class="feature-empty">该要素没有属性记录。</div>') + '</div>' +
           '</div>';
       }
@@ -854,6 +1118,29 @@
         });
       }
 
+      function requestCitydbGrid(identifiers, index) {
+        var identifier = identifiers[index];
+        if (!identifier) return Promise.resolve(null);
+        if (state.featureGridCache[identifier]) return Promise.resolve(state.featureGridCache[identifier]);
+
+        return fetch(citydbFeatureGridRpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_feature_identifier: identifier })
+        }).then(function (response) {
+          if (!response.ok) throw new Error('PostgREST GGER RPC HTTP ' + response.status);
+          return response.text();
+        }).then(function (text) {
+          var data = text ? JSON.parse(text) : null;
+          if (data && data.feature) {
+            state.featureGridCache[identifier] = data;
+            return data;
+          }
+          if (index + 1 < identifiers.length) return requestCitydbGrid(identifiers, index + 1);
+          return null;
+        });
+      }
+
       function bindFeaturePicking(viewer) {
         var handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
         handler.setInputAction(function (movement) {
@@ -871,22 +1158,32 @@
           var requestToken = identifiers.join('|') + '|' + Date.now();
           state.selectedFeatureIdentifier = requestToken;
           renderFeatureLoading(identifiers[0], metadata);
-          log('已选中建筑模型，正在通过 PostgREST 查询 CityDB 属性。');
+          clearSelectedGridHighlight();
+          log('已选中建筑模型，正在通过 PostgREST 查询 CityDB 属性与 GGER 包围网格。');
 
-          requestCitydbFeature(identifiers, 0).then(function (data) {
+          Promise.all([
+            requestCitydbFeature(identifiers, 0),
+            requestCitydbGrid(identifiers, 0)
+          ]).then(function (results) {
+            var data = results[0];
+            var gridData = results[1];
             if (state.selectedFeatureIdentifier !== requestToken) return;
+            if (!data && gridData && gridData.feature) {
+              data = { feature: gridData.feature, properties: [] };
+            }
             if (!data) {
               renderFeatureError('CityDB 未找到对应要素。已尝试：' + identifiers.join(', '));
               log('CityDB 查询无结果：' + identifiers.join(', '));
               return;
             }
-            renderFeatureProperties(data, identifiers[0]);
-            log('CityDB 属性查询完成：' + (data.feature.objectid || data.feature.identifier || data.feature.id));
+            if (gridData && gridData.grid) showSelectedGridHighlight(gridData);
+            renderFeatureProperties(data, identifiers[0], gridData);
+            log('CityDB 属性与 GGER 包围网格查询完成：' + (data.feature.objectid || data.feature.identifier || data.feature.id));
           }).catch(function (error) {
             if (state.selectedFeatureIdentifier !== requestToken) return;
             console.error('[Tianditu3D] CityDB RPC failed:', error);
-            renderFeatureError('CityDB 属性查询失败：' + error.message + '。请确认 PostgREST 服务与 RPC 函数可访问。');
-            log('CityDB 属性查询失败，请检查 PostgREST。');
+            renderFeatureError('CityDB / GGER RPC 查询失败：' + error.message + '。请确认 PostgREST 服务与 RPC 函数可访问。');
+            log('CityDB / GGER RPC 查询失败，请检查 PostgREST。');
           });
         }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
       }
@@ -1302,6 +1599,7 @@
           closeFeaturePanel.addEventListener('click', function (event) {
             event.stopPropagation();
             hideFeaturePanel();
+            clearSelectedGridHighlight();
             log('CityDB 属性面板已关闭；再次点击建筑模型可重新打开。');
           });
         }
@@ -1335,6 +1633,11 @@
                 },
                 duration: 2
               });
+            }
+            if (action === 'zoomSelectedGrid') flyToSelectedGridHighlight();
+            if (action === 'clearGridHighlight') {
+              clearSelectedGridHighlight();
+              log('已清除当前要素的 GGER 包围网格高亮。');
             }
           }
 
