@@ -7,10 +7,28 @@
 # ///
 """Build and refresh multi-source geomgrids flight obstacle views.
 
-The generated schema follows docs/multi_source_flight_obstacles_plan.md:
-source-specific materialized views are normalized to a common contract and then
-UNION ALL'ed into citydb_grid.flight_obstacles. External text output remains
-GGER-only; BGC is intentionally not emitted.
+中文说明：
+    这是当前推荐使用的“多来源飞行障碍物网格生成脚本”。它把建筑、地形、
+    禁飞区、临时管制区分别转换为统一结构的 ``geomgrids`` 物化视图，再用
+    ``UNION ALL`` 汇总成一个对外使用的总视图。
+
+主要输出：
+    - ``citydb_grid.obstacles_buildings``：3DCityDB 建筑/几何障碍物。
+    - ``citydb_grid.obstacles_terrain``：DEM 地形障碍物。
+    - ``citydb_grid.obstacles_no_fly_zones``：长期禁飞区障碍物。
+    - ``citydb_grid.obstacles_temp_control_active``：当前有效的临时管制区。
+    - ``citydb_grid.flight_obstacles``：上述来源的统一总物化视图。
+    - ``citydb_grid.flight_obstacles_codes_view``：GGER 文本展示视图。
+    - ``public.flight_obstacles``：兼容 ``ST_FindGridsPath`` 的 ``id, grids`` wrapper。
+
+运行模式：
+    - 默认 ``--source all`` 会重建/刷新所有来源。
+    - 可以用 ``--source buildings`` 等参数只处理某个来源。
+    - ``--refresh-only`` 只刷新已有物化视图，不改变 DDL。
+    - ``--dry-run`` 只检查候选源数据数量，不创建或刷新对象。
+
+External display contract:
+    GGER only; BGC is intentionally not emitted by generated views/APIs.
 """
 
 from __future__ import annotations
@@ -25,6 +43,7 @@ import psycopg
 from psycopg import sql
 
 
+# 默认连接到花果山项目库；生产/测试环境建议用 CITYDB_DSN 或 --dsn 覆盖。
 DEFAULT_DSN = "postgresql://postgres:postgres@10.1.109.151:5432/huaguoshan_projd"
 DEFAULT_CITYDB_SCHEMA = "citydb"
 DEFAULT_GRID_SCHEMA = "citydb_grid"
@@ -44,6 +63,7 @@ DEFAULT_TERRAIN_BLOCK_SIZE_PIXELS = 4
 DEFAULT_TERRAIN_LOD_VIEW_NAME = "obstacles_terrain_lod"
 DEFAULT_TERRAIN_LOD_SPEC = "0:32:15,1:16:17,2:4:19"
 
+# 每个 source 都先落到一个同构的 source-specific 物化视图，再汇总到总视图。
 SOURCE_TO_VIEW = {
     "buildings": "obstacles_buildings",
     "terrain": "obstacles_terrain",
@@ -59,6 +79,8 @@ class ScriptError(RuntimeError):
 
 @dataclass(frozen=True)
 class SampleRow:
+    """Small diagnostic row printed from the unified obstacle view."""
+
     source_kind: str
     source_id: str
     source_name: str | None
@@ -74,6 +96,12 @@ class SampleRow:
 
 @dataclass(frozen=True)
 class TerrainLodSpec:
+    """Display-only terrain LOD generation spec.
+
+    ``lod_level`` is a frontend/display level, ``block_size_px`` controls DEM
+    pixel aggregation, and ``detail_level`` controls GGER/GeoSOT grid precision.
+    """
+
     lod_level: int
     block_size_px: int
     detail_level: int
@@ -230,6 +258,8 @@ def validate_args(args: argparse.Namespace) -> None:
 
 
 def selected_sources(args: argparse.Namespace) -> tuple[str, ...]:
+    """Resolve ``--source`` into the concrete source view names to process."""
+
     if args.source == "all":
         return SOURCE_ORDER
     return (args.source,)
@@ -306,6 +336,12 @@ def ensure_database_support(conn: psycopg.Connection[Any], args: argparse.Namesp
 
 
 def ensure_schemas_and_helpers(cur: psycopg.Cursor[Any], args: argparse.Namespace) -> None:
+    """Create schemas, helper functions, and airspace tables required downstream.
+
+    This makes the script self-initializing for no-fly-zone and temporary-control
+    workflows: an empty airspace schema is enough for a first rebuild.
+    """
+
     cur.execute(sql.SQL("create schema if not exists {}").format(sql.Identifier(args.grid_schema)))
     cur.execute(sql.SQL("create schema if not exists {}").format(sql.Identifier(args.airspace_schema)))
     cur.execute(build_bbox_prism_function_sql(args))
@@ -314,6 +350,8 @@ def ensure_schemas_and_helpers(cur: psycopg.Cursor[Any], args: argparse.Namespac
 
 
 def build_bbox_prism_function_sql(args: argparse.Namespace) -> sql.Composed:
+    """Create helper SQL function that turns a footprint bbox into a 3D prism."""
+
     return sql.SQL(
         r"""
         create or replace function {grid_schema}.make_bbox_prism_3d(
@@ -373,6 +411,8 @@ def build_bbox_prism_function_sql(args: argparse.Namespace) -> sql.Composed:
 
 
 def build_polygon_prism_function_sql(args: argparse.Namespace) -> sql.Composed:
+    """Create helper SQL function that extrudes a polygon footprint into 3D."""
+
     return sql.SQL(
         r"""
         create or replace function {grid_schema}.make_polygon_prism_3d(
@@ -414,6 +454,8 @@ def build_polygon_prism_function_sql(args: argparse.Namespace) -> sql.Composed:
 
 
 def build_airspace_tables_sql(args: argparse.Namespace) -> sql.Composed:
+    """Create business tables for no-fly zones and temporary control zones."""
+
     return sql.SQL(
         """
         create table if not exists {airspace_schema}.no_fly_zone (
@@ -503,6 +545,13 @@ def build_empty_terrain_lod_view_sql(args: argparse.Namespace) -> sql.Composed:
 
 
 def build_obstacles_terrain_lod_sql(args: argparse.Namespace, has_terrain_tables: bool) -> sql.Composed:
+    """Build optional display-only terrain LOD materialized view DDL.
+
+    This view is separate from routing/avoidance computation. It pre-aggregates
+    DEM blocks at multiple grid detail levels so the frontend can load terrain
+    obstacles adaptively.
+    """
+
     if not has_terrain_tables:
         return build_empty_terrain_lod_view_sql(args)
 
@@ -623,6 +672,8 @@ def build_building_where_clause(args: argparse.Namespace) -> sql.Composed:
 
 
 def build_ranked_geometry_cte(args: argparse.Namespace) -> sql.Composed:
+    """Build the CTE that chooses one representative geometry per CityDB feature."""
+
     limit_clause = sql.SQL("")
     if args.limit is not None:
         limit_clause = sql.SQL("\n            limit {}").format(sql.Literal(args.limit))
@@ -651,6 +702,8 @@ def build_ranked_geometry_cte(args: argparse.Namespace) -> sql.Composed:
 
 
 def build_obstacles_buildings_sql(args: argparse.Namespace) -> sql.Composed:
+    """Build the buildings source view from 3DCityDB geometry_data."""
+
     return sql.SQL(
         """
         create materialized view {target_view} as
@@ -689,6 +742,12 @@ def build_obstacles_buildings_sql(args: argparse.Namespace) -> sql.Composed:
 
 
 def build_obstacles_terrain_sql(args: argparse.Namespace, has_terrain_tables: bool) -> sql.Composed:
+    """Build the terrain source view from DEM tiles.
+
+    If terrain tables are absent, an empty but schema-compatible view is created
+    so the unified ``flight_obstacles`` view can still be built.
+    """
+
     if not has_terrain_tables:
         return build_empty_obstacle_view_sql(args, SOURCE_TO_VIEW["terrain"])
 
@@ -831,6 +890,8 @@ def build_obstacles_terrain_sql(args: argparse.Namespace, has_terrain_tables: bo
 
 
 def build_obstacles_no_fly_zones_sql(args: argparse.Namespace) -> sql.Composed:
+    """Build the long-lived no-fly-zone source view from airspace polygons."""
+
     airspace_volume = sql.SQL("{grid_schema}.make_polygon_prism_3d(footprint, min_z, max_z)") if args.airspace_mode == "polygon-prism" else sql.SQL("{grid_schema}.make_bbox_prism_3d(footprint, min_z, max_z)")
     return sql.SQL(
         """
@@ -899,6 +960,8 @@ def planning_time_expression(args: argparse.Namespace) -> sql.Composable:
 
 
 def build_obstacles_temp_control_sql(args: argparse.Namespace) -> sql.Composed:
+    """Build the currently active temporary-control source view."""
+
     planning_time = planning_time_expression(args)
     airspace_volume = sql.SQL("{grid_schema}.make_polygon_prism_3d(footprint, min_z, max_z)") if args.airspace_mode == "polygon-prism" else sql.SQL("{grid_schema}.make_bbox_prism_3d(footprint, min_z, max_z)")
     return sql.SQL(
@@ -981,6 +1044,8 @@ def source_view_sql(args: argparse.Namespace, source: str, has_terrain_tables: b
 
 
 def build_total_view_sql(args: argparse.Namespace) -> sql.Composed:
+    """Build the unified ``flight_obstacles`` materialized view from all sources."""
+
     selects = sql.SQL("\n        union all\n").join(
         sql.SQL("select * from {}").format(qname(args.grid_schema, SOURCE_TO_VIEW[source])) for source in SOURCE_ORDER
     )
@@ -991,6 +1056,8 @@ def build_total_view_sql(args: argparse.Namespace) -> sql.Composed:
 
 
 def build_codes_view_sql(args: argparse.Namespace) -> sql.Composed:
+    """Create the human-readable GGER companion view for the unified view."""
+
     return sql.SQL(
         """
         create or replace view {codes_view} as
@@ -1015,6 +1082,8 @@ def build_codes_view_sql(args: argparse.Namespace) -> sql.Composed:
 
 
 def build_public_wrapper_sql(args: argparse.Namespace) -> sql.Composed:
+    """Create the ``id, grids`` compatibility wrapper used by path-finding calls."""
+
     return sql.SQL(
         """
         create or replace view {wrapper_view} as
@@ -1144,6 +1213,8 @@ def ensure_all_source_views_exist(cur: psycopg.Cursor[Any], args: argparse.Names
 
 
 def rebuild_views(conn: psycopg.Connection[Any], args: argparse.Namespace) -> None:
+    """Drop/recreate selected source views, then rebuild the unified total view."""
+
     sources = selected_sources(args)
     has_terrain_tables = regclass_exists(conn, "terrain", "dem_tile") and regclass_exists(conn, "terrain", "dem_dataset")
     drop_dependent_views(conn, args)
@@ -1177,6 +1248,8 @@ def refresh_one(cur: psycopg.Cursor[Any], args: argparse.Namespace, schema_name:
 
 
 def refresh_views(conn: psycopg.Connection[Any], args: argparse.Namespace) -> None:
+    """Refresh selected source views and the unified total view without DDL changes."""
+
     sources = selected_sources(args)
     with conn.cursor() as cur:
         for source in sources:
@@ -1365,6 +1438,8 @@ def print_post_action_hint(args: argparse.Namespace) -> None:
 
 
 def main() -> int:
+    """CLI entry point: validate, connect, dry-run/rebuild/refresh, then sample."""
+
     args = parse_args()
     try:
         validate_args(args)

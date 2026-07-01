@@ -5,11 +5,27 @@
 #   "psycopg[binary]>=3.2",
 # ]
 # ///
-"""Build and refresh a 3DCityDB geomgrids obstacle materialized view.
+"""Build and refresh a single-source 3DCityDB geomgrids obstacle view.
 
-The view is derived from citydb.geometry_data, stores only the geomgrids object
-needed for grid spatial computation, and exposes GGER text only in the companion
-codes view. BGC is intentionally not part of the external view/API contract.
+中文说明：
+    这个脚本是“CityDB 几何/建筑专用”的障碍物网格生成脚本。它从
+    ``citydb.feature`` + ``citydb.geometry_data`` 中读取几何对象，挑选每个
+    feature 的代表几何，然后调用 iBEST-DB 的 ``ST_AsGrids`` 或
+    ``ST_AsGrids3D`` 生成 ``geomgrids``，最终写入物化视图。
+
+主要输出：
+    - ``citydb_grid.flight_obstacles``：计算用物化视图，保存 ``geomgrids``。
+    - ``citydb_grid.flight_obstacles_codes_view``：展示用普通视图，把网格转成
+      GGER 文本，便于排查和人工查看。
+    - 可选 ``public.flight_obstacles`` wrapper：兼容 ``ST_FindGridsPath`` 这类只
+      需要 ``id, grids`` 的调用方。
+
+和 ``refresh_citydb_obstacle_grids.py`` 的关系：
+    本脚本可以看作早期/轻量的 building-only 版本；后者是多来源版本，会把
+    建筑、地形、禁飞区、临时管制区统一汇总为同名总视图。
+
+External display contract:
+    GGER only; BGC is intentionally not emitted by generated views/APIs.
 """
 
 from __future__ import annotations
@@ -24,6 +40,7 @@ import psycopg
 from psycopg import sql
 
 
+# 默认连接到花果山项目库；生产/测试环境建议用 CITYDB_DSN 或 --dsn 覆盖。
 DEFAULT_DSN = "postgresql://postgres:postgres@10.1.109.151:5432/huaguoshan_projd"
 DEFAULT_CITYDB_SCHEMA = "citydb"
 DEFAULT_GRID_SCHEMA = "citydb_grid"
@@ -41,6 +58,8 @@ class ScriptError(RuntimeError):
 
 @dataclass(frozen=True)
 class ViewNames:
+    """Names of all database objects managed by this script."""
+
     grid_schema: str
     view_name: str
     codes_view_name: str
@@ -50,6 +69,8 @@ class ViewNames:
 
 @dataclass(frozen=True)
 class SampleRow:
+    """Small diagnostic row printed after dry-run/rebuild/refresh."""
+
     feature_id: int
     geometry_id: int
     objectid: str | None
@@ -274,6 +295,13 @@ def build_where_clause(args: argparse.Namespace) -> sql.Composed:
 
 
 def build_ranked_geometry_cte(args: argparse.Namespace) -> sql.Composed:
+    """Build the CTE that chooses one representative geometry per CityDB feature.
+
+    Some CityDB features can have multiple geometry rows. For obstacle generation
+    we keep the largest 2D envelope first, then fall back to the geometry id for a
+    deterministic tie-breaker.
+    """
+
     limit_clause = sql.SQL("")
     if args.limit is not None:
         limit_clause = sql.SQL("\n            limit {}").format(sql.Literal(args.limit))
@@ -304,6 +332,13 @@ def build_ranked_geometry_cte(args: argparse.Namespace) -> sql.Composed:
 
 
 def build_grids_expression(args: argparse.Namespace) -> sql.Composed:
+    """Return the SQL expression that converts a geometry into geomgrids.
+
+    ``--dimension 3`` produces true 3D obstacle grids via ``ST_AsGrids3D``;
+    ``--dimension 2`` produces footprint grids via ``ST_AsGrids``. Both paths
+    transform geometry to EPSG:4326 before grid generation.
+    """
+
     detail_level = -1 if args.auto_detail_level else args.detail_level
     if args.dimension == 3:
         return sql.SQL("public.ST_AsGrids3D(public.ST_Transform(geometry, 4326), {}, {})").format(
@@ -315,6 +350,8 @@ def build_grids_expression(args: argparse.Namespace) -> sql.Composed:
 
 
 def build_materialized_view_sql(args: argparse.Namespace) -> sql.Composed:
+    """Create the main materialized view DDL for ``citydb_grid.flight_obstacles``."""
+
     ranked_geometry_cte = build_ranked_geometry_cte(args)
     grids_expression = build_grids_expression(args)
     return sql.SQL(
@@ -444,6 +481,8 @@ def drop_dependent_views(conn: psycopg.Connection[Any], names: ViewNames, drop_p
 
 
 def rebuild_materialized_view(conn: psycopg.Connection[Any], args: argparse.Namespace) -> None:
+    """Drop and recreate the obstacle materialized view plus indexes/wrappers."""
+
     names = view_names(args)
     with conn.cursor() as cur:
         cur.execute(sql.SQL("create schema if not exists {}").format(sql.Identifier(args.grid_schema)))
@@ -484,6 +523,8 @@ def rebuild_materialized_view(conn: psycopg.Connection[Any], args: argparse.Name
 
 
 def refresh_materialized_view(conn: psycopg.Connection[Any], args: argparse.Namespace) -> None:
+    """Refresh an existing materialized view without changing its DDL."""
+
     refresh_keyword = sql.SQL("concurrently ") if args.concurrently else sql.SQL("")
     with conn.cursor() as cur:
         cur.execute(
@@ -492,6 +533,12 @@ def refresh_materialized_view(conn: psycopg.Connection[Any], args: argparse.Name
 
 
 def build_codes_view_sql(args: argparse.Namespace) -> sql.Composed:
+    """Create the human-readable GGER companion view.
+
+    The main materialized view keeps the native ``geomgrids`` value for spatial
+    computation. This companion view is only for display/debugging.
+    """
+
     return sql.SQL(
         """
         create or replace view {codes_view} as
@@ -639,6 +686,8 @@ def print_post_action_hint(args: argparse.Namespace) -> None:
 
 
 def main() -> int:
+    """CLI entry point: validate, connect, dry-run/rebuild/refresh, then sample."""
+
     args = parse_args()
     try:
         validate_args(args)
