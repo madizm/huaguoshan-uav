@@ -555,6 +555,6 @@ notify pgrst, 'reload schema';
 
 - `--auto-detail-level`：按模型尺寸、目标 cell 数或飞行安全裕度自动选择 GGER/GeoSOT 层级；对外展示仍统一输出 GGER。
 - 支持安全缓冲区：生成障碍前对模型 footprint/体积进行水平或垂直膨胀。
-- 支持多套障碍视图：建筑、地形、禁飞区、临时管制区分别生成，再 union 成飞行障碍视图。
+- 支持多套障碍视图：建筑、地形、禁飞区、临时管制区分别生成，再 union 成飞行障碍视图；详细计划见 `docs/multi_source_flight_obstacles_plan.md`。
 - 为 PostgREST 增加 RPC：按查询几何检索相交模型、触发刷新。
 - 前端拾取模型时，通过 `feature_id/objectid` 查询 GGER + bbox RPC 展示 GGER 网格集合和 bbox 信息。
