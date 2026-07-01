@@ -41,6 +41,8 @@ DEFAULT_ZONE_MAX_HEIGHT_M = 500.0
 DEFAULT_AIRSPACE_MODE = "bbox"
 DEFAULT_TERRAIN_MODE = "tile-bbox"
 DEFAULT_TERRAIN_BLOCK_SIZE_PIXELS = 4
+DEFAULT_TERRAIN_LOD_VIEW_NAME = "obstacles_terrain_lod"
+DEFAULT_TERRAIN_LOD_SPEC = "0:32:15,1:16:17,2:4:19"
 
 SOURCE_TO_VIEW = {
     "buildings": "obstacles_buildings",
@@ -68,6 +70,13 @@ class SampleRow:
     valid_to: str | None
     priority: int
     gger_grids: str | None
+
+
+@dataclass(frozen=True)
+class TerrainLodSpec:
+    lod_level: int
+    block_size_px: int
+    detail_level: int
 
 
 def parse_args() -> argparse.Namespace:
@@ -125,6 +134,21 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_TERRAIN_BLOCK_SIZE_PIXELS,
         help="DEM pixel block width/height for --terrain-mode block-prism.",
     )
+    parser.add_argument(
+        "--terrain-lod-display",
+        action="store_true",
+        help="Create/refresh the display-only terrain LOD materialized view for adaptive frontend loading.",
+    )
+    parser.add_argument(
+        "--terrain-lod-view-name",
+        default=DEFAULT_TERRAIN_LOD_VIEW_NAME,
+        help="Display-only terrain LOD materialized view name in --grid-schema.",
+    )
+    parser.add_argument(
+        "--terrain-lod-spec",
+        default=DEFAULT_TERRAIN_LOD_SPEC,
+        help="Comma-separated terrain display LOD specs as lod:block_size_pixels:detail_level.",
+    )
 
     refresh_group = parser.add_mutually_exclusive_group()
     refresh_group.add_argument("--refresh-only", action="store_true", help="Refresh existing materialized views only; do not rebuild DDL.")
@@ -145,6 +169,35 @@ def validate_identifier(value: str, label: str) -> None:
         raise ScriptError(f"{label} cannot be empty or contain NUL")
 
 
+def parse_terrain_lod_spec(value: str) -> tuple[TerrainLodSpec, ...]:
+    specs: list[TerrainLodSpec] = []
+    seen_levels: set[int] = set()
+    for raw_part in value.split(","):
+        part = raw_part.strip()
+        if not part:
+            continue
+        pieces = part.split(":")
+        if len(pieces) != 3:
+            raise ScriptError("--terrain-lod-spec entries must be lod:block_size_pixels:detail_level")
+        try:
+            lod_level, block_size_px, detail_level = (int(piece) for piece in pieces)
+        except ValueError as exc:
+            raise ScriptError("--terrain-lod-spec values must be integers") from exc
+        if lod_level < 0:
+            raise ScriptError("--terrain-lod-spec lod levels must be non-negative")
+        if lod_level in seen_levels:
+            raise ScriptError(f"--terrain-lod-spec contains duplicate lod level {lod_level}")
+        if block_size_px < 1:
+            raise ScriptError("--terrain-lod-spec block sizes must be positive")
+        if detail_level < 6 or detail_level > 32:
+            raise ScriptError("--terrain-lod-spec detail levels must be in [6, 32]")
+        specs.append(TerrainLodSpec(lod_level=lod_level, block_size_px=block_size_px, detail_level=detail_level))
+        seen_levels.add(lod_level)
+    if not specs:
+        raise ScriptError("--terrain-lod-spec must contain at least one LOD entry")
+    return tuple(sorted(specs, key=lambda spec: spec.lod_level))
+
+
 def validate_args(args: argparse.Namespace) -> None:
     for value, label in [
         (args.citydb_schema, "--citydb-schema"),
@@ -152,6 +205,7 @@ def validate_args(args: argparse.Namespace) -> None:
         (args.airspace_schema, "--airspace-schema"),
         (args.total_view_name, "--total-view-name"),
         (args.codes_view_name, "--codes-view-name"),
+        (args.terrain_lod_view_name, "--terrain-lod-view-name"),
         (args.public_wrapper_schema, "--public-wrapper-schema"),
         (args.public_wrapper_name, "--public-wrapper-name"),
     ]:
@@ -170,6 +224,7 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ScriptError("--default-zone-max-height must be positive")
     if args.terrain_block_size_pixels < 1:
         raise ScriptError("--terrain-block-size-pixels must be positive")
+    parse_terrain_lod_spec(args.terrain_lod_spec)
     if args.refresh_only and (args.objectid_like or args.objectclass_id or args.limit is not None):
         raise ScriptError("building filters affect view DDL and cannot be changed with --refresh-only; rebuild instead")
 
@@ -421,6 +476,136 @@ def build_empty_obstacle_view_sql(args: argparse.Namespace, view_name: str) -> s
         where false
         """
     ).format(target_view=qname(args.grid_schema, view_name))
+
+
+def build_empty_terrain_lod_view_sql(args: argparse.Namespace) -> sql.Composed:
+    return sql.SQL(
+        """
+        create materialized view {target_view} as
+        select
+            null::text as source_kind,
+            null::text as source_id,
+            null::text as source_name,
+            null::integer as lod_level,
+            null::integer as block_size_px,
+            null::smallint as dimension,
+            null::integer as detail_level,
+            null::boolean as is_agg,
+            null::public.geomgrids as grids,
+            null::geometry(Polygon, 4326) as footprint_4326,
+            null::double precision as min_height,
+            null::double precision as max_height,
+            null::integer as cell_count,
+            null::timestamptz as generated_at
+        where false
+        """
+    ).format(target_view=qname(args.grid_schema, args.terrain_lod_view_name))
+
+
+def build_obstacles_terrain_lod_sql(args: argparse.Namespace, has_terrain_tables: bool) -> sql.Composed:
+    if not has_terrain_tables:
+        return build_empty_terrain_lod_view_sql(args)
+
+    specs = parse_terrain_lod_spec(args.terrain_lod_spec)
+    spec_values = sql.SQL(",\n                ").join(
+        sql.SQL("({}, {}, {})").format(
+            sql.Literal(spec.lod_level),
+            sql.Literal(spec.block_size_px),
+            sql.Literal(spec.detail_level),
+        )
+        for spec in specs
+    )
+    dataset_filter = sql.SQL("")
+    if args.terrain_dataset_key is not None:
+        dataset_filter = sql.SQL("and ds.dataset_key = {} ").format(sql.Literal(args.terrain_dataset_key))
+
+    return sql.SQL(
+        """
+        create materialized view {target_view} as
+        with lod_spec(lod_level, block_size_px, detail_level) as (
+            values
+                {spec_values}
+        ), pixels as (
+            select
+                t.id as tile_pk,
+                coalesce(ds.dataset_key, ds.id::text) as dataset_key,
+                coalesce(t.tile_id, t.id::text) as tile_name,
+                px.x,
+                px.y,
+                px.geom,
+                px.val::double precision as elevation
+            from terrain.dem_tile t
+            join terrain.dem_dataset ds on ds.id = t.dataset_id
+            cross join lateral public.ST_PixelAsPolygons(t.rast, 1, true) as px(geom, val, x, y)
+            where t.rast is not null
+              {dataset_filter}
+        ), blocks as (
+            select
+                p.tile_pk,
+                p.dataset_key,
+                p.tile_name,
+                s.lod_level,
+                s.block_size_px,
+                s.detail_level,
+                ((p.x - 1) / s.block_size_px)::integer as block_x,
+                ((p.y - 1) / s.block_size_px)::integer as block_y,
+                public.ST_Envelope(public.ST_Collect(p.geom)) as extent,
+                (min(p.elevation) - {underground_tolerance})::double precision as min_z,
+                (max(p.elevation) + {terrain_clearance})::double precision as max_z
+            from pixels p
+            cross join lod_spec s
+            where p.elevation is not null
+            group by p.tile_pk, p.dataset_key, p.tile_name, s.lod_level, s.block_size_px, s.detail_level, block_x, block_y
+        ), generated_grids as (
+            select
+                'terrain'::text as source_kind,
+                (dataset_key || ':' || tile_pk::text || ':lod:' || lod_level::text || ':block:' || block_x::text || ':' || block_y::text) as source_id,
+                (dataset_key || ':' || tile_name || ':LOD' || lod_level::text || ':block:' || block_x::text || ':' || block_y::text) as source_name,
+                lod_level,
+                block_size_px,
+                3::smallint as dimension,
+                detail_level,
+                true::boolean as is_agg,
+                public.ST_AsGrids3D(
+                    public.ST_Transform({grid_schema}.make_bbox_prism_3d(extent, min_z, max_z), 4326),
+                    detail_level,
+                    true
+                ) as grids,
+                public.ST_Transform(public.ST_Force2D(extent), 4326)::geometry(Polygon, 4326) as footprint_4326,
+                min_z as min_height,
+                max_z as max_height,
+                now() as generated_at
+            from blocks
+            where extent is not null
+              and not public.ST_IsEmpty(extent)
+              and max_z > min_z
+        )
+        select
+            source_kind,
+            source_id,
+            source_name,
+            lod_level,
+            block_size_px,
+            dimension,
+            public.ST_DetailLevel(grids)::integer as detail_level,
+            is_agg,
+            grids,
+            footprint_4326,
+            min_height,
+            max_height,
+            public.ST_nCells(grids)::integer as cell_count,
+            generated_at
+        from generated_grids
+        where grids is not null
+        """
+    ).format(
+        target_view=qname(args.grid_schema, args.terrain_lod_view_name),
+        spec_values=spec_values,
+        underground_tolerance=sql.Literal(args.underground_tolerance_m),
+        terrain_clearance=sql.Literal(args.terrain_clearance_m),
+        dataset_filter=dataset_filter,
+        grid_schema=sql.Identifier(args.grid_schema),
+    )
 
 
 def build_building_where_clause(args: argparse.Namespace) -> sql.Composed:
@@ -898,6 +1083,35 @@ def create_source_indexes(cur: psycopg.Cursor[Any], args: argparse.Namespace, vi
     )
 
 
+def create_terrain_lod_indexes(cur: psycopg.Cursor[Any], args: argparse.Namespace) -> None:
+    target = qname(args.grid_schema, args.terrain_lod_view_name)
+    view_name = args.terrain_lod_view_name
+    cur.execute(
+        sql.SQL("create unique index {index_name} on {target_view} (lod_level, source_kind, source_id)").format(
+            index_name=sql.Identifier(f"{view_name}_uidx"),
+            target_view=target,
+        )
+    )
+    cur.execute(
+        sql.SQL("create index {index_name} on {target_view} (lod_level)").format(
+            index_name=sql.Identifier(f"{view_name}_lod_idx"),
+            target_view=target,
+        )
+    )
+    cur.execute(
+        sql.SQL("create index {index_name} on {target_view} using gist (footprint_4326)").format(
+            index_name=sql.Identifier(f"{view_name}_footprint_gix"),
+            target_view=target,
+        )
+    )
+    cur.execute(
+        sql.SQL("create index {index_name} on {target_view} using gin (grids gin_grids_ops)").format(
+            index_name=sql.Identifier(f"{view_name}_grids_gin_idx"),
+            target_view=target,
+        )
+    )
+
+
 def grant_generated_objects(cur: psycopg.Cursor[Any], args: argparse.Namespace) -> None:
     role = sql.Identifier(args.grant_role)
     cur.execute(sql.SQL("grant usage on schema {} to {}").format(sql.Identifier(args.grid_schema), role))
@@ -909,6 +1123,13 @@ def grant_generated_objects(cur: psycopg.Cursor[Any], args: argparse.Namespace) 
         qname(args.public_wrapper_schema, args.public_wrapper_name),
         *(qname(args.grid_schema, SOURCE_TO_VIEW[source]) for source in SOURCE_ORDER),
     ]
+    if args.terrain_lod_display:
+        cur.execute("select to_regclass(%s) is not null", (qname_literal(args.grid_schema, args.terrain_lod_view_name),))
+        lod_exists = bool(cur.fetchone()[0])
+    else:
+        lod_exists = False
+    if lod_exists:
+        relations.append(qname(args.grid_schema, args.terrain_lod_view_name))
     cur.execute(sql.SQL("grant select on {} to {}").format(sql.SQL(", ").join(relations), role))
 
 
@@ -933,6 +1154,10 @@ def rebuild_views(conn: psycopg.Connection[Any], args: argparse.Namespace) -> No
             cur.execute(sql.SQL("drop materialized view if exists {}").format(qname(args.grid_schema, SOURCE_TO_VIEW[source])))
             cur.execute(source_view_sql(args, source, has_terrain_tables))
             create_source_indexes(cur, args, SOURCE_TO_VIEW[source])
+            if source == "terrain" and args.terrain_lod_display:
+                cur.execute(sql.SQL("drop materialized view if exists {}").format(qname(args.grid_schema, args.terrain_lod_view_name)))
+                cur.execute(build_obstacles_terrain_lod_sql(args, has_terrain_tables))
+                create_terrain_lod_indexes(cur, args)
 
         ensure_all_source_views_exist(cur, args, has_terrain_tables)
         cur.execute(build_total_view_sql(args))
@@ -956,6 +1181,8 @@ def refresh_views(conn: psycopg.Connection[Any], args: argparse.Namespace) -> No
     with conn.cursor() as cur:
         for source in sources:
             refresh_one(cur, args, args.grid_schema, SOURCE_TO_VIEW[source])
+            if source == "terrain" and args.terrain_lod_display:
+                refresh_one(cur, args, args.grid_schema, args.terrain_lod_view_name)
         refresh_one(cur, args, args.grid_schema, args.total_view_name)
         cur.execute(build_codes_view_sql(args))
         cur.execute(build_public_wrapper_sql(args))
@@ -1025,6 +1252,23 @@ def relation_count(conn: psycopg.Connection[Any], schema_name: str, relation_nam
     with conn.cursor() as cur:
         cur.execute(sql.SQL("select count(*) from {}").format(qname(schema_name, relation_name)))
         return int(cur.fetchone()[0])
+
+
+def terrain_lod_counts(conn: psycopg.Connection[Any], args: argparse.Namespace) -> list[tuple[int, int, int | None]]:
+    if not regclass_exists(conn, args.grid_schema, args.terrain_lod_view_name):
+        return []
+    with conn.cursor() as cur:
+        cur.execute(
+            sql.SQL(
+                """
+                select lod_level, count(*)::integer as row_count, sum(cell_count)::integer as total_cells
+                from {target_view}
+                group by lod_level
+                order by lod_level
+                """
+            ).format(target_view=qname(args.grid_schema, args.terrain_lod_view_name))
+        )
+        return [(int(row[0]), int(row[1]), int(row[2]) if row[2] is not None else None) for row in cur.fetchall()]
 
 
 def fetch_samples(conn: psycopg.Connection[Any], args: argparse.Namespace) -> list[SampleRow]:
@@ -1112,6 +1356,8 @@ def print_post_action_hint(args: argparse.Namespace) -> None:
     print(f"Unified materialized view: {qname_literal(args.grid_schema, args.total_view_name)}")
     for source in SOURCE_ORDER:
         print(f"Source view: {qname_literal(args.grid_schema, SOURCE_TO_VIEW[source])}")
+    if args.terrain_lod_display:
+        print(f"Terrain LOD display view: {qname_literal(args.grid_schema, args.terrain_lod_view_name)} ({args.terrain_lod_spec})")
     print(f"GGER display view: {qname_literal(args.grid_schema, args.codes_view_name)}")
     print(f"ST_FindGridsPath wrapper: {qname_literal(args.public_wrapper_schema, args.public_wrapper_name)} (id, grids)")
     print(f"Generation modes: airspace={args.airspace_mode}, terrain={args.terrain_mode}")
@@ -1144,6 +1390,12 @@ def main() -> int:
             print(f"{action} {qname_literal(args.grid_schema, args.total_view_name)}.")
             for source in SOURCE_ORDER:
                 print(f"- {qname_literal(args.grid_schema, SOURCE_TO_VIEW[source])}: {relation_count(conn, args.grid_schema, SOURCE_TO_VIEW[source])} rows")
+            if args.terrain_lod_display:
+                lod_counts = terrain_lod_counts(conn, args)
+                if lod_counts:
+                    print(f"- {qname_literal(args.grid_schema, args.terrain_lod_view_name)}:")
+                    for lod_level, row_count, total_cells in lod_counts:
+                        print(f"  - LOD{lod_level}: {row_count} rows, {total_cells or 0} cells")
             print_samples(total_count, fetch_samples(conn, args))
             print_post_action_hint(args)
             return 0

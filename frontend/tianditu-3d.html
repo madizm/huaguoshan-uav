@@ -683,6 +683,14 @@
             <option value="outline">Outline</option>
           </select>
         </label>
+        <label class="field">Terrain detail
+          <select id="terrainLodMode">
+            <option value="auto">Auto LOD</option>
+            <option value="0">Overview</option>
+            <option value="1">Medium</option>
+            <option value="2">Fine</option>
+          </select>
+        </label>
       </div>
       <div class="source-toggles" aria-label="飞行障碍来源过滤">
         <button type="button" data-obstacle-source="building" aria-pressed="true" style="--source-color:#4cc9f0">建筑</button>
@@ -797,6 +805,12 @@
       var citydbFeatureRpcUrl = 'http://10.1.109.151:13000/rpc/get_citydb_feature_properties';
       var citydbFeatureGridRpcUrl = 'http://10.1.109.151:13000/rpc/get_citydb_feature_gger_grids';
       var flightObstaclesRpcUrl = 'http://10.1.109.151:13000/rpc/list_flight_obstacles_gger';
+      var flightObstaclesLodRpcUrl = 'http://10.1.109.151:13000/rpc/list_flight_obstacles_gger_lod';
+      var TERRAIN_LOD_RULES = [
+        { minHeight: 8000, lod: 0, limit: 200, bboxBuffer: 0.50, label: 'Overview' },
+        { minHeight: 2000, lod: 1, limit: 500, bboxBuffer: 0.25, label: 'Medium' },
+        { minHeight: 0, lod: 2, limit: 800, bboxBuffer: 0.15, label: 'Fine' }
+      ];
       var flightObstacleSources = {
         building: { label: '建筑', color: '#4cc9f0' },
         terrain: { label: '地形', color: '#8bc34a' },
@@ -837,7 +851,16 @@
             temp_control: true
           },
           maxItems: 200,
-          loading: false
+          loading: false,
+          terrainLod: {
+            mode: 'auto',
+            currentLod: null,
+            cache: {},
+            loadedBbox: null,
+            summary: null,
+            loading: false,
+            moveEndTimer: null
+          }
         }
       };
 
@@ -1074,6 +1097,105 @@
         });
       }
 
+      function terrainLodMode() {
+        var select = $('#terrainLodMode');
+        return select ? select.value : state.flightObstacles.terrainLod.mode;
+      }
+
+      function cameraHeightMeters() {
+        if (!state.viewer || !state.viewer.camera || !state.viewer.camera.positionCartographic) return 0;
+        return state.viewer.camera.positionCartographic.height || 0;
+      }
+
+      function terrainLodRuleForCamera() {
+        var mode = terrainLodMode();
+        var fixedLod = Number(mode);
+        var height = cameraHeightMeters();
+        var rule;
+        if (Number.isFinite(fixedLod)) {
+          rule = TERRAIN_LOD_RULES.find(function (item) { return item.lod === fixedLod; }) || TERRAIN_LOD_RULES[0];
+          return Object.assign({}, rule, { manual: true });
+        }
+        return TERRAIN_LOD_RULES.find(function (item) { return height >= item.minHeight; }) || TERRAIN_LOD_RULES[TERRAIN_LOD_RULES.length - 1];
+      }
+
+      function terrainViewBbox(bufferRatio) {
+        var CesiumRuntime = window.Cesium;
+        var rectangle;
+        var west;
+        var south;
+        var east;
+        var north;
+        var lonPad;
+        var latPad;
+        if (!state.viewer || !CesiumRuntime) return null;
+        rectangle = state.viewer.camera.computeViewRectangle(state.viewer.scene.globe.ellipsoid);
+        if (!rectangle) {
+          west = huaguoshan.lon - 0.08;
+          south = huaguoshan.lat - 0.08;
+          east = huaguoshan.lon + 0.08;
+          north = huaguoshan.lat + 0.08;
+        } else {
+          west = CesiumRuntime.Math.toDegrees(rectangle.west);
+          south = CesiumRuntime.Math.toDegrees(rectangle.south);
+          east = CesiumRuntime.Math.toDegrees(rectangle.east);
+          north = CesiumRuntime.Math.toDegrees(rectangle.north);
+        }
+        lonPad = Math.max(0.01, Math.abs(east - west) * bufferRatio);
+        latPad = Math.max(0.01, Math.abs(north - south) * bufferRatio);
+        return {
+          west: Math.max(-180, west - lonPad),
+          south: Math.max(-90, south - latPad),
+          east: Math.min(180, east + lonPad),
+          north: Math.min(90, north + latPad)
+        };
+      }
+
+      function terrainViewCenter(fallbackBbox) {
+        var CesiumRuntime = window.Cesium;
+        var canvas;
+        var screenCenter;
+        var cartesian = null;
+        var ray;
+        var cartographic;
+        if (!state.viewer || !CesiumRuntime) return null;
+        canvas = state.viewer.scene.canvas;
+        screenCenter = new CesiumRuntime.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
+        if (state.viewer.scene.globe && typeof state.viewer.camera.getPickRay === 'function') {
+          ray = state.viewer.camera.getPickRay(screenCenter);
+          if (ray) cartesian = state.viewer.scene.globe.pick(ray, state.viewer.scene);
+        }
+        if (!cartesian && typeof state.viewer.camera.pickEllipsoid === 'function') {
+          cartesian = state.viewer.camera.pickEllipsoid(screenCenter, state.viewer.scene.globe.ellipsoid);
+        }
+        if (cartesian) {
+          cartographic = CesiumRuntime.Cartographic.fromCartesian(cartesian);
+          return {
+            lon: CesiumRuntime.Math.toDegrees(cartographic.longitude),
+            lat: CesiumRuntime.Math.toDegrees(cartographic.latitude)
+          };
+        }
+        if (fallbackBbox) {
+          return {
+            lon: (fallbackBbox.west + fallbackBbox.east) / 2,
+            lat: (fallbackBbox.south + fallbackBbox.north) / 2
+          };
+        }
+        return { lon: huaguoshan.lon, lat: huaguoshan.lat };
+      }
+
+      function terrainBboxCacheKey(bbox) {
+        if (!bbox) return 'all';
+        return [bbox.west, bbox.south, bbox.east, bbox.north].map(function (value) {
+          return Math.floor(value * 100);
+        }).join(':');
+      }
+
+      function terrainPointCacheKey(point) {
+        if (!point) return 'center:none';
+        return 'center:' + Math.floor(point.lon * 1000) + ':' + Math.floor(point.lat * 1000);
+      }
+
       function flightObstacleLimit() {
         var input = $('#flightObstacleLimit');
         var value = input ? Number(input.value) : state.flightObstacles.maxItems;
@@ -1116,11 +1238,57 @@
         });
       }
 
+      function requestTerrainObstaclesLod() {
+        var rule = terrainLodRuleForCamera();
+        var viewBbox = terrainViewBbox(rule.bboxBuffer);
+        var bbox = rule.lod === 0 ? null : viewBbox;
+        var center = terrainViewCenter(viewBbox);
+        var limit = Math.min(rule.limit, flightObstacleLimit());
+        var cacheKey = 'terrain:' + rule.lod + ':' + terrainBboxCacheKey(bbox || viewBbox) + ':' + terrainPointCacheKey(center) + ':' + limit;
+        var payload = {
+          p_source_kind: 'terrain',
+          p_lod_level: rule.lod,
+          p_limit: limit,
+          p_include_boxes: true
+        };
+        if (bbox) {
+          payload.p_west = bbox.west;
+          payload.p_south = bbox.south;
+          payload.p_east = bbox.east;
+          payload.p_north = bbox.north;
+        }
+        if (center) {
+          payload.p_center_lon = center.lon;
+          payload.p_center_lat = center.lat;
+        }
+        state.flightObstacles.terrainLod.currentLod = rule.lod;
+        state.flightObstacles.terrainLod.loadedBbox = bbox;
+        state.flightObstacles.terrainLod.summary = { lod: rule.lod, limit: limit, bbox: bbox, label: rule.label, mode: terrainLodMode() };
+        if (state.flightObstacles.terrainLod.cache[cacheKey]) return Promise.resolve(state.flightObstacles.terrainLod.cache[cacheKey]);
+        state.flightObstacles.terrainLod.loading = true;
+        return fetch(flightObstaclesLodRpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).then(function (response) {
+          if (!response.ok) throw new Error('PostgREST terrain LOD RPC HTTP ' + response.status);
+          return response.text();
+        }).then(function (text) {
+          var data = text ? JSON.parse(text) : [];
+          if (!Array.isArray(data)) data = [];
+          state.flightObstacles.terrainLod.cache[cacheKey] = data;
+          return data;
+        }).finally(function () {
+          state.flightObstacles.terrainLod.loading = false;
+        });
+      }
+
       function requestFlightObstacles() {
         var sources = selectedFlightObstacleSources();
         var limit = flightObstacleLimit();
         if (!sources.length) return Promise.resolve([]);
         return Promise.all(sources.map(function (sourceKind) {
+          if (sourceKind === 'terrain') return requestTerrainObstaclesLod();
           return requestFlightObstacleSource(sourceKind, limit);
         })).then(function (groups) {
           return groups.reduce(function (all, group) { return all.concat(group); }, []);
@@ -1179,6 +1347,19 @@
         state.flightObstacles.bounds = mergeBounds(obstacles.map(function (obstacle) { return obstacle.bounds; }));
       }
 
+      function terrainLodPanelRows() {
+        var summary = state.flightObstacles.terrainLod.summary;
+        if (!summary || !state.flightObstacles.sourceFilters.terrain) return '';
+        return '<div class="feature-meta-row"><span>地形障碍 LOD</span><code>LOD' + escapeHtml(summary.lod) + ' · ' + escapeHtml(summary.label) + ' · limit ' + escapeHtml(summary.limit) + '</code></div>' +
+          '<div class="feature-meta-row"><span>地形加载策略</span><code>' + escapeHtml(summary.mode === 'auto' ? 'Auto · moveEnd bbox' : 'Manual') + '</code></div>';
+      }
+
+      function terrainLodLogSuffix() {
+        var summary = state.flightObstacles.terrainLod.summary;
+        if (!summary || !state.flightObstacles.sourceFilters.terrain) return '';
+        return '；地形 LOD' + summary.lod + '（' + summary.label + '，limit ' + summary.limit + '）';
+      }
+
       function renderFlightObstaclePanel(obstacles) {
         var summary;
         var cards;
@@ -1196,6 +1377,7 @@
           var color = flightObstacleColor(obstacle.source_kind);
           var metaRows = [
             ['Source ID', obstacle.source_id],
+            ['Terrain LOD', obstacle.lod_level != null ? 'LOD' + obstacle.lod_level + (obstacle.block_size_px ? ' · ' + obstacle.block_size_px + 'px block' : '') : null],
             ['Detail', obstacle.detail_level ? 'L' + obstacle.detail_level : null],
             ['Cells', obstacle.cell_count || obstacle.cells.length || 0],
             ['Priority', obstacle.priority],
@@ -1216,7 +1398,7 @@
             '<div class="feature-title"><span>Flight Obstacles</span><strong>多源飞行障碍 · ' + obstacles.length + ' 条</strong></div>' +
             '<div class="feature-meta">' + Object.keys(summary).map(function (sourceKind) {
               return '<div class="feature-meta-row"><span>' + escapeHtml(flightObstacleLabel(sourceKind)) + '</span><code>' + summary[sourceKind] + '</code></div>';
-            }).join('') + '</div>' +
+            }).join('') + terrainLodPanelRows() + '</div>' +
             cards +
             (obstacles.length > 12 ? '<div class="feature-empty">面板仅展示前 12 / ' + obstacles.length + ' 条；地图已绘制全部返回障碍。</div>' : '') +
           '</div>';
@@ -1225,7 +1407,10 @@
       function loadFlightObstacles(forceRefresh) {
         var token;
         if (!state.flightObstacles.enabled) return Promise.resolve();
-        if (forceRefresh) state.flightObstacles.cache = {};
+        if (forceRefresh) {
+          state.flightObstacles.cache = {};
+          state.flightObstacles.terrainLod.cache = {};
+        }
         state.flightObstacles.loading = true;
         token = Date.now();
         state.flightObstacles.requestToken = token;
@@ -1236,10 +1421,10 @@
           normalized = obstacles.map(normalizeFlightObstacle).filter(function (obstacle) { return obstacle.cells.length; });
           renderFlightObstaclePrimitives(normalized);
           renderFlightObstaclePanel(normalized);
-          log('飞行障碍已加载：' + normalized.length + ' 条，来源：' + selectedFlightObstacleSources().map(flightObstacleLabel).join(' / ') + '。');
+          log('飞行障碍已加载：' + normalized.length + ' 条，来源：' + selectedFlightObstacleSources().map(flightObstacleLabel).join(' / ') + terrainLodLogSuffix() + '。');
         }).catch(function (error) {
           console.error('[Tianditu3D] Flight obstacles RPC failed:', error);
-          renderFeatureError('飞行障碍 RPC 查询失败：' + error.message + '。请确认 PostgREST 服务与 list_flight_obstacles_gger RPC 可访问。');
+          renderFeatureError('飞行障碍 RPC 查询失败：' + error.message + '。请确认 PostgREST 服务与 list_flight_obstacles_gger / list_flight_obstacles_gger_lod RPC 可访问。');
           log('飞行障碍 RPC 查询失败，请检查 PostgREST。');
         }).finally(function () {
           state.flightObstacles.loading = false;
@@ -1840,6 +2025,7 @@
 
       function bindObstacleControls() {
         var limitInput = $('#flightObstacleLimit');
+        var terrainMode = $('#terrainLodMode');
         syncObstacleSourceButtons();
         if (limitInput) {
           limitInput.addEventListener('change', function () {
@@ -1847,6 +2033,26 @@
             if (state.flightObstacles.enabled) loadFlightObstacles(true);
           });
         }
+        if (terrainMode) {
+          terrainMode.addEventListener('change', function () {
+            state.flightObstacles.terrainLod.mode = terrainLodMode();
+            state.flightObstacles.terrainLod.cache = {};
+            if (state.flightObstacles.enabled && state.flightObstacles.sourceFilters.terrain) loadFlightObstacles(true);
+          });
+        }
+      }
+
+      function scheduleTerrainLodRefresh() {
+        if (!state.flightObstacles.enabled || !state.flightObstacles.sourceFilters.terrain) return;
+        if (state.flightObstacles.terrainLod.moveEndTimer) window.clearTimeout(state.flightObstacles.terrainLod.moveEndTimer);
+        state.flightObstacles.terrainLod.moveEndTimer = window.setTimeout(function () {
+          loadFlightObstacles(false);
+        }, 350);
+      }
+
+      function bindTerrainLodCameraRefresh(viewer) {
+        if (!viewer || !viewer.camera || !viewer.camera.moveEnd) return;
+        viewer.camera.moveEnd.addEventListener(scheduleTerrainLodRefresh);
       }
 
       function addLocalTileset(viewer) {
@@ -2163,6 +2369,7 @@
         bindControls();
         bindAirspaceControls();
         bindObstacleControls();
+        bindTerrainLodCameraRefresh(state.viewer);
         bindFeaturePicking(state.viewer);
 
         state.viewer.scene.postRender.addEventListener(updateCameraReadout);
