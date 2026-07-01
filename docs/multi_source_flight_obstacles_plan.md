@@ -291,3 +291,25 @@ uv run scripts/refresh_citydb_obstacle_grids.py --source all
 | 5 | GGER 展示视图不输出 BGC | 对外编码保持 GGER-only |
 | 6 | 临时管制区按时间窗口生效 | 过期或取消区域不进入 active 视图 |
 | 7 | 前端可按 `source_kind` 过滤/展示 | 建筑、地形、禁飞区、临时管制区可区分 |
+
+## 10. 实施状态
+
+已新增多源刷新脚本：
+
+```bash
+uv run scripts/refresh_citydb_obstacle_grids.py --source all --grant-role web_anon
+```
+
+当前实现内容：
+
+- `citydb_grid.obstacles_buildings`：由 `citydb.feature` / `citydb.geometry_data` 生成建筑障碍。
+- `citydb_grid.obstacles_terrain`：由 `terrain.dem_tile` 生成第一版 DEM tile 级粗粒度 3D bbox prism 障碍，使用 `min_elevation - underground_tolerance` 到 `max_elevation + terrain_clearance_m`。
+- `airspace.no_fly_zone` / `airspace.temp_control_zone`：脚本自动创建业务表。
+- `citydb_grid.obstacles_no_fly_zones` / `citydb_grid.obstacles_temp_control_active`：由 airspace polygon 生成第一版粗粒度 3D bbox prism 障碍；临时管制区按 `valid_from` / `valid_to` 与 `status` 筛选。
+- `citydb_grid.flight_obstacles`：统一 `UNION ALL` 总物化视图，已建 `(source_kind, source_id)` 唯一索引与 `grids gin_grids_ops` GIN 索引。
+- `public.flight_obstacles(id, grids)`：保留给 `ST_FindGridsPath` 的兼容包装。
+- `citydb_grid.flight_obstacles_codes_view`：仅输出 GGER 展示码，不输出 BGC。
+- `public/citydb.list_flight_obstacles_gger(...)`：新增前端列表 RPC，按 `source_kind` 返回 GGER 与可选 `ST_WithBox` bbox。
+- `frontend/tianditu-3d.html`：新增“飞行障碍”图层、source_kind 过滤、刷新/定位/清除操作，以及多源障碍线框渲染和详情面板。
+
+注意：地形、禁飞区、临时管制区第一版为了安全和 SQL 可维护性，使用 footprint envelope 的 3D bbox prism 表达占用体，可能在 XY 上保守扩大障碍范围。后续如需更精细避障，可升级为按 polygon 精确挤出或按 DEM cell/mesh 切片生成。

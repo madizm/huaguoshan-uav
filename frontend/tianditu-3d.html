@@ -67,6 +67,7 @@
     }
 
     .hud {
+      scrollbar-color: rgba(255, 247, 223, 0.46) rgba(0, 0, 0, 0.16);
       position: fixed;
       z-index: 10;
       top: 24px;
@@ -80,6 +81,8 @@
         repeating-linear-gradient(90deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 9px);
       box-shadow: var(--shadow);
       backdrop-filter: blur(14px) saturate(1.15);
+      max-height: calc(100vh - 48px);
+      overflow: auto;
     }
 
     .kicker {
@@ -159,7 +162,8 @@
       background: rgba(0, 0, 0, 0.14);
     }
 
-    .airspace-controls {
+    .airspace-controls,
+    .obstacle-controls {
       margin-top: 16px;
       padding: 14px;
       border: 1px solid rgba(215, 168, 70, 0.24);
@@ -169,12 +173,51 @@
         rgba(0, 0, 0, 0.16);
     }
 
-    .airspace-controls h2 {
+    .obstacle-controls {
+      border-color: rgba(255, 59, 48, 0.30);
+      background:
+        linear-gradient(135deg, rgba(255, 59, 48, 0.12), rgba(76, 201, 240, 0.08)),
+        rgba(0, 0, 0, 0.18);
+    }
+
+    .airspace-controls h2,
+    .obstacle-controls h2 {
       margin: 0 0 10px;
       color: var(--gold);
       font-size: 12px;
       letter-spacing: 0.2em;
       text-transform: uppercase;
+    }
+
+    .obstacle-controls h2 {
+      color: #ffb000;
+    }
+
+    .source-toggles {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .source-toggles button {
+      justify-content: center;
+      padding: 9px 10px;
+      border-color: var(--source-color, rgba(255, 247, 223, 0.28));
+      box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.00);
+    }
+
+    .source-toggles button[aria-pressed="true"] {
+      background:
+        linear-gradient(135deg, color-mix(in srgb, var(--source-color, var(--gold)) 26%, transparent), rgba(255, 247, 223, 0.07));
+      color: var(--paper-strong);
+    }
+
+    .obstacle-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
     }
 
     .control-grid {
@@ -477,6 +520,42 @@
       font-size: 12px;
     }
 
+    .obstacle-card {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid color-mix(in srgb, var(--source-color, #ffb000) 48%, transparent);
+      border-radius: 16px;
+      background:
+        linear-gradient(135deg, color-mix(in srgb, var(--source-color, #ffb000) 16%, transparent), rgba(0, 0, 0, 0.18)),
+        rgba(0, 0, 0, 0.12);
+    }
+
+    .obstacle-card + .obstacle-card {
+      margin-top: 10px;
+    }
+
+    .obstacle-card h3 {
+      margin: 0;
+      overflow-wrap: anywhere;
+      color: var(--source-color, #ffb000);
+      font-size: 15px;
+      line-height: 1.25;
+    }
+
+    .obstacle-pill {
+      display: inline-flex;
+      width: fit-content;
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: var(--ink);
+      background: var(--source-color, #ffb000);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
     .feature-property.has-children {
       border-color: rgba(215, 168, 70, 0.24);
       background: rgba(215, 168, 70, 0.08);
@@ -531,7 +610,7 @@
 
     .badge {
       position: fixed;
-      z-index: 10;
+      z-index: 8;
       left: 24px;
       bottom: 24px;
       display: flex;
@@ -591,6 +670,31 @@
       <button type="button" data-layer="airspace" aria-pressed="false">空域柱网</button>
       <button type="button" data-layer="slice" aria-pressed="false">高度切片</button>
       <button type="button" data-layer="ggerLabels" aria-pressed="false">网格编码</button>
+      <button type="button" data-layer="flightObstacles" aria-pressed="false">飞行障碍</button>
+    </div>
+    <div class="obstacle-controls" aria-label="飞行障碍过滤">
+      <h2>Flight Obstacles</h2>
+      <div class="control-grid">
+        <label class="field">Max rows
+          <input id="flightObstacleLimit" type="number" min="1" max="1000" step="25" value="200" />
+        </label>
+        <label class="field">Mode
+          <select id="flightObstacleMode">
+            <option value="outline">Outline</option>
+          </select>
+        </label>
+      </div>
+      <div class="source-toggles" aria-label="飞行障碍来源过滤">
+        <button type="button" data-obstacle-source="building" aria-pressed="true" style="--source-color:#4cc9f0">建筑</button>
+        <button type="button" data-obstacle-source="terrain" aria-pressed="false" style="--source-color:#8bc34a">地形</button>
+        <button type="button" data-obstacle-source="no_fly_zone" aria-pressed="true" style="--source-color:#ff3b30">禁飞区</button>
+        <button type="button" data-obstacle-source="temp_control" aria-pressed="true" style="--source-color:#ffb000">临时管制</button>
+      </div>
+      <div class="obstacle-actions">
+        <button type="button" data-action="refreshFlightObstacles">刷新障碍</button>
+        <button type="button" data-action="zoomFlightObstacles">定位障碍</button>
+        <button type="button" data-action="clearFlightObstacles">清除</button>
+      </div>
     </div>
     <div class="airspace-controls" aria-label="GGER 空域网格参数">
       <h2>GGER Airspace Grid</h2>
@@ -667,9 +771,9 @@
 
   <aside class="feature-panel" aria-label="CityDB 模型属性">
     <header>
-      <h2>Selected CityDB Feature</h2>
-      <button class="feature-close" id="closeFeaturePanel" type="button" aria-label="关闭 CityDB 属性面板" title="关闭属性面板">×</button>
-      <p>点击本工程导出的建筑 3D Tiles，读取模型 metadata 并通过 PostgREST RPC 查询 CityDB 属性。</p>
+      <h2>Selection Inspector</h2>
+      <button class="feature-close" id="closeFeaturePanel" type="button" aria-label="关闭选择详情面板" title="关闭详情面板">×</button>
+      <p>点击建筑模型查询 CityDB 属性，或开启飞行障碍图层查看多源 GGER 障碍。</p>
     </header>
     <div class="feature-content" id="featureProperties">
       <div class="feature-empty">尚未选择建筑模型。</div>
@@ -692,6 +796,13 @@
       var demTilesetUrl = '../exports/terrain/huaguoshan_dem_3dtiles/tileset.json';
       var citydbFeatureRpcUrl = 'http://10.1.109.151:13000/rpc/get_citydb_feature_properties';
       var citydbFeatureGridRpcUrl = 'http://10.1.109.151:13000/rpc/get_citydb_feature_gger_grids';
+      var flightObstaclesRpcUrl = 'http://10.1.109.151:13000/rpc/list_flight_obstacles_gger';
+      var flightObstacleSources = {
+        building: { label: '建筑', color: '#4cc9f0' },
+        terrain: { label: '地形', color: '#8bc34a' },
+        no_fly_zone: { label: '禁飞区', color: '#ff3b30' },
+        temp_control: { label: '临时管制', color: '#ffb000' }
+      };
       var huaguoshan = { lon: 119.2683, lat: 34.6469 };
       var state = {
         viewer: null,
@@ -712,7 +823,22 @@
         selectedFeatureIdentifier: null,
         selectedGridPrimitive: null,
         selectedGridBounds: null,
-        selectedGridCells: []
+        selectedGridCells: [],
+        flightObstacles: {
+          enabled: false,
+          primitive: null,
+          items: [],
+          bounds: null,
+          cache: {},
+          sourceFilters: {
+            building: true,
+            terrain: false,
+            no_fly_zone: true,
+            temp_control: true
+          },
+          maxItems: 200,
+          loading: false
+        }
       };
 
       var $ = function (selector) { return document.querySelector(selector); };
@@ -896,6 +1022,250 @@
         state.selectedGridPrimitive = state.viewer.scene.primitives.add(primitive);
         state.selectedGridBounds = bounds;
         state.selectedGridCells = cells;
+      }
+
+      function cellsBounds(cells) {
+        if (!cells.length) return null;
+        return cells.reduce(function (acc, cell) {
+          return {
+            west: Math.min(acc.west, cell.minLon),
+            south: Math.min(acc.south, cell.minLat),
+            east: Math.max(acc.east, cell.maxLon),
+            north: Math.max(acc.north, cell.maxLat),
+            minHeight: Math.min(acc.minHeight, cell.minHeight),
+            maxHeight: Math.max(acc.maxHeight, cell.maxHeight)
+          };
+        }, {
+          west: Number.POSITIVE_INFINITY,
+          south: Number.POSITIVE_INFINITY,
+          east: Number.NEGATIVE_INFINITY,
+          north: Number.NEGATIVE_INFINITY,
+          minHeight: Number.POSITIVE_INFINITY,
+          maxHeight: Number.NEGATIVE_INFINITY
+        });
+      }
+
+      function mergeBounds(boundsList) {
+        var valid = boundsList.filter(Boolean);
+        if (!valid.length) return null;
+        return valid.reduce(function (acc, bounds) {
+          return {
+            west: Math.min(acc.west, bounds.west),
+            south: Math.min(acc.south, bounds.south),
+            east: Math.max(acc.east, bounds.east),
+            north: Math.max(acc.north, bounds.north),
+            minHeight: Math.min(acc.minHeight, bounds.minHeight),
+            maxHeight: Math.max(acc.maxHeight, bounds.maxHeight)
+          };
+        });
+      }
+
+      function flightObstacleColor(sourceKind) {
+        return (flightObstacleSources[sourceKind] && flightObstacleSources[sourceKind].color) || '#ffb000';
+      }
+
+      function flightObstacleLabel(sourceKind) {
+        return (flightObstacleSources[sourceKind] && flightObstacleSources[sourceKind].label) || sourceKind || '未知来源';
+      }
+
+      function selectedFlightObstacleSources() {
+        return Object.keys(state.flightObstacles.sourceFilters).filter(function (sourceKind) {
+          return state.flightObstacles.sourceFilters[sourceKind];
+        });
+      }
+
+      function flightObstacleLimit() {
+        var input = $('#flightObstacleLimit');
+        var value = input ? Number(input.value) : state.flightObstacles.maxItems;
+        if (!Number.isFinite(value)) value = 200;
+        return Math.max(1, Math.min(1000, Math.round(value)));
+      }
+
+      function clearFlightObstaclePrimitives() {
+        if (state.flightObstacles.primitive && state.viewer) {
+          try {
+            state.viewer.scene.primitives.remove(state.flightObstacles.primitive);
+          } catch (error) {
+            console.warn('[Tianditu3D] Failed to remove flight obstacle primitive:', error);
+          }
+        }
+        state.flightObstacles.primitive = null;
+        state.flightObstacles.items = [];
+        state.flightObstacles.bounds = null;
+      }
+
+      function requestFlightObstacleSource(sourceKind, limit) {
+        var cacheKey = sourceKind + ':' + limit;
+        if (state.flightObstacles.cache[cacheKey]) return Promise.resolve(state.flightObstacles.cache[cacheKey]);
+        return fetch(flightObstaclesRpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            p_source_kind: sourceKind,
+            p_limit: limit,
+            p_include_boxes: true
+          })
+        }).then(function (response) {
+          if (!response.ok) throw new Error('PostgREST flight obstacles RPC HTTP ' + response.status);
+          return response.text();
+        }).then(function (text) {
+          var data = text ? JSON.parse(text) : [];
+          if (!Array.isArray(data)) data = [];
+          state.flightObstacles.cache[cacheKey] = data;
+          return data;
+        });
+      }
+
+      function requestFlightObstacles() {
+        var sources = selectedFlightObstacleSources();
+        var limit = flightObstacleLimit();
+        if (!sources.length) return Promise.resolve([]);
+        return Promise.all(sources.map(function (sourceKind) {
+          return requestFlightObstacleSource(sourceKind, limit);
+        })).then(function (groups) {
+          return groups.reduce(function (all, group) { return all.concat(group); }, []);
+        });
+      }
+
+      function normalizeFlightObstacle(obstacle, index) {
+        var cells = extractGridCells({ grid: obstacle });
+        return Object.assign({}, obstacle, {
+          index: index,
+          cells: cells,
+          bounds: cellsBounds(cells)
+        });
+      }
+
+      function renderFlightObstaclePrimitives(obstacles) {
+        var CesiumRuntime = window.Cesium;
+        var primitive;
+        var materials = {};
+
+        clearFlightObstaclePrimitives();
+        if (!state.viewer || !CesiumRuntime || !obstacles.length) return;
+
+        primitive = new CesiumRuntime.PolylineCollection();
+        obstacles.forEach(function (obstacle) {
+          var edges = {};
+          var sourceKind = obstacle.source_kind;
+          var materialKey = sourceKind || 'unknown';
+          if (!materials[materialKey]) {
+            materials[materialKey] = CesiumRuntime.Material.fromType(CesiumRuntime.Material.ColorType || 'Color', {
+              color: CesiumRuntime.Color.fromCssColorString(flightObstacleColor(sourceKind)).withAlpha(sourceKind === 'terrain' ? 0.46 : 0.78)
+            });
+          }
+          obstacle.cells.forEach(function (cell) { addBoxEdges(edges, cell); });
+          Object.keys(edges).forEach(function (key) {
+            var edge = edges[key];
+            primitive.add({
+              positions: [
+                CesiumRuntime.Cartesian3.fromDegrees(edge[0], edge[1], edge[2]),
+                CesiumRuntime.Cartesian3.fromDegrees(edge[3], edge[4], edge[5])
+              ],
+              width: sourceKind === 'terrain' ? 1.2 : 2.0,
+              material: materials[materialKey],
+              id: {
+                type: 'flightObstacle',
+                source_kind: obstacle.source_kind,
+                source_id: obstacle.source_id,
+                index: obstacle.index
+              }
+            });
+          });
+        });
+
+        state.flightObstacles.primitive = state.viewer.scene.primitives.add(primitive);
+        state.flightObstacles.items = obstacles;
+        state.flightObstacles.bounds = mergeBounds(obstacles.map(function (obstacle) { return obstacle.bounds; }));
+      }
+
+      function renderFlightObstaclePanel(obstacles) {
+        var summary;
+        var cards;
+        showFeaturePanel();
+        if (!obstacles.length) {
+          featurePanel().innerHTML = '<div class="feature-empty">当前过滤条件下没有可展示的飞行障碍。</div>';
+          return;
+        }
+        summary = obstacles.reduce(function (acc, obstacle) {
+          var key = obstacle.source_kind || 'unknown';
+          acc[key] = (acc[key] || 0) + 1;
+          return acc;
+        }, {});
+        cards = obstacles.slice(0, 12).map(function (obstacle) {
+          var color = flightObstacleColor(obstacle.source_kind);
+          var metaRows = [
+            ['Source ID', obstacle.source_id],
+            ['Detail', obstacle.detail_level ? 'L' + obstacle.detail_level : null],
+            ['Cells', obstacle.cell_count || obstacle.cells.length || 0],
+            ['Priority', obstacle.priority],
+            ['Valid From', obstacle.valid_from],
+            ['Valid To', obstacle.valid_to]
+          ].filter(function (row) { return row[1] != null && row[1] !== ''; });
+          return '<div class="obstacle-card" style="--source-color:' + escapeHtml(color) + '">' +
+            '<span class="obstacle-pill">' + escapeHtml(flightObstacleLabel(obstacle.source_kind)) + '</span>' +
+            '<h3>' + escapeHtml(obstacle.source_name || obstacle.source_id || 'flight obstacle') + '</h3>' +
+            '<div class="feature-meta">' + metaRows.map(function (row) {
+              return '<div class="feature-meta-row"><span>' + escapeHtml(row[0]) + '</span><code>' + escapeHtml(row[1]) + '</code></div>';
+            }).join('') + '</div>' +
+            '<div class="feature-grid-actions"><button type="button" data-action="zoomFlightObstacle" data-obstacle-index="' + obstacle.index + '">定位该障碍</button></div>' +
+          '</div>';
+        }).join('');
+        featurePanel().innerHTML =
+          '<div class="feature-card">' +
+            '<div class="feature-title"><span>Flight Obstacles</span><strong>多源飞行障碍 · ' + obstacles.length + ' 条</strong></div>' +
+            '<div class="feature-meta">' + Object.keys(summary).map(function (sourceKind) {
+              return '<div class="feature-meta-row"><span>' + escapeHtml(flightObstacleLabel(sourceKind)) + '</span><code>' + summary[sourceKind] + '</code></div>';
+            }).join('') + '</div>' +
+            cards +
+            (obstacles.length > 12 ? '<div class="feature-empty">面板仅展示前 12 / ' + obstacles.length + ' 条；地图已绘制全部返回障碍。</div>' : '') +
+          '</div>';
+      }
+
+      function loadFlightObstacles(forceRefresh) {
+        var token;
+        if (!state.flightObstacles.enabled) return Promise.resolve();
+        if (forceRefresh) state.flightObstacles.cache = {};
+        state.flightObstacles.loading = true;
+        token = Date.now();
+        state.flightObstacles.requestToken = token;
+        log('正在加载多源飞行障碍 GGER 线框。');
+        return requestFlightObstacles().then(function (obstacles) {
+          var normalized;
+          if (state.flightObstacles.requestToken !== token) return;
+          normalized = obstacles.map(normalizeFlightObstacle).filter(function (obstacle) { return obstacle.cells.length; });
+          renderFlightObstaclePrimitives(normalized);
+          renderFlightObstaclePanel(normalized);
+          log('飞行障碍已加载：' + normalized.length + ' 条，来源：' + selectedFlightObstacleSources().map(flightObstacleLabel).join(' / ') + '。');
+        }).catch(function (error) {
+          console.error('[Tianditu3D] Flight obstacles RPC failed:', error);
+          renderFeatureError('飞行障碍 RPC 查询失败：' + error.message + '。请确认 PostgREST 服务与 list_flight_obstacles_gger RPC 可访问。');
+          log('飞行障碍 RPC 查询失败，请检查 PostgREST。');
+        }).finally(function () {
+          state.flightObstacles.loading = false;
+        });
+      }
+
+      function setFlightObstaclesEnabled(enabled) {
+        state.flightObstacles.enabled = enabled;
+        if (!enabled) {
+          clearFlightObstaclePrimitives();
+          log('飞行障碍图层已关闭。');
+          return;
+        }
+        loadFlightObstacles(false);
+      }
+
+      function zoomFlightObstacleBounds(bounds, message) {
+        if (!state.viewer || !bounds) {
+          log('当前没有可定位的飞行障碍。');
+          return;
+        }
+        state.viewer.camera.flyTo({
+          destination: Cesium.Rectangle.fromDegrees(bounds.west, bounds.south, bounds.east, bounds.north),
+          duration: 1.2
+        });
+        log(message || '已定位到飞行障碍范围。');
       }
 
       function flyToSelectedGridHighlight() {
@@ -1145,6 +1515,14 @@
         var handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
         handler.setInputAction(function (movement) {
           var picked = viewer.scene.pick(movement.position);
+          if (picked && picked.id && picked.id.type === 'flightObstacle') {
+            var pickedObstacle = state.flightObstacles.items.find(function (item) { return item.index === picked.id.index; });
+            if (pickedObstacle) {
+              renderFlightObstaclePanel([pickedObstacle]);
+              log('已选中飞行障碍：' + flightObstacleLabel(pickedObstacle.source_kind) + ' · ' + (pickedObstacle.source_name || pickedObstacle.source_id));
+            }
+            return;
+          }
           if (!isPickedCitydbFeature(picked)) return;
 
           var metadata = readPickedMetadata(picked);
@@ -1417,6 +1795,13 @@
         });
       }
 
+      function syncObstacleSourceButtons() {
+        Object.keys(state.flightObstacles.sourceFilters).forEach(function (sourceKind) {
+          var button = document.querySelector('[data-obstacle-source="' + sourceKind + '"]');
+          if (button) button.setAttribute('aria-pressed', String(Boolean(state.flightObstacles.sourceFilters[sourceKind])));
+        });
+      }
+
       function bindAirspaceControls() {
         var levelMode = $('#ggerLevelMode');
         var anchorHeight = $('#ggerAnchorHeight');
@@ -1451,6 +1836,17 @@
         maxCells.addEventListener('change', function () {
           if (state.airspaceGrid) state.airspaceGrid.setMaxCells(Number(maxCells.value));
         });
+      }
+
+      function bindObstacleControls() {
+        var limitInput = $('#flightObstacleLimit');
+        syncObstacleSourceButtons();
+        if (limitInput) {
+          limitInput.addEventListener('change', function () {
+            state.flightObstacles.maxItems = flightObstacleLimit();
+            if (state.flightObstacles.enabled) loadFlightObstacles(true);
+          });
+        }
       }
 
       function addLocalTileset(viewer) {
@@ -1607,6 +2003,7 @@
         document.addEventListener('click', function (event) {
           var actionButton = event.target.closest('[data-action]');
           var layerButton = event.target.closest('[data-layer]');
+          var sourceButton = event.target.closest('[data-obstacle-source]');
           if (actionButton) {
             var action = actionButton.dataset.action;
             if (action === 'huaguoshan') flyToHuaguoshan();
@@ -1639,6 +2036,35 @@
               clearSelectedGridHighlight();
               log('已清除当前要素的 GGER 包围网格高亮。');
             }
+            if (action === 'refreshFlightObstacles') {
+              var flightButton = document.querySelector('[data-layer="flightObstacles"]');
+              if (flightButton) flightButton.setAttribute('aria-pressed', 'true');
+              state.flightObstacles.enabled = true;
+              loadFlightObstacles(true);
+            }
+            if (action === 'zoomFlightObstacles') {
+              zoomFlightObstacleBounds(state.flightObstacles.bounds, '已定位到当前飞行障碍总范围。');
+            }
+            if (action === 'clearFlightObstacles') {
+              var clearButton = document.querySelector('[data-layer="flightObstacles"]');
+              if (clearButton) clearButton.setAttribute('aria-pressed', 'false');
+              state.flightObstacles.enabled = false;
+              clearFlightObstaclePrimitives();
+              log('飞行障碍图层已清除。');
+            }
+            if (action === 'zoomFlightObstacle') {
+              var obstacleIndex = Number(actionButton.dataset.obstacleIndex);
+              var obstacle = state.flightObstacles.items.find(function (item) { return item.index === obstacleIndex; });
+              zoomFlightObstacleBounds(obstacle && obstacle.bounds, obstacle ? '已定位到飞行障碍：' + (obstacle.source_name || obstacle.source_id) : null);
+            }
+          }
+
+          if (sourceButton) {
+            var sourceKind = sourceButton.dataset.obstacleSource;
+            var sourceActive = sourceButton.getAttribute('aria-pressed') !== 'true';
+            sourceButton.setAttribute('aria-pressed', String(sourceActive));
+            state.flightObstacles.sourceFilters[sourceKind] = sourceActive;
+            if (state.flightObstacles.enabled) loadFlightObstacles(false);
           }
 
           if (layerButton) {
@@ -1697,6 +2123,9 @@
               state.airspaceGrid.setLabelsEnabled(active);
               log(active ? 'GGER 网格编码标签已开启。' : 'GGER 网格编码标签已关闭。');
             }
+            if (layer === 'flightObstacles') {
+              setFlightObstaclesEnabled(active);
+            }
           }
         });
       }
@@ -1733,6 +2162,7 @@
         addDemTileset(state.viewer);
         bindControls();
         bindAirspaceControls();
+        bindObstacleControls();
         bindFeaturePicking(state.viewer);
 
         state.viewer.scene.postRender.addEventListener(updateCameraReadout);

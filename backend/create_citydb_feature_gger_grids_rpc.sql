@@ -41,10 +41,17 @@ with matched_feature as (
         f.id
     limit 1
 ), matched_grid as (
-    select fo.*
-    from citydb_grid.flight_obstacles fo
-    join matched_feature f on f.id = fo.feature_id
-    order by fo.geometry_id
+    select
+        fo.*,
+        gd.feature_id,
+        gd.id as geometry_id,
+        ST_SRID(gd.geometry) as source_srid
+    from matched_feature f
+    join citydb.geometry_data gd on gd.feature_id = f.id
+    join citydb_grid.flight_obstacles fo
+      on fo.source_kind = 'building'
+     and fo.source_id = gd.id::text
+    order by gd.id
     limit 1
 )
 select case
@@ -79,6 +86,9 @@ select case
             select jsonb_strip_nulls(jsonb_build_object(
                 'feature_id', g.feature_id,
                 'geometry_id', g.geometry_id,
+                'source_kind', g.source_kind,
+                'source_id', g.source_id,
+                'source_name', g.source_name,
                 'dimension', g.dimension,
                 'detail_level', g.detail_level,
                 'is_agg', g.is_agg,
@@ -86,6 +96,7 @@ select case
                 'gger_grids', ST_AsText(g.grids, 'GGER'),
                 'gger_grids_with_box', ST_WithBox(g.grids, 'GGER'),
                 'source_srid', g.source_srid,
+                'priority', g.priority,
                 'generated_at', g.generated_at
             ))
             from matched_grid g
