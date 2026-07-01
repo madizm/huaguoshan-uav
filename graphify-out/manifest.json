@@ -1,142 +1,167 @@
 {
-  "/Users/madizm/geovis/huaguoshan/.pi/skills/citydb-3dtiles-export/scripts/export_citydb_3dtiles.sh": {
+  ".pi/skills/citydb-3dtiles-export/scripts/export_citydb_3dtiles.sh": {
     "mtime": 1782743295.9142935,
     "ast_hash": "91870159eeb672e3b35da65c734964cb",
     "semantic_hash": "91870159eeb672e3b35da65c734964cb"
   },
-  "/Users/madizm/geovis/huaguoshan/backend/create_citydb_feature_properties_rpc.sql": {
+  "backend/create_citydb_feature_properties_rpc.sql": {
     "mtime": 1782807807.569199,
     "ast_hash": "49273b28c11ae4835b9d65cef8e3df87",
     "semantic_hash": "49273b28c11ae4835b9d65cef8e3df87"
   },
-  "/Users/madizm/geovis/huaguoshan/data/overpass_huaguoshan_buildings.json": {
+  "data/overpass_huaguoshan_buildings.json": {
     "mtime": 1782735975.3066697,
     "ast_hash": "ea51691c7678fc1a3979944f0d015a73",
     "semantic_hash": "ea51691c7678fc1a3979944f0d015a73"
   },
-  "/Users/madizm/geovis/huaguoshan/js/BeidouAirspaceGrid.js": {
-    "mtime": 1782799159.96398,
-    "ast_hash": "a6cb11a98f43f72ef721f9e13f84e54c",
-    "semantic_hash": "a6cb11a98f43f72ef721f9e13f84e54c"
+  "js/BeidouAirspaceGrid.js": {
+    "mtime": 1782896667.4701464,
+    "ast_hash": "33dc610be0be7782c7239623b5da8808",
+    "semantic_hash": "33dc610be0be7782c7239623b5da8808"
   },
-  "/Users/madizm/geovis/huaguoshan/js/BeidouGridBounds.js": {
+  "js/BeidouGridBounds.js": {
     "mtime": 1782799600.898709,
     "ast_hash": "6cdd6d5a6e045f2e91ff4dda5b2bbb8c",
     "semantic_hash": "6cdd6d5a6e045f2e91ff4dda5b2bbb8c"
   },
-  "/Users/madizm/geovis/huaguoshan/js/BeidouGridCode.js": {
+  "js/BeidouGridCode.js": {
     "mtime": 1782788769.5304513,
     "ast_hash": "95476709cf6b5350922f925705727bba",
     "semantic_hash": "95476709cf6b5350922f925705727bba"
   },
-  "/Users/madizm/geovis/huaguoshan/scripts/export_dem_3dtiles.py": {
+  "scripts/export_dem_3dtiles.py": {
     "mtime": 1782787793.3646152,
     "ast_hash": "23c7337823735b1d75cf07f7cc78fd58",
     "semantic_hash": "23c7337823735b1d75cf07f7cc78fd58"
   },
-  "/Users/madizm/geovis/huaguoshan/scripts/import_dem_terrain.py": {
+  "scripts/import_dem_terrain.py": {
     "mtime": 1782740494.2586114,
     "ast_hash": "b38e450d42f288e397c5a397e620a5d6",
     "semantic_hash": "b38e450d42f288e397c5a397e620a5d6"
   },
-  "/Users/madizm/geovis/huaguoshan/scripts/import_osm_buildings_to_3dcitydb.py": {
+  "scripts/import_osm_buildings_to_3dcitydb.py": {
     "mtime": 1782805885.3215845,
     "ast_hash": "950da10e88c68b76c973da3b80d26e42",
     "semantic_hash": "950da10e88c68b76c973da3b80d26e42"
   },
-  "/Users/madizm/geovis/huaguoshan/scripts/unpack_osm_tags_property.sql": {
+  "scripts/unpack_osm_tags_property.sql": {
     "mtime": 1782805914.1810422,
     "ast_hash": "97f35b93bcef90a048cdcea2c1abc661",
     "semantic_hash": "97f35b93bcef90a048cdcea2c1abc661"
   },
-  "/Users/madizm/geovis/huaguoshan/.pi/skills/citydb-3dtiles-export/SKILL.md": {
+  ".pi/skills/citydb-3dtiles-export/SKILL.md": {
     "mtime": 1782743063.1272614,
     "ast_hash": "9adf646411376d3cb25d4f23e1ebd577",
     "semantic_hash": "9adf646411376d3cb25d4f23e1ebd577"
   },
-  "/Users/madizm/geovis/huaguoshan/docs/GEOVIS iBEST-DB V6.1.0 \u7528\u6237\u624b\u518c_LLM\u4f18\u5316\u7248.md": {
+  "docs/GEOVIS iBEST-DB V6.1.0 \u7528\u6237\u624b\u518c_LLM\u4f18\u5316\u7248.md": {
     "mtime": 1782788254.7557242,
     "ast_hash": "8ba7ba6d18e288c5667fe7d6013059d2",
     "semantic_hash": "8ba7ba6d18e288c5667fe7d6013059d2"
   },
-  "/Users/madizm/geovis/huaguoshan/docs/GEOVIS iBEST-DB V6.1.0 \u8f68\u8ff9\u529f\u80fd\u901f\u67e5.md": {
+  "docs/GEOVIS iBEST-DB V6.1.0 \u8f68\u8ff9\u529f\u80fd\u901f\u67e5.md": {
     "mtime": 1782788254.7639396,
     "ast_hash": "6484fc72206e3e57180c605a3d5113dd",
     "semantic_hash": "6484fc72206e3e57180c605a3d5113dd"
   },
-  "/Users/madizm/geovis/huaguoshan/docs/beidou-airspace-grid-visualization-plan.md": {
+  "docs/beidou-airspace-grid-visualization-plan.md": {
     "mtime": 1782826679.0360534,
     "ast_hash": "f6ba32a4b4953b25cc50ce68fa3c3e5f",
     "semantic_hash": "f6ba32a4b4953b25cc50ce68fa3c3e5f"
   },
-  "/Users/madizm/geovis/huaguoshan/docs/beidou-grid-code-algorithm.md": {
+  "docs/beidou-grid-code-algorithm.md": {
     "mtime": 1782788757.526007,
     "ast_hash": "74f785da942326e6246fe09be4062c7f",
     "semantic_hash": "74f785da942326e6246fe09be4062c7f"
   },
-  "/Users/madizm/geovis/huaguoshan/docs/dem_terrain_to_3dcitydb_plan.md": {
+  "docs/dem_terrain_to_3dcitydb_plan.md": {
     "mtime": 1782787405.3407202,
     "ast_hash": "baad662650cf4a68dc657fca5291d508",
     "semantic_hash": "baad662650cf4a68dc657fca5291d508"
   },
-  "/Users/madizm/geovis/huaguoshan/docs/osm_buildings_to_3dcitydb_plan.md": {
+  "docs/osm_buildings_to_3dcitydb_plan.md": {
     "mtime": 1782741504.459704,
     "ast_hash": "d0d8f63eb6a68a4a59a3941bb0a21df1",
     "semantic_hash": "d0d8f63eb6a68a4a59a3941bb0a21df1"
   },
-  "/Users/madizm/geovis/huaguoshan/docs/terrain_vertical_datum.md": {
+  "docs/terrain_vertical_datum.md": {
     "mtime": 1782741576.7217236,
     "ast_hash": "cabad9b59573ed6690140b15938693bc",
     "semantic_hash": "cabad9b59573ed6690140b15938693bc"
   },
-  "/Users/madizm/geovis/huaguoshan/frontend/tianditu-3d.html": {
-    "mtime": 1782874923.0488555,
-    "ast_hash": "d862fe074cfd100a62e60a4dac5585ed",
-    "semantic_hash": "d862fe074cfd100a62e60a4dac5585ed"
+  "frontend/tianditu-3d.html": {
+    "mtime": 1782896963.858623,
+    "ast_hash": "b1b89ceb4dae8d13a67ca157546bbe1f",
+    "semantic_hash": "b1b89ceb4dae8d13a67ca157546bbe1f"
   },
-  "/Users/madizm/geovis/huaguoshan/\u5f00\u53d1\u73af\u5883.md": {
+  "\u5f00\u53d1\u73af\u5883.md": {
     "mtime": 1782806439.6514714,
     "ast_hash": "0a435b1921174e79675e8d9da5e0df98",
     "semantic_hash": "0a435b1921174e79675e8d9da5e0df98"
   },
-  "/Users/madizm/geovis/huaguoshan/backend/create_citydb_feature_gger_grids_rpc.sql": {
-    "mtime": 1782874520.565577,
-    "ast_hash": "27f58e232298d782b393156d81787ebe",
-    "semantic_hash": "27f58e232298d782b393156d81787ebe"
+  "backend/create_citydb_feature_gger_grids_rpc.sql": {
+    "mtime": 1782876864.5157866,
+    "ast_hash": "c7e0bcbdd3b7aa9254feeee6e1b3686d",
+    "semantic_hash": "c7e0bcbdd3b7aa9254feeee6e1b3686d"
   },
-  "/Users/madizm/geovis/huaguoshan/js/GGERAirspaceGrid.js": {
-    "mtime": 1782826724.245648,
-    "ast_hash": "055b34aafaba3bc336c29fb0100cec05",
-    "semantic_hash": "055b34aafaba3bc336c29fb0100cec05"
+  "js/GGERAirspaceGrid.js": {
+    "mtime": 1782896625.8819258,
+    "ast_hash": "0cf15506e1b39c21c058e749c9a68e6c",
+    "semantic_hash": "0cf15506e1b39c21c058e749c9a68e6c"
   },
-  "/Users/madizm/geovis/huaguoshan/js/GGERGridBounds.js": {
+  "js/GGERGridBounds.js": {
     "mtime": 1782826810.8977704,
     "ast_hash": "94074e93572c33af8b46f7826aaf92e5",
     "semantic_hash": "94074e93572c33af8b46f7826aaf92e5"
   },
-  "/Users/madizm/geovis/huaguoshan/js/GGERGridCode.js": {
+  "js/GGERGridCode.js": {
     "mtime": 1782825926.5395565,
     "ast_hash": "0c83149db6722b28fd0f6c16b33832da",
     "semantic_hash": "0c83149db6722b28fd0f6c16b33832da"
   },
-  "/Users/madizm/geovis/huaguoshan/scripts/refresh_citydb_flight_obstacles.py": {
+  "scripts/refresh_citydb_flight_obstacles.py": {
     "mtime": 1782871922.1625319,
     "ast_hash": "2f6864cc1fbb8b3b7a82630ca1cd7fdc",
     "semantic_hash": "2f6864cc1fbb8b3b7a82630ca1cd7fdc"
   },
-  "/Users/madizm/geovis/huaguoshan/docs/citydb_gger_geomgrids_plan.md": {
+  "docs/citydb_gger_geomgrids_plan.md": {
     "mtime": 1782875796.5764105,
     "ast_hash": "7fad44a4ce8b46f835404a69286e4015",
     "semantic_hash": "7fad44a4ce8b46f835404a69286e4015"
   },
-  "/Users/madizm/geovis/huaguoshan/docs/gger-grid-code-algorithm.md": {
+  "docs/gger-grid-code-algorithm.md": {
     "mtime": 1782825918.8493874,
     "ast_hash": "98a81fb8903fa8775655ab7abb2b6a5b",
     "semantic_hash": "98a81fb8903fa8775655ab7abb2b6a5b"
   },
-  "/Users/madizm/geovis/huaguoshan/docs/multi_source_flight_obstacles_plan.md": {
-    "mtime": 1782875793.109177,
-    "ast_hash": "21dc83462cc75561604175b3c3046f07",
-    "semantic_hash": "21dc83462cc75561604175b3c3046f07"
+  "docs/multi_source_flight_obstacles_plan.md": {
+    "mtime": 1782893491.7478557,
+    "ast_hash": "1ddc2962bdf2ce30fb340f76a99738f8",
+    "semantic_hash": "1ddc2962bdf2ce30fb340f76a99738f8"
+  },
+  "backend/create_flight_obstacles_gger_rpc.sql": {
+    "mtime": 1782877591.8909678,
+    "ast_hash": "6525bbad8ab09a776011994a318e80cf",
+    "semantic_hash": "6525bbad8ab09a776011994a318e80cf"
+  },
+  "backend/create_flight_obstacles_lod_rpc.sql": {
+    "mtime": 1782895670.827293,
+    "ast_hash": "c0c6f74cc28ca733ff89b811edbcb002",
+    "semantic_hash": "c0c6f74cc28ca733ff89b811edbcb002"
+  },
+  "scripts/refresh_citydb_obstacle_grids.py": {
+    "mtime": 1782894433.8761628,
+    "ast_hash": "8773de53b35086eb2409a30f22442265",
+    "semantic_hash": "8773de53b35086eb2409a30f22442265"
+  },
+  "docs/refined_flight_obstacles_plan.md": {
+    "mtime": 1782893460.4146035,
+    "ast_hash": "8f0ac0d60a4efae1ac0774fc8e6f9d02",
+    "semantic_hash": "8f0ac0d60a4efae1ac0774fc8e6f9d02"
+  },
+  "docs/terrain_obstacle_lod_plan.md": {
+    "mtime": 1782896339.6841185,
+    "ast_hash": "8301632696cbab700aeb3240053b9810",
+    "semantic_hash": "8301632696cbab700aeb3240053b9810"
   }
 }
