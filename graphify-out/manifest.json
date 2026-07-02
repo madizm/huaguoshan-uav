@@ -90,9 +90,9 @@
     "semantic_hash": "cabad9b59573ed6690140b15938693bc"
   },
   "frontend/tianditu-3d.html": {
-    "mtime": 1782896963.858623,
-    "ast_hash": "b1b89ceb4dae8d13a67ca157546bbe1f",
-    "semantic_hash": "b1b89ceb4dae8d13a67ca157546bbe1f"
+    "mtime": 1782978659.329157,
+    "ast_hash": "c8c26d4f0fdd495f163df794231026b9",
+    "semantic_hash": "c8c26d4f0fdd495f163df794231026b9"
   },
   "\u5f00\u53d1\u73af\u5883.md": {
     "mtime": 1782806439.6514714,
@@ -120,9 +120,9 @@
     "semantic_hash": "0c83149db6722b28fd0f6c16b33832da"
   },
   "scripts/refresh_citydb_flight_obstacles.py": {
-    "mtime": 1782871922.1625319,
-    "ast_hash": "2f6864cc1fbb8b3b7a82630ca1cd7fdc",
-    "semantic_hash": "2f6864cc1fbb8b3b7a82630ca1cd7fdc"
+    "mtime": 1782899068.250443,
+    "ast_hash": "c7f7adc1d40faf17990f9ec1893e2d78",
+    "semantic_hash": "c7f7adc1d40faf17990f9ec1893e2d78"
   },
   "docs/citydb_gger_geomgrids_plan.md": {
     "mtime": 1782875796.5764105,
@@ -135,9 +135,9 @@
     "semantic_hash": "98a81fb8903fa8775655ab7abb2b6a5b"
   },
   "docs/multi_source_flight_obstacles_plan.md": {
-    "mtime": 1782893491.7478557,
-    "ast_hash": "1ddc2962bdf2ce30fb340f76a99738f8",
-    "semantic_hash": "1ddc2962bdf2ce30fb340f76a99738f8"
+    "mtime": 1782971575.1868067,
+    "ast_hash": "e9943be1325b271d7652c2934dc5f3d9",
+    "semantic_hash": "e9943be1325b271d7652c2934dc5f3d9"
   },
   "backend/create_flight_obstacles_gger_rpc.sql": {
     "mtime": 1782877591.8909678,
@@ -150,18 +150,63 @@
     "semantic_hash": "c0c6f74cc28ca733ff89b811edbcb002"
   },
   "scripts/refresh_citydb_obstacle_grids.py": {
-    "mtime": 1782894433.8761628,
-    "ast_hash": "8773de53b35086eb2409a30f22442265",
-    "semantic_hash": "8773de53b35086eb2409a30f22442265"
+    "mtime": 1782978783.550892,
+    "ast_hash": "00e5fb7abe01fde5b49bcbb00bf3ac6d",
+    "semantic_hash": "00e5fb7abe01fde5b49bcbb00bf3ac6d"
   },
   "docs/refined_flight_obstacles_plan.md": {
-    "mtime": 1782893460.4146035,
-    "ast_hash": "8f0ac0d60a4efae1ac0774fc8e6f9d02",
-    "semantic_hash": "8f0ac0d60a4efae1ac0774fc8e6f9d02"
+    "mtime": 1782971575.187109,
+    "ast_hash": "4a509267748b501cb164e0db9e70ef32",
+    "semantic_hash": "4a509267748b501cb164e0db9e70ef32"
   },
   "docs/terrain_obstacle_lod_plan.md": {
     "mtime": 1782896339.6841185,
     "ast_hash": "8301632696cbab700aeb3240053b9810",
     "semantic_hash": "8301632696cbab700aeb3240053b9810"
+  },
+  "backend/create_airspace_postgrest_crud.sql": {
+    "mtime": 1782978776.045761,
+    "ast_hash": "9e7ed114f1b5fa3e272e89c28a81a4c0",
+    "semantic_hash": "9e7ed114f1b5fa3e272e89c28a81a4c0"
+  },
+  "scripts/seed_airspace_zones.py": {
+    "mtime": 1782978643.5779207,
+    "ast_hash": "bbb60b680d6a1ce285fb098dd0f9585a",
+    "semantic_hash": "bbb60b680d6a1ce285fb098dd0f9585a"
+  },
+  "scripts/watch_airspace_refresh.py": {
+    "mtime": 1782974836.4788659,
+    "ast_hash": "d9ccb800c35e77ae7df9879b501443e1",
+    "semantic_hash": "d9ccb800c35e77ae7df9879b501443e1"
+  },
+  ".pi/todos/a37713d9.md": {
+    "mtime": 1782959417.3101025,
+    "ast_hash": "bedf876ba17037416955c79523b6deb5",
+    "semantic_hash": "bedf876ba17037416955c79523b6deb5"
+  },
+  ".pi/todos/ba9d94b6.md": {
+    "mtime": 1782963094.9628503,
+    "ast_hash": "fea6c1853221cd10ebfdd3fc44519c3b",
+    "semantic_hash": "fea6c1853221cd10ebfdd3fc44519c3b"
+  },
+  ".pi/todos/c3e03f1c.md": {
+    "mtime": 1782909340.2531886,
+    "ast_hash": "85060b26fab1df1232adfa9c658b008a",
+    "semantic_hash": "85060b26fab1df1232adfa9c658b008a"
+  },
+  ".pi/todos/da9458f2.md": {
+    "mtime": 1782909344.51622,
+    "ast_hash": "39d1d63a9a367fc77dcfd627ca29af10",
+    "semantic_hash": "39d1d63a9a367fc77dcfd627ca29af10"
+  },
+  "docs/airspace_height_datum_semantics_plan.md": {
+    "mtime": 1782978681.448976,
+    "ast_hash": "abdccfa4b1fd52139545e0d45e9150d2",
+    "semantic_hash": "abdccfa4b1fd52139545e0d45e9150d2"
+  },
+  "docs/airspace_no_fly_feature_plan.md": {
+    "mtime": 1782978664.5161355,
+    "ast_hash": "069480be1da29c8e3279ed877aa5ab6c",
+    "semantic_hash": "069480be1da29c8e3279ed877aa5ab6c"
   }
 }
