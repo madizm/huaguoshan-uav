@@ -842,6 +842,7 @@
         <button type="button" data-action="computeFlightPathPlan">计算路径</button>
         <button type="button" data-action="reloadFlightPathPlans">刷新方案</button>
         <button type="button" data-action="zoomFlightPathRoute">定位路径</button>
+        <button type="button" data-action="toggleFlightPathGrid" aria-pressed="true">路径网格</button>
       </div>
       <p class="admin-hint">点击“点选起点 / 途径点 / 终点”后在地图上取点；计算结果会写入 <code>flight_path.plan_result</code>，并生成 iBEST-DB <code>trajectory</code>。</p>
       <div class="flight-path-point-list" id="flightPathPointList">
@@ -1100,6 +1101,9 @@
           rawLineEntity: null,
           routeEntity: null,
           routeGlowEntity: null,
+          routeGridPrimitive: null,
+          routeGridCells: [],
+          routeGridVisible: true,
           latestResult: null,
           loading: false
         }
@@ -1557,13 +1561,81 @@
         state.flightPath.rawLineEntity = null;
       }
 
+      function clearFlightPathGrid() {
+        if (state.flightPath.routeGridPrimitive && state.viewer) {
+          try {
+            state.viewer.scene.primitives.remove(state.flightPath.routeGridPrimitive);
+          } catch (error) {
+            console.warn('[Tianditu3D] Failed to remove flight path grid primitive:', error);
+          }
+        }
+        state.flightPath.routeGridPrimitive = null;
+        state.flightPath.routeGridCells = [];
+      }
+
       function clearFlightPathRoute() {
         if (!state.viewer) return;
         if (state.flightPath.routeEntity) state.viewer.entities.remove(state.flightPath.routeEntity);
         if (state.flightPath.routeGlowEntity) state.viewer.entities.remove(state.flightPath.routeGlowEntity);
         state.flightPath.routeEntity = null;
         state.flightPath.routeGlowEntity = null;
+        clearFlightPathGrid();
         state.flightPath.latestResult = null;
+      }
+
+      function flightPathGridCellsFromResult(result) {
+        var withBox = result && result.route_grid_with_box;
+        var cells = withBox && Array.isArray(withBox.cells) ? withBox.cells : [];
+        return cells.map(function (cell, index) {
+          var bbox = parseBboxText(cell && cell.bbox);
+          return bbox ? Object.assign({ code: cell.code || '', index: index }, bbox) : null;
+        }).filter(Boolean);
+      }
+
+      function showFlightPathGrid(result) {
+        var CesiumRuntime = window.Cesium;
+        var cells = flightPathGridCellsFromResult(result || state.flightPath.latestResult);
+        var edges = {};
+        var materialCache = {};
+        var layers;
+        var primitive;
+        clearFlightPathGrid();
+        if (!state.viewer || !CesiumRuntime || !cells.length) return;
+        layers = sortedGridLayers(cells);
+        cells.forEach(function (cell) {
+          addBoxEdges(edges, cell, gridLayerIndex(cell, layers));
+        });
+        primitive = new CesiumRuntime.PolylineCollection();
+        Object.keys(edges).forEach(function (key) {
+          var edge = edges[key];
+          primitive.add({
+            positions: [
+              CesiumRuntime.Cartesian3.fromDegrees(edge.lon1, edge.lat1, edge.h1),
+              CesiumRuntime.Cartesian3.fromDegrees(edge.lon2, edge.lat2, edge.h2)
+            ],
+            width: 2.8,
+            material: gridLayerMaterial(CesiumRuntime, materialCache, edge.layerIndex, 0.96)
+          });
+        });
+        state.flightPath.routeGridPrimitive = state.viewer.scene.primitives.add(primitive);
+        state.flightPath.routeGridCells = cells;
+      }
+
+      function syncFlightPathGridButton() {
+        var button = document.querySelector('[data-action="toggleFlightPathGrid"]');
+        if (button) button.setAttribute('aria-pressed', String(Boolean(state.flightPath.routeGridVisible)));
+      }
+
+      function toggleFlightPathGrid() {
+        state.flightPath.routeGridVisible = !state.flightPath.routeGridVisible;
+        syncFlightPathGridButton();
+        if (state.flightPath.routeGridVisible) {
+          showFlightPathGrid(state.flightPath.latestResult);
+          log(state.flightPath.routeGridCells.length ? '飞行路径网格已显示：' + state.flightPath.routeGridCells.length + ' cells。' : '当前路径结果没有可展示的网格。');
+        } else {
+          clearFlightPathGrid();
+          log('飞行路径网格已隐藏。');
+        }
       }
 
       function renderFlightPathDraft() {
@@ -1843,6 +1915,7 @@
             depthFailMaterial: CesiumRuntime.Color.fromCssColorString('#5eead4')
           }
         });
+        if (state.flightPath.routeGridVisible) showFlightPathGrid(result);
         log('路径计算成功：' + (result.distance_m || 0).toFixed(1) + 'm，' + (result.grid_cell_count || 0) + ' cells，' + (result.traj_point_count || 0) + ' trajectory points。');
       }
 
@@ -3624,6 +3697,7 @@
             if (action === 'computeFlightPathPlan') computeFlightPathPlan();
             if (action === 'reloadFlightPathPlans') loadFlightPathPlans();
             if (action === 'zoomFlightPathRoute') zoomFlightPathRoute();
+            if (action === 'toggleFlightPathGrid') toggleFlightPathGrid();
             if (action === 'loadFlightPathPlan') loadFlightPathPlan(actionButton.dataset.planId);
             if (action === 'computeListedFlightPathPlan') computeFlightPathPlan(actionButton.dataset.planId);
             if (action === 'archiveFlightPathPlan') archiveFlightPathPlan(actionButton.dataset.planId);

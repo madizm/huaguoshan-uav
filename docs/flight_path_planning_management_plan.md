@@ -596,6 +596,8 @@ result_id
 result_status
 route_geojson
 smooth_route_geojson
+route_grid_gger
+route_grid_with_box
 distance_m
 duration_s
 grid_cell_count
@@ -610,6 +612,15 @@ created_at
 ST_AsGeoJSON(route_geom)::jsonb
 ST_AsGeoJSON(smooth_route_geom)::jsonb
 ```
+
+路径网格输出使用：
+
+```sql
+ST_AsText(ST_AsGrids(grid_path), 'GGER')
+ST_WithBox(ST_AsGrids(grid_path), 'GGER')::jsonb
+```
+
+前端使用 `route_grid_with_box.cells[].bbox` 绘制每个路径 gridcell 的三维线框，并可通过 `Flight Path Planner` 面板中的“路径网格”按钮显示 / 隐藏。
 
 轨迹对象不直接通过 JSON 返回；如需返回轨迹统计信息，通过 `GT_*` 函数转换为摘要字段：
 

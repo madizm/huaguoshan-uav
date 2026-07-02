@@ -1097,6 +1097,8 @@ select jsonb_strip_nulls(jsonb_build_object(
   'result_status', pr.result_status,
   'route_geojson', case when pr.route_geom is not null then ST_AsGeoJSON(pr.route_geom)::jsonb else null end,
   'smooth_route_geojson', case when pr.smooth_route_geom is not null then ST_AsGeoJSON(pr.smooth_route_geom)::jsonb else null end,
+  'route_grid_gger', case when pr.grid_path is not null then ST_AsText(ST_AsGrids(pr.grid_path), 'GGER') else null end,
+  'route_grid_with_box', case when pr.grid_path is not null then ST_WithBox(ST_AsGrids(pr.grid_path), 'GGER')::jsonb else null end,
   'distance_m', pr.distance_m,
   'duration_s', pr.duration_s,
   'grid_cell_count', pr.grid_cell_count,
