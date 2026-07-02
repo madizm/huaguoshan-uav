@@ -761,7 +761,79 @@ DELETE /temp_control_zone?id=eq.<id>
 2. 误删或恶意写入会影响后续 `--source airspace --refresh-total` 刷新结果，并可能改变前端展示和路径规划避障。
 3. PostgREST 直接 CRUD 绕过业务审批、审计、草稿发布流程；当前仅适合内网验证或受控演示环境。
 4. 生产化前应改为独立登录态 / `web_admin` 角色 / RLS 或管理 RPC，并禁用匿名 DELETE。
-5. 直接保存业务表后，物化视图不会自动更新，仍需后台执行 airspace 快速刷新命令。
+5. P1 自动刷新依赖后台 worker 常驻运行；如果 worker 停止，业务表仍会保存成功，但障碍 grids 不会自动更新。
+
+---
+
+## 10.2 P1 自动刷新 grids：LISTEN/NOTIFY + worker
+
+已采用方案 3：数据库 trigger 只发送通知，后台 worker 合并通知后执行刷新脚本。
+
+新增文件：
+
+```text
+scripts/watch_airspace_refresh.py
+```
+
+触发链路：
+
+```text
+PostgREST CRUD / SQL 写入 airspace.no_fly_zone 或 airspace.temp_control_zone
+  ↓
+airspace.notify_airspace_changed() trigger
+  ↓
+NOTIFY airspace_changed, '{...}'
+  ↓
+scripts/watch_airspace_refresh.py LISTEN airspace_changed
+  ↓
+debounce 3s 合并突发变更
+  ↓
+执行 airspace-only refresh
+```
+
+worker 默认执行：
+
+```bash
+uv run scripts/refresh_citydb_obstacle_grids.py \
+  --refresh-only \
+  --source airspace \
+  --refresh-total \
+  --airspace-mode polygon-prism \
+  --grant-role web_anon
+```
+
+启动 worker：
+
+```bash
+uv run scripts/watch_airspace_refresh.py
+```
+
+常用参数：
+
+```bash
+uv run scripts/watch_airspace_refresh.py \
+  --debounce-seconds 5 \
+  --retry-delay-seconds 30 \
+  --airspace-mode polygon-prism
+```
+
+验证监听但不真正刷新：
+
+```bash
+uv run scripts/watch_airspace_refresh.py --dry-run-refresh --once
+```
+
+并发控制：worker 刷新前使用 PostgreSQL advisory lock，避免多个 worker 同时刷新。
+
+注意：worker 要求相关物化视图已经存在。首次部署或视图缺失时，先执行一次全量/重建：
+
+```bash
+uv run scripts/refresh_citydb_obstacle_grids.py \
+  --source airspace \
+  --refresh-total \
+  --airspace-mode polygon-prism \
+  --grant-role web_anon
+```
 
 ---
 
@@ -867,15 +939,7 @@ Priority = 1100
 5. 点击“保存到 PostgREST”后写入 `airspace.no_fly_zone` 或 `airspace.temp_control_zone`。
 6. 管理列表支持刷新、编辑、禁用、删除。
 
-注意：前端保存只更新业务表。要让“飞行障碍”图层和路径规划看到最新禁限飞区，仍需执行：
-
-```bash
-uv run scripts/refresh_citydb_obstacle_grids.py \
-  --source airspace \
-  --refresh-total \
-  --airspace-mode polygon-prism \
-  --grant-role web_anon
-```
+注意：前端保存只更新业务表；自动刷新依赖 `scripts/watch_airspace_refresh.py` worker 常驻运行。worker 停止时，可手动执行 airspace 快速刷新命令兜底。
 
 ---
 
@@ -1179,7 +1243,8 @@ select ST_FindGridsPath(
 2. `pgrest.conf` 增加 `airspace` schema 暴露。
 3. 新增 `backend/create_airspace_postgrest_crud.sql`，为 P1 原型授予 `web_anon` 对 `airspace.no_fly_zone` / `airspace.temp_control_zone` 的直接读写权限。
 4. 前端新增 `Airspace Admin` 面板，支持列表、绘制 polygon、新增、编辑、禁用、删除、保存。
-5. 文档记录“暂时跳过权限控制”的风险点。
+5. 增加 `airspace_changed` NOTIFY trigger 与 `scripts/watch_airspace_refresh.py` worker，支持保存后自动刷新 airspace grids。
+6. 文档记录“暂时跳过权限控制”的风险点。
 
 待生产化：
 
@@ -1203,6 +1268,7 @@ select ST_FindGridsPath(
 
 ```text
 scripts/seed_airspace_zones.py
+scripts/watch_airspace_refresh.py
 backend/create_airspace_postgrest_crud.sql
 data/airspace/huaguoshan_no_fly_zone.geojson
 data/airspace/huaguoshan_temp_control.geojson
@@ -1251,4 +1317,4 @@ citydb_grid.flight_obstacles
 前端展示 + RPC 查询 + 路径规划避障
 ```
 
-P0 阶段已完成数据导入、增量刷新、前端展示和 E2E 验收；P1 已用 PostgREST 直接 CRUD 实现前端在线绘制与保存。生产化前应补齐权限控制、审计和发布流程。
+P0 阶段已完成数据导入、增量刷新、前端展示和 E2E 验收；P1 已用 PostgREST 直接 CRUD 实现前端在线绘制与保存，并通过 LISTEN/NOTIFY worker 自动刷新 airspace grids。生产化前应补齐权限控制、审计和发布流程。
