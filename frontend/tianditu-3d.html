@@ -801,6 +801,15 @@
         <label class="field">安全缓冲 m
           <input id="airspaceSafetyBuffer" type="number" min="0" step="1" value="20" />
         </label>
+        <label class="field">高度基准
+          <select id="airspaceHeightDatum">
+            <option value="AGL" selected>离地高度 AGL（推荐）</option>
+            <option value="AMSL">海拔高度 AMSL</option>
+          </select>
+        </label>
+        <label class="field">地形采样
+          <input id="airspaceTerrainSummary" type="text" value="绘制后保存时自动采样" readonly />
+        </label>
         <label class="field" data-temp-field>Status
           <select id="airspaceStatus">
             <option value="planned">planned</option>
@@ -942,6 +951,7 @@
         no_fly_zone: 'no_fly_zone',
         temp_control: 'temp_control_zone'
       };
+      var AIRSPACE_HEIGHT_MARGIN_M = 10;
       var TERRAIN_LOD_RULES = [
         { minHeight: 8000, lod: 0, limit: 200, bboxBuffer: 0.50, label: 'Overview' },
         { minHeight: 2000, lod: 1, limit: 500, bboxBuffer: 0.25, label: 'Medium' },
@@ -1007,6 +1017,7 @@
           drawPoints: [],
           drawEntities: [],
           existingGeometry: null,
+          terrainSample: null,
           loading: false
         }
       };
@@ -1456,16 +1467,25 @@
         var points = state.airspaceAdmin.drawPoints;
         var positions;
         var color;
+        var heightReference;
         clearAirspaceDrawPreview();
         updateAirspaceGeometryPreview();
         if (!state.viewer || !CesiumRuntime || !points.length) return;
         color = CesiumRuntime.Color.fromCssColorString($('#airspaceZoneKind').value === 'temp_control' ? '#ffb000' : '#ff3b30');
-        positions = points.map(function (point) { return CesiumRuntime.Cartesian3.fromDegrees(point.lon, point.lat, 5); });
+        heightReference = CesiumRuntime.HeightReference && CesiumRuntime.HeightReference.CLAMP_TO_GROUND;
+        positions = points.map(function (point) { return CesiumRuntime.Cartesian3.fromDegrees(point.lon, point.lat); });
         points.forEach(function (point, index) {
           state.airspaceAdmin.drawEntities.push(state.viewer.entities.add({
             name: 'Airspace draw vertex ' + (index + 1),
-            position: CesiumRuntime.Cartesian3.fromDegrees(point.lon, point.lat, 8),
-            point: { pixelSize: 9, color: color, outlineColor: CesiumRuntime.Color.WHITE, outlineWidth: 2 },
+            position: CesiumRuntime.Cartesian3.fromDegrees(point.lon, point.lat),
+            point: {
+              pixelSize: 11,
+              color: color,
+              outlineColor: CesiumRuntime.Color.WHITE,
+              outlineWidth: 2,
+              heightReference: heightReference,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY
+            },
             label: {
               text: String(index + 1),
               font: '13px sans-serif',
@@ -1473,7 +1493,9 @@
               outlineColor: CesiumRuntime.Color.BLACK,
               outlineWidth: 2,
               style: CesiumRuntime.LabelStyle.FILL_AND_OUTLINE,
-              pixelOffset: new CesiumRuntime.Cartesian2(12, -12)
+              pixelOffset: new CesiumRuntime.Cartesian2(12, -12),
+              heightReference: heightReference,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY
             }
           }));
         });
@@ -1484,7 +1506,8 @@
               positions: positions.concat(positions.length >= 3 ? [positions[0]] : []),
               width: 3,
               material: color.withAlpha(0.95),
-              clampToGround: false
+              depthFailMaterial: color.withAlpha(0.95),
+              clampToGround: true
             }
           }));
         }
@@ -1496,7 +1519,7 @@
               material: color.withAlpha(0.22),
               outline: true,
               outlineColor: color,
-              height: 0
+              heightReference: heightReference
             }
           }));
         }
@@ -1512,9 +1535,12 @@
         $('#airspaceMinHeight').value = '0';
         $('#airspaceMaxHeight').value = '300';
         $('#airspaceSafetyBuffer').value = '20';
+        $('#airspaceHeightDatum').value = 'AGL';
         $('#airspaceStatus').value = 'active';
         $('#airspaceValidFrom').value = '';
         $('#airspaceValidTo').value = '';
+        state.airspaceAdmin.terrainSample = null;
+        setAirspaceTerrainSummary('绘制后保存时自动采样');
         setupAirspaceDefaults();
         updateAirspaceTempFields();
         renderAirspaceDrawPreview();
@@ -1525,6 +1551,8 @@
         state.airspaceAdmin.drawActive = true;
         state.airspaceAdmin.drawPoints = [];
         state.airspaceAdmin.existingGeometry = null;
+        state.airspaceAdmin.terrainSample = null;
+        setAirspaceTerrainSummary('绘制后保存时自动采样');
         renderAirspaceDrawPreview();
         log('禁限飞区绘制已开始：请在地图上依次左键点击 polygon 顶点，完成后点“完成面”。');
       }
@@ -1543,6 +1571,8 @@
         state.airspaceAdmin.drawActive = false;
         state.airspaceAdmin.drawPoints = [];
         state.airspaceAdmin.existingGeometry = null;
+        state.airspaceAdmin.terrainSample = null;
+        setAirspaceTerrainSummary('绘制后保存时自动采样');
         renderAirspaceDrawPreview();
         log('已取消禁限飞区绘制。');
       }
@@ -1550,6 +1580,8 @@
       function undoAirspacePoint() {
         if (!state.airspaceAdmin.drawPoints.length) return;
         state.airspaceAdmin.drawPoints.pop();
+        state.airspaceAdmin.terrainSample = null;
+        setAirspaceTerrainSummary(state.airspaceAdmin.drawPoints.length ? '保存时将重新采样' : '绘制后保存时自动采样');
         renderAirspaceDrawPreview();
         log('已撤销最后一个顶点。');
       }
@@ -1571,7 +1603,8 @@
         cartographic = CesiumRuntime.Cartographic.fromCartesian(cartesian);
         return {
           lon: CesiumRuntime.Math.toDegrees(cartographic.longitude),
-          lat: CesiumRuntime.Math.toDegrees(cartographic.latitude)
+          lat: CesiumRuntime.Math.toDegrees(cartographic.latitude),
+          height: Number.isFinite(cartographic.height) ? cartographic.height : null
         };
       }
 
@@ -1582,66 +1615,165 @@
           return;
         }
         state.airspaceAdmin.drawPoints.push(point);
+        state.airspaceAdmin.terrainSample = null;
+        setAirspaceTerrainSummary('保存时将重新采样');
         renderAirspaceDrawPreview();
         log('已添加禁限飞区顶点 #' + state.airspaceAdmin.drawPoints.length + '：' + point.lon.toFixed(6) + ', ' + point.lat.toFixed(6));
       }
 
-      function airspacePayloadFromForm() {
+      function airspaceHeightDatum() {
+        var select = $('#airspaceHeightDatum');
+        return select ? select.value : 'AGL';
+      }
+
+      function setAirspaceTerrainSummary(text) {
+        var input = $('#airspaceTerrainSummary');
+        if (input) input.value = text || '';
+      }
+
+      function airspaceTerrainSamplePoints(points) {
+        var result = [];
+        var seen = {};
+        var lonSum = 0;
+        var latSum = 0;
+        function add(lon, lat, height) {
+          var key = lon.toFixed(7) + ':' + lat.toFixed(7);
+          if (seen[key]) return;
+          seen[key] = true;
+          result.push({ lon: lon, lat: lat, height: Number.isFinite(height) ? height : null });
+        }
+        points.forEach(function (point, index) {
+          add(point.lon, point.lat, point.height);
+          lonSum += point.lon;
+          latSum += point.lat;
+          if (index > 0) add((points[index - 1].lon + point.lon) / 2, (points[index - 1].lat + point.lat) / 2, null);
+        });
+        if (points.length > 2) {
+          add((points[points.length - 1].lon + points[0].lon) / 2, (points[points.length - 1].lat + points[0].lat) / 2, null);
+          add(lonSum / points.length, latSum / points.length, null);
+        }
+        return result;
+      }
+
+      function summarizeHeights(samples, source) {
+        var heights = samples.map(function (sample) { return Number(sample.height); }).filter(Number.isFinite);
+        if (!heights.length) return { min: 0, max: 0, source: source || 'fallback' };
+        return {
+          min: Math.min.apply(Math, heights),
+          max: Math.max.apply(Math, heights),
+          source: source || 'terrain'
+        };
+      }
+
+      function fallbackTerrainSample(points) {
+        var CesiumRuntime = window.Cesium;
+        var samples = airspaceTerrainSamplePoints(points).map(function (point) {
+          var height = point.height;
+          var cartographic;
+          if (!Number.isFinite(height) && state.viewer && state.viewer.scene && state.viewer.scene.globe && CesiumRuntime) {
+            cartographic = CesiumRuntime.Cartographic.fromDegrees(point.lon, point.lat);
+            height = state.viewer.scene.globe.getHeight(cartographic);
+          }
+          return Object.assign({}, point, { height: Number.isFinite(height) ? height : 0 });
+        });
+        return Promise.resolve(summarizeHeights(samples, 'loaded terrain'));
+      }
+
+      function sampleAirspaceTerrain(points) {
+        var CesiumRuntime = window.Cesium;
+        var samples = airspaceTerrainSamplePoints(points);
+        var cartographics;
+        if (!points.length || !CesiumRuntime || !state.viewer || !state.viewer.terrainProvider || typeof CesiumRuntime.sampleTerrainMostDetailed !== 'function') {
+          return fallbackTerrainSample(points);
+        }
+        cartographics = samples.map(function (point) {
+          return CesiumRuntime.Cartographic.fromDegrees(point.lon, point.lat);
+        });
+        return CesiumRuntime.sampleTerrainMostDetailed(state.viewer.terrainProvider, cartographics).then(function (updated) {
+          return summarizeHeights(updated.map(function (cartographic, index) {
+            return Object.assign({}, samples[index], { height: cartographic.height });
+          }), 'terrain provider');
+        }).catch(function (error) {
+          console.warn('[Tianditu3D] Terrain sampling fell back to loaded globe heights:', error);
+          return fallbackTerrainSample(points);
+        });
+      }
+
+      function prepareAirspacePayloadFromForm() {
         var kind = $('#airspaceZoneKind').value;
         var points = state.airspaceAdmin.drawPoints;
         var geometry = points.length >= 3 ? drawPointsToMultiPolygon(points) : state.airspaceAdmin.existingGeometry;
+        var minInput = numberOrNull($('#airspaceMinHeight').value);
+        var maxInput = numberOrNull($('#airspaceMaxHeight').value);
+        var datum = airspaceHeightDatum();
         var payload;
-        if (!geometry) throw new Error('请先绘制或选择一个 polygon。');
-        if (points.length > 0 && points.length < 3) throw new Error('polygon 至少需要 3 个顶点。');
-        payload = {
-          name: ($('#airspaceZoneName').value || '').trim(),
-          geom: JSON.stringify(geometry),
-          min_height: numberOrNull($('#airspaceMinHeight').value),
-          max_height: numberOrNull($('#airspaceMaxHeight').value),
-          safety_buffer_m: Math.max(0, numberOrNull($('#airspaceSafetyBuffer').value) || 0)
-        };
-        if (!payload.name) throw new Error('请填写禁限飞区名称。');
-        if (kind === 'no_fly_zone') {
-          payload.enabled = true;
-        } else {
-          payload.valid_from = isoFromDateTimeLocal($('#airspaceValidFrom').value);
-          payload.valid_to = isoFromDateTimeLocal($('#airspaceValidTo').value);
-          payload.status = $('#airspaceStatus').value || 'planned';
-          if (!payload.valid_from || !payload.valid_to) throw new Error('临时禁飞/管制必须填写有效开始和结束时间。');
-          if (new Date(payload.valid_to) <= new Date(payload.valid_from)) throw new Error('有效结束时间必须晚于开始时间。');
-        }
-        return { kind: kind, payload: payload };
+        if (!geometry) return Promise.reject(new Error('请先绘制或选择一个 polygon。'));
+        if (points.length > 0 && points.length < 3) return Promise.reject(new Error('polygon 至少需要 3 个顶点。'));
+        if (minInput == null) minInput = 0;
+        if (maxInput == null) return Promise.reject(new Error('请填写最高高度；最高高度必须高于地形。'));
+        if (minInput < 0) return Promise.reject(new Error('最低高度不能小于 0。'));
+        if (maxInput <= minInput) return Promise.reject(new Error('最高高度必须大于最低高度。'));
+
+        return sampleAirspaceTerrain(points.length >= 3 ? points : geometryToDrawPoints(geometry)).then(function (terrain) {
+          var minHeight = minInput;
+          var maxHeight = maxInput;
+          state.airspaceAdmin.terrainSample = terrain;
+          setAirspaceTerrainSummary('terrain ' + terrain.min.toFixed(1) + '–' + terrain.max.toFixed(1) + 'm · ' + terrain.source);
+
+          if (datum === 'AGL') {
+            if (maxInput <= AIRSPACE_HEIGHT_MARGIN_M) {
+              throw new Error('AGL 最高高度过低。请设置为至少 ' + AIRSPACE_HEIGHT_MARGIN_M + 'm 以上，避免禁飞区被地形完全遮挡。');
+            }
+            minHeight = terrain.min + minInput;
+            maxHeight = terrain.max + maxInput;
+          } else if (maxInput <= terrain.max + AIRSPACE_HEIGHT_MARGIN_M) {
+            throw new Error('AMSL 最高高度低于当前地形最高高程。请至少设置为 ' + (terrain.max + AIRSPACE_HEIGHT_MARGIN_M).toFixed(1) + 'm，或切换为 AGL 离地高度。');
+          }
+
+          payload = {
+            name: ($('#airspaceZoneName').value || '').trim(),
+            geom: JSON.stringify(geometry),
+            min_height: Number(minHeight.toFixed(2)),
+            max_height: Number(maxHeight.toFixed(2)),
+            safety_buffer_m: Math.max(0, numberOrNull($('#airspaceSafetyBuffer').value) || 0)
+          };
+          if (!payload.name) throw new Error('请填写禁限飞区名称。');
+          if (kind === 'no_fly_zone') {
+            payload.enabled = true;
+          } else {
+            payload.valid_from = isoFromDateTimeLocal($('#airspaceValidFrom').value);
+            payload.valid_to = isoFromDateTimeLocal($('#airspaceValidTo').value);
+            payload.status = $('#airspaceStatus').value || 'planned';
+            if (!payload.valid_from || !payload.valid_to) throw new Error('临时禁飞/管制必须填写有效开始和结束时间。');
+            if (new Date(payload.valid_to) <= new Date(payload.valid_from)) throw new Error('有效结束时间必须晚于开始时间。');
+          }
+          return { kind: kind, payload: payload, datum: datum, terrain: terrain };
+        });
       }
 
       function saveAirspaceZone() {
-        var form;
-        var method;
-        var suffix;
         var editing = state.airspaceAdmin.editingId != null && state.airspaceAdmin.editingKind === ($('#airspaceZoneKind') && $('#airspaceZoneKind').value);
-        try {
-          form = airspacePayloadFromForm();
-        } catch (error) {
-          log('保存禁限飞区失败：' + error.message);
-          return Promise.resolve();
-        }
-        method = editing ? 'PATCH' : 'POST';
-        suffix = editing ? '?id=eq.' + encodeURIComponent(state.airspaceAdmin.editingId) : '';
-        log('正在通过 PostgREST 保存' + airspaceKindLabel(form.kind) + '。');
-        return airspaceRequest(form.kind, suffix, {
-          method: method,
-          headers: { 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
-          body: JSON.stringify(form.payload)
+        log('正在采样地形并校验禁限飞高度。');
+        return prepareAirspacePayloadFromForm().then(function (form) {
+          var method = editing ? 'PATCH' : 'POST';
+          var suffix = editing ? '?id=eq.' + encodeURIComponent(state.airspaceAdmin.editingId) : '';
+          log('正在通过 PostgREST 保存' + airspaceKindLabel(form.kind) + '（' + form.datum + ' 已转换为海拔 ' + form.payload.min_height + '–' + form.payload.max_height + 'm）。');
+          return airspaceRequest(form.kind, suffix, {
+            method: method,
+            headers: { 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+            body: JSON.stringify(form.payload)
+          });
         }).then(function () {
           state.airspaceAdmin.drawActive = false;
           state.airspaceAdmin.editingKind = null;
           state.airspaceAdmin.editingId = null;
           state.flightObstacles.cache = {};
-          log('禁限飞区已保存到 airspace 业务表。请运行 airspace 快速刷新后再刷新飞行障碍图层。');
+          log('禁限飞区已保存到 airspace 业务表；后台 worker 将自动刷新 airspace grids。');
           return loadAirspaceZones();
         }).catch(function (error) {
           console.error('[Tianditu3D] Airspace save failed:', error);
           renderFeatureError('禁限飞区保存失败：' + error.message);
-          log('禁限飞区保存失败，请检查 PostgREST airspace schema 暴露与表权限。');
+          log('禁限飞区保存失败：' + error.message);
         });
       }
 
@@ -1660,7 +1792,7 @@
           var timeText = zone.kind === 'temp_control' ? ' · ' + (zone.valid_from || '--') + ' → ' + (zone.valid_to || '--') : '';
           return '<div class="airspace-zone-item" data-zone-kind="' + escapeHtml(zone.kind) + '" data-zone-id="' + escapeHtml(zone.id) + '">' +
             '<strong>#' + escapeHtml(zone.id) + ' · ' + escapeHtml(zone.name || '(unnamed)') + '</strong>' +
-            '<span>' + escapeHtml(airspaceKindLabel(zone.kind)) + ' · ' + escapeHtml(activeText) + ' · H ' + escapeHtml(zone.min_height == null ? 0 : zone.min_height) + '–' + escapeHtml(zone.max_height == null ? '∞' : zone.max_height) + 'm · buffer ' + escapeHtml(zone.safety_buffer_m || 0) + 'm' + escapeHtml(timeText) + '</span>' +
+            '<span>' + escapeHtml(airspaceKindLabel(zone.kind)) + ' · ' + escapeHtml(activeText) + ' · AMSL ' + escapeHtml(zone.min_height == null ? 0 : zone.min_height) + '–' + escapeHtml(zone.max_height == null ? '∞' : zone.max_height) + 'm · buffer ' + escapeHtml(zone.safety_buffer_m || 0) + 'm' + escapeHtml(timeText) + '</span>' +
             '<div class="admin-actions">' +
               '<button type="button" data-action="editAirspaceZone" data-zone-kind="' + escapeHtml(zone.kind) + '" data-zone-id="' + escapeHtml(zone.id) + '">编辑</button>' +
               '<button type="button" data-action="disableAirspaceZone" data-zone-kind="' + escapeHtml(zone.kind) + '" data-zone-id="' + escapeHtml(zone.id) + '">禁用</button>' +
@@ -1705,6 +1837,8 @@
         $('#airspaceMinHeight').value = zone.min_height == null ? '0' : zone.min_height;
         $('#airspaceMaxHeight').value = zone.max_height == null ? '' : zone.max_height;
         $('#airspaceSafetyBuffer').value = zone.safety_buffer_m == null ? '0' : zone.safety_buffer_m;
+        $('#airspaceHeightDatum').value = 'AMSL';
+        setAirspaceTerrainSummary('已存储高度为海拔高度；保存时会重新校验地形');
         $('#airspaceStatus').value = zone.status || 'planned';
         $('#airspaceValidFrom').value = zone.valid_from ? formatDateTimeLocal(new Date(zone.valid_from)) : '';
         $('#airspaceValidTo').value = zone.valid_to ? formatDateTimeLocal(new Date(zone.valid_to)) : '';
@@ -1735,7 +1869,7 @@
           body: JSON.stringify(payload)
         }).then(function () {
           state.flightObstacles.cache = {};
-          log('禁限飞区已禁用。请运行 airspace 快速刷新后更新障碍图层。');
+          log('禁限飞区已禁用；后台 worker 将自动刷新 airspace grids。');
           return loadAirspaceZones();
         }).catch(function (error) {
           console.error('[Tianditu3D] Airspace disable failed:', error);
@@ -1750,7 +1884,7 @@
           headers: { 'Prefer': 'return=minimal' }
         }).then(function () {
           state.flightObstacles.cache = {};
-          log('禁限飞区已删除。请运行 airspace 快速刷新后更新障碍图层。');
+          log('禁限飞区已删除；后台 worker 将自动刷新 airspace grids。');
           return loadAirspaceZones();
         }).catch(function (error) {
           console.error('[Tianditu3D] Airspace delete failed:', error);
@@ -2711,12 +2845,19 @@
 
       function bindAirspaceAdminControls() {
         var kindSelect = $('#airspaceZoneKind');
+        var datumSelect = $('#airspaceHeightDatum');
         setupAirspaceDefaults();
         updateAirspaceTempFields();
         if (kindSelect) {
           kindSelect.addEventListener('change', function () {
             updateAirspaceTempFields();
             renderAirspaceDrawPreview();
+          });
+        }
+        if (datumSelect) {
+          datumSelect.addEventListener('change', function () {
+            state.airspaceAdmin.terrainSample = null;
+            setAirspaceTerrainSummary(datumSelect.value === 'AGL' ? 'AGL 保存时转换为海拔高度' : 'AMSL 保存时校验高于地形');
           });
         }
         loadAirspaceZones();

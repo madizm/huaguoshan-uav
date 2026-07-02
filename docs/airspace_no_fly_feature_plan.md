@@ -934,10 +934,13 @@ Priority = 1100
 
 1. 选择类型：长期禁飞区 / 临时禁飞管制。
 2. 填写名称、高度范围、安全缓冲；临时区额外填写 `valid_from`、`valid_to`、`status`。
-3. 点击“开始绘制”，在 Cesium 地图上左键逐点绘制 polygon。
-4. 支持撤销点、完成面、取消绘制。
-5. 点击“保存到 PostgREST”后写入 `airspace.no_fly_zone` 或 `airspace.temp_control_zone`。
-6. 管理列表支持刷新、编辑、禁用、删除。
+3. 选择高度基准：
+   - `AGL`：离地高度，默认推荐；保存前采样地形并转换为海拔高度写入业务表。
+   - `AMSL`：海拔高度；保存前校验 `max_height` 必须高于当前 polygon 覆盖地形最高点。
+4. 点击“开始绘制”，在 Cesium 地图上左键逐点绘制 polygon。绘制点、线、预览面使用贴地显示与禁用深度遮挡，避免山区地形遮住绘制反馈。
+5. 支持撤销点、完成面、取消绘制。
+6. 点击“保存到 PostgREST”后写入 `airspace.no_fly_zone` 或 `airspace.temp_control_zone`。
+7. 管理列表支持刷新、编辑、禁用、删除。
 
 注意：前端保存只更新业务表；自动刷新依赖 `scripts/watch_airspace_refresh.py` worker 常驻运行。worker 停止时，可手动执行 airspace 快速刷新命令兜底。
 
