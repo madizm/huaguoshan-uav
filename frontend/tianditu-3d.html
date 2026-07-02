@@ -162,6 +162,7 @@
       background: rgba(0, 0, 0, 0.14);
     }
 
+    .airspace-admin-controls,
     .airspace-controls,
     .obstacle-controls {
       margin-top: 16px;
@@ -180,6 +181,14 @@
         rgba(0, 0, 0, 0.18);
     }
 
+    .airspace-admin-controls {
+      border-color: rgba(255, 176, 0, 0.32);
+      background:
+        linear-gradient(135deg, rgba(255, 176, 0, 0.13), rgba(255, 59, 48, 0.08)),
+        rgba(0, 0, 0, 0.18);
+    }
+
+    .airspace-admin-controls h2,
     .airspace-controls h2,
     .obstacle-controls h2 {
       margin: 0 0 10px;
@@ -190,6 +199,10 @@
     }
 
     .obstacle-controls h2 {
+      color: #ffb000;
+    }
+
+    .airspace-admin-controls h2 {
       color: #ffb000;
     }
 
@@ -236,7 +249,8 @@
     }
 
     .field select,
-    .field input {
+    .field input,
+    .field textarea {
       width: 100%;
       border: 1px solid rgba(255, 247, 223, 0.22);
       border-radius: 12px;
@@ -248,15 +262,77 @@
       outline: none;
     }
 
+    .field textarea {
+      min-height: 58px;
+      resize: vertical;
+      line-height: 1.4;
+    }
+
     .field input[type="range"] {
       padding: 0;
       accent-color: var(--gold);
     }
 
     .field select:focus-visible,
-    .field input:focus-visible {
+    .field input:focus-visible,
+    .field textarea:focus-visible {
       border-color: var(--gold);
       box-shadow: 0 0 0 3px rgba(215, 168, 70, 0.16);
+    }
+
+    .admin-actions,
+    .draw-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .draw-help,
+    .admin-hint {
+      margin: 9px 0 0;
+      color: rgba(255, 247, 223, 0.66);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .airspace-zone-list {
+      display: grid;
+      gap: 8px;
+      max-height: 172px;
+      overflow: auto;
+      margin-top: 10px;
+      padding-right: 2px;
+    }
+
+    .airspace-zone-item {
+      display: grid;
+      gap: 6px;
+      padding: 9px;
+      border: 1px solid rgba(255, 176, 0, 0.20);
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.16);
+    }
+
+    .airspace-zone-item strong {
+      overflow-wrap: anywhere;
+      color: var(--paper-strong);
+      font-size: 13px;
+    }
+
+    .airspace-zone-item span {
+      color: rgba(255, 247, 223, 0.62);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .airspace-zone-item .admin-actions {
+      margin-top: 0;
+    }
+
+    .airspace-zone-item button {
+      padding: 7px 10px;
+      font-size: 12px;
     }
 
     .readout {
@@ -704,6 +780,60 @@
         <button type="button" data-action="clearFlightObstacles">清除</button>
       </div>
     </div>
+    <div class="airspace-admin-controls" aria-label="禁限飞空域管理">
+      <h2>Airspace Admin</h2>
+      <div class="control-grid">
+        <label class="field">类型
+          <select id="airspaceZoneKind">
+            <option value="no_fly_zone">长期禁飞区</option>
+            <option value="temp_control">临时禁飞/管制</option>
+          </select>
+        </label>
+        <label class="field">名称
+          <input id="airspaceZoneName" type="text" value="新建禁飞区" />
+        </label>
+        <label class="field">最低高度 m
+          <input id="airspaceMinHeight" type="number" step="1" value="0" />
+        </label>
+        <label class="field">最高高度 m
+          <input id="airspaceMaxHeight" type="number" step="1" value="300" />
+        </label>
+        <label class="field">安全缓冲 m
+          <input id="airspaceSafetyBuffer" type="number" min="0" step="1" value="20" />
+        </label>
+        <label class="field" data-temp-field>Status
+          <select id="airspaceStatus">
+            <option value="planned">planned</option>
+            <option value="active" selected>active</option>
+            <option value="cancelled">cancelled</option>
+          </select>
+        </label>
+        <label class="field" data-temp-field>有效开始
+          <input id="airspaceValidFrom" type="datetime-local" />
+        </label>
+        <label class="field" data-temp-field>有效结束
+          <input id="airspaceValidTo" type="datetime-local" />
+        </label>
+        <label class="field" style="grid-column: 1 / -1;">当前面坐标
+          <textarea id="airspaceGeometryPreview" readonly placeholder="点击“开始绘制”后在地图上依次左键点选 polygon 顶点。"></textarea>
+        </label>
+      </div>
+      <div class="draw-actions">
+        <button type="button" data-action="newAirspaceZone">新建</button>
+        <button type="button" data-action="startAirspaceDraw">开始绘制</button>
+        <button type="button" data-action="undoAirspacePoint">撤销点</button>
+        <button type="button" data-action="finishAirspaceDraw">完成面</button>
+        <button type="button" data-action="cancelAirspaceDraw">取消绘制</button>
+      </div>
+      <div class="admin-actions">
+        <button class="primary" type="button" data-action="saveAirspaceZone">保存到 PostgREST</button>
+        <button type="button" data-action="reloadAirspaceZones">刷新列表</button>
+      </div>
+      <p class="admin-hint">保存写入 airspace 业务表；飞行障碍物化视图仍需后台执行 <code>--source airspace --refresh-total</code> 后才会更新。</p>
+      <div class="airspace-zone-list" id="airspaceZoneList">
+        <div class="feature-empty">尚未加载禁限飞区列表。</div>
+      </div>
+    </div>
     <div class="airspace-controls" aria-label="GGER 空域网格参数">
       <h2>GGER Airspace Grid</h2>
       <div class="control-grid">
@@ -806,6 +936,12 @@
       var citydbFeatureGridRpcUrl = 'http://10.1.109.151:13000/rpc/get_citydb_feature_gger_grids';
       var flightObstaclesRpcUrl = 'http://10.1.109.151:13000/rpc/list_flight_obstacles_gger';
       var flightObstaclesLodRpcUrl = 'http://10.1.109.151:13000/rpc/list_flight_obstacles_gger_lod';
+      var postgrestBaseUrl = 'http://10.1.109.151:13000';
+      var airspaceProfile = 'airspace';
+      var airspaceTableByKind = {
+        no_fly_zone: 'no_fly_zone',
+        temp_control: 'temp_control_zone'
+      };
       var TERRAIN_LOD_RULES = [
         { minHeight: 8000, lod: 0, limit: 200, bboxBuffer: 0.50, label: 'Overview' },
         { minHeight: 2000, lod: 1, limit: 500, bboxBuffer: 0.25, label: 'Medium' },
@@ -862,6 +998,16 @@
             loading: false,
             moveEndTimer: null
           }
+        },
+        airspaceAdmin: {
+          zones: [],
+          editingKind: null,
+          editingId: null,
+          drawActive: false,
+          drawPoints: [],
+          drawEntities: [],
+          existingGeometry: null,
+          loading: false
         }
       };
 
@@ -1180,6 +1326,435 @@
       function selectedFlightObstacleSources() {
         return Object.keys(state.flightObstacles.sourceFilters).filter(function (sourceKind) {
           return state.flightObstacles.sourceFilters[sourceKind];
+        });
+      }
+
+      function airspaceKindLabel(kind) {
+        if (kind === 'no_fly_zone') return '长期禁飞区';
+        if (kind === 'temp_control') return '临时禁飞/管制';
+        return kind || '禁限飞区';
+      }
+
+      function airspaceTable(kind) {
+        return airspaceTableByKind[kind] || airspaceTableByKind.no_fly_zone;
+      }
+
+      function airspaceHeaders(extra) {
+        return Object.assign({
+          'Accept': 'application/json',
+          'Accept-Profile': airspaceProfile,
+          'Content-Profile': airspaceProfile
+        }, extra || {});
+      }
+
+      function airspaceRequest(kind, pathSuffix, options) {
+        var table = airspaceTable(kind);
+        var url = postgrestBaseUrl + '/' + table + (pathSuffix || '');
+        var requestOptions = Object.assign({}, options || {});
+        requestOptions.headers = airspaceHeaders(requestOptions.headers);
+        return fetch(url, requestOptions).then(function (response) {
+          if (!response.ok) {
+            return response.text().then(function (text) {
+              throw new Error('PostgREST airspace ' + (requestOptions.method || 'GET') + ' HTTP ' + response.status + (text ? ': ' + text : ''));
+            });
+          }
+          return response.text();
+        }).then(function (text) {
+          return text ? JSON.parse(text) : null;
+        });
+      }
+
+      function formatDateTimeLocal(date) {
+        var pad = function (value) { return String(value).padStart(2, '0'); };
+        return [
+          date.getFullYear(), '-', pad(date.getMonth() + 1), '-', pad(date.getDate()),
+          'T', pad(date.getHours()), ':', pad(date.getMinutes())
+        ].join('');
+      }
+
+      function isoFromDateTimeLocal(value) {
+        if (!value) return null;
+        var date = new Date(value);
+        if (!Number.isFinite(date.getTime())) return null;
+        return date.toISOString();
+      }
+
+      function numberOrNull(value) {
+        var num = Number(value);
+        return Number.isFinite(num) ? num : null;
+      }
+
+      function setupAirspaceDefaults() {
+        var from = $('#airspaceValidFrom');
+        var to = $('#airspaceValidTo');
+        var now = new Date();
+        var later = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+        if (from && !from.value) from.value = formatDateTimeLocal(now);
+        if (to && !to.value) to.value = formatDateTimeLocal(later);
+      }
+
+      function updateAirspaceTempFields() {
+        var kind = $('#airspaceZoneKind') ? $('#airspaceZoneKind').value : 'no_fly_zone';
+        document.querySelectorAll('[data-temp-field]').forEach(function (field) {
+          field.style.display = kind === 'temp_control' ? '' : 'none';
+        });
+      }
+
+      function parseAirspaceGeometry(geom) {
+        if (!geom) return null;
+        if (typeof geom === 'string') {
+          try { return JSON.parse(geom); } catch (error) { return null; }
+        }
+        return geom;
+      }
+
+      function sameLonLat(a, b) {
+        return a && b && Math.abs(a[0] - b[0]) < 1e-12 && Math.abs(a[1] - b[1]) < 1e-12;
+      }
+
+      function geometryToDrawPoints(geom) {
+        var geometry = parseAirspaceGeometry(geom);
+        var ring;
+        if (!geometry) return [];
+        if (geometry.type === 'MultiPolygon') ring = geometry.coordinates && geometry.coordinates[0] && geometry.coordinates[0][0];
+        if (geometry.type === 'Polygon') ring = geometry.coordinates && geometry.coordinates[0];
+        if (!Array.isArray(ring)) return [];
+        if (ring.length > 1 && sameLonLat(ring[0], ring[ring.length - 1])) ring = ring.slice(0, -1);
+        return ring.map(function (coord) {
+          return { lon: Number(coord[0]), lat: Number(coord[1]) };
+        }).filter(function (point) {
+          return Number.isFinite(point.lon) && Number.isFinite(point.lat);
+        });
+      }
+
+      function drawPointsToMultiPolygon(points) {
+        var ring = points.map(function (point) { return [point.lon, point.lat]; });
+        if (ring.length && !sameLonLat(ring[0], ring[ring.length - 1])) ring.push([ring[0][0], ring[0][1]]);
+        return { type: 'MultiPolygon', coordinates: [[ring]] };
+      }
+
+      function clearAirspaceDrawPreview() {
+        if (state.viewer) {
+          state.airspaceAdmin.drawEntities.forEach(function (entity) {
+            state.viewer.entities.remove(entity);
+          });
+        }
+        state.airspaceAdmin.drawEntities = [];
+      }
+
+      function updateAirspaceGeometryPreview() {
+        var preview = $('#airspaceGeometryPreview');
+        var points = state.airspaceAdmin.drawPoints;
+        if (!preview) return;
+        preview.value = points.length ? points.map(function (point, index) {
+          return (index + 1) + '. ' + point.lon.toFixed(7) + ', ' + point.lat.toFixed(7);
+        }).join('\n') : '';
+      }
+
+      function renderAirspaceDrawPreview() {
+        var CesiumRuntime = window.Cesium;
+        var points = state.airspaceAdmin.drawPoints;
+        var positions;
+        var color;
+        clearAirspaceDrawPreview();
+        updateAirspaceGeometryPreview();
+        if (!state.viewer || !CesiumRuntime || !points.length) return;
+        color = CesiumRuntime.Color.fromCssColorString($('#airspaceZoneKind').value === 'temp_control' ? '#ffb000' : '#ff3b30');
+        positions = points.map(function (point) { return CesiumRuntime.Cartesian3.fromDegrees(point.lon, point.lat, 5); });
+        points.forEach(function (point, index) {
+          state.airspaceAdmin.drawEntities.push(state.viewer.entities.add({
+            name: 'Airspace draw vertex ' + (index + 1),
+            position: CesiumRuntime.Cartesian3.fromDegrees(point.lon, point.lat, 8),
+            point: { pixelSize: 9, color: color, outlineColor: CesiumRuntime.Color.WHITE, outlineWidth: 2 },
+            label: {
+              text: String(index + 1),
+              font: '13px sans-serif',
+              fillColor: CesiumRuntime.Color.WHITE,
+              outlineColor: CesiumRuntime.Color.BLACK,
+              outlineWidth: 2,
+              style: CesiumRuntime.LabelStyle.FILL_AND_OUTLINE,
+              pixelOffset: new CesiumRuntime.Cartesian2(12, -12)
+            }
+          }));
+        });
+        if (positions.length >= 2) {
+          state.airspaceAdmin.drawEntities.push(state.viewer.entities.add({
+            name: 'Airspace draw outline',
+            polyline: {
+              positions: positions.concat(positions.length >= 3 ? [positions[0]] : []),
+              width: 3,
+              material: color.withAlpha(0.95),
+              clampToGround: false
+            }
+          }));
+        }
+        if (positions.length >= 3) {
+          state.airspaceAdmin.drawEntities.push(state.viewer.entities.add({
+            name: 'Airspace draw polygon',
+            polygon: {
+              hierarchy: positions,
+              material: color.withAlpha(0.22),
+              outline: true,
+              outlineColor: color,
+              height: 0
+            }
+          }));
+        }
+      }
+
+      function resetAirspaceForm() {
+        state.airspaceAdmin.editingKind = null;
+        state.airspaceAdmin.editingId = null;
+        state.airspaceAdmin.existingGeometry = null;
+        state.airspaceAdmin.drawPoints = [];
+        state.airspaceAdmin.drawActive = false;
+        $('#airspaceZoneName').value = '新建禁飞区';
+        $('#airspaceMinHeight').value = '0';
+        $('#airspaceMaxHeight').value = '300';
+        $('#airspaceSafetyBuffer').value = '20';
+        $('#airspaceStatus').value = 'active';
+        $('#airspaceValidFrom').value = '';
+        $('#airspaceValidTo').value = '';
+        setupAirspaceDefaults();
+        updateAirspaceTempFields();
+        renderAirspaceDrawPreview();
+        log('已进入新建禁限飞区模式。点击“开始绘制”后在地图上点选 polygon 顶点。');
+      }
+
+      function startAirspaceDraw() {
+        state.airspaceAdmin.drawActive = true;
+        state.airspaceAdmin.drawPoints = [];
+        state.airspaceAdmin.existingGeometry = null;
+        renderAirspaceDrawPreview();
+        log('禁限飞区绘制已开始：请在地图上依次左键点击 polygon 顶点，完成后点“完成面”。');
+      }
+
+      function finishAirspaceDraw() {
+        if (state.airspaceAdmin.drawPoints.length < 3) {
+          log('至少需要 3 个顶点才能完成禁限飞区 polygon。');
+          return;
+        }
+        state.airspaceAdmin.drawActive = false;
+        renderAirspaceDrawPreview();
+        log('禁限飞区 polygon 已完成，可继续修改属性并保存。');
+      }
+
+      function cancelAirspaceDraw() {
+        state.airspaceAdmin.drawActive = false;
+        state.airspaceAdmin.drawPoints = [];
+        state.airspaceAdmin.existingGeometry = null;
+        renderAirspaceDrawPreview();
+        log('已取消禁限飞区绘制。');
+      }
+
+      function undoAirspacePoint() {
+        if (!state.airspaceAdmin.drawPoints.length) return;
+        state.airspaceAdmin.drawPoints.pop();
+        renderAirspaceDrawPreview();
+        log('已撤销最后一个顶点。');
+      }
+
+      function pickLonLatFromScreen(position) {
+        var CesiumRuntime = window.Cesium;
+        var cartesian = null;
+        var ray;
+        var cartographic;
+        if (!state.viewer || !CesiumRuntime || !position) return null;
+        if (state.viewer.scene.globe && typeof state.viewer.camera.getPickRay === 'function') {
+          ray = state.viewer.camera.getPickRay(position);
+          if (ray) cartesian = state.viewer.scene.globe.pick(ray, state.viewer.scene);
+        }
+        if (!cartesian && typeof state.viewer.camera.pickEllipsoid === 'function') {
+          cartesian = state.viewer.camera.pickEllipsoid(position, state.viewer.scene.globe.ellipsoid);
+        }
+        if (!cartesian) return null;
+        cartographic = CesiumRuntime.Cartographic.fromCartesian(cartesian);
+        return {
+          lon: CesiumRuntime.Math.toDegrees(cartographic.longitude),
+          lat: CesiumRuntime.Math.toDegrees(cartographic.latitude)
+        };
+      }
+
+      function addAirspaceDrawPoint(position) {
+        var point = pickLonLatFromScreen(position);
+        if (!point) {
+          log('无法从当前点击位置读取经纬度，请点击地球表面。');
+          return;
+        }
+        state.airspaceAdmin.drawPoints.push(point);
+        renderAirspaceDrawPreview();
+        log('已添加禁限飞区顶点 #' + state.airspaceAdmin.drawPoints.length + '：' + point.lon.toFixed(6) + ', ' + point.lat.toFixed(6));
+      }
+
+      function airspacePayloadFromForm() {
+        var kind = $('#airspaceZoneKind').value;
+        var points = state.airspaceAdmin.drawPoints;
+        var geometry = points.length >= 3 ? drawPointsToMultiPolygon(points) : state.airspaceAdmin.existingGeometry;
+        var payload;
+        if (!geometry) throw new Error('请先绘制或选择一个 polygon。');
+        if (points.length > 0 && points.length < 3) throw new Error('polygon 至少需要 3 个顶点。');
+        payload = {
+          name: ($('#airspaceZoneName').value || '').trim(),
+          geom: JSON.stringify(geometry),
+          min_height: numberOrNull($('#airspaceMinHeight').value),
+          max_height: numberOrNull($('#airspaceMaxHeight').value),
+          safety_buffer_m: Math.max(0, numberOrNull($('#airspaceSafetyBuffer').value) || 0)
+        };
+        if (!payload.name) throw new Error('请填写禁限飞区名称。');
+        if (kind === 'no_fly_zone') {
+          payload.enabled = true;
+        } else {
+          payload.valid_from = isoFromDateTimeLocal($('#airspaceValidFrom').value);
+          payload.valid_to = isoFromDateTimeLocal($('#airspaceValidTo').value);
+          payload.status = $('#airspaceStatus').value || 'planned';
+          if (!payload.valid_from || !payload.valid_to) throw new Error('临时禁飞/管制必须填写有效开始和结束时间。');
+          if (new Date(payload.valid_to) <= new Date(payload.valid_from)) throw new Error('有效结束时间必须晚于开始时间。');
+        }
+        return { kind: kind, payload: payload };
+      }
+
+      function saveAirspaceZone() {
+        var form;
+        var method;
+        var suffix;
+        var editing = state.airspaceAdmin.editingId != null && state.airspaceAdmin.editingKind === ($('#airspaceZoneKind') && $('#airspaceZoneKind').value);
+        try {
+          form = airspacePayloadFromForm();
+        } catch (error) {
+          log('保存禁限飞区失败：' + error.message);
+          return Promise.resolve();
+        }
+        method = editing ? 'PATCH' : 'POST';
+        suffix = editing ? '?id=eq.' + encodeURIComponent(state.airspaceAdmin.editingId) : '';
+        log('正在通过 PostgREST 保存' + airspaceKindLabel(form.kind) + '。');
+        return airspaceRequest(form.kind, suffix, {
+          method: method,
+          headers: { 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+          body: JSON.stringify(form.payload)
+        }).then(function () {
+          state.airspaceAdmin.drawActive = false;
+          state.airspaceAdmin.editingKind = null;
+          state.airspaceAdmin.editingId = null;
+          state.flightObstacles.cache = {};
+          log('禁限飞区已保存到 airspace 业务表。请运行 airspace 快速刷新后再刷新飞行障碍图层。');
+          return loadAirspaceZones();
+        }).catch(function (error) {
+          console.error('[Tianditu3D] Airspace save failed:', error);
+          renderFeatureError('禁限飞区保存失败：' + error.message);
+          log('禁限飞区保存失败，请检查 PostgREST airspace schema 暴露与表权限。');
+        });
+      }
+
+      function renderAirspaceZoneList() {
+        var list = $('#airspaceZoneList');
+        var rows = state.airspaceAdmin.zones;
+        if (!list) return;
+        if (!rows.length) {
+          list.innerHTML = '<div class="feature-empty">暂无禁限飞区业务表记录，或 PostgREST airspace 查询未返回数据。</div>';
+          return;
+        }
+        list.innerHTML = rows.map(function (zone) {
+          var activeText = zone.kind === 'no_fly_zone'
+            ? (zone.enabled === false ? 'disabled' : 'enabled')
+            : (zone.status || 'planned');
+          var timeText = zone.kind === 'temp_control' ? ' · ' + (zone.valid_from || '--') + ' → ' + (zone.valid_to || '--') : '';
+          return '<div class="airspace-zone-item" data-zone-kind="' + escapeHtml(zone.kind) + '" data-zone-id="' + escapeHtml(zone.id) + '">' +
+            '<strong>#' + escapeHtml(zone.id) + ' · ' + escapeHtml(zone.name || '(unnamed)') + '</strong>' +
+            '<span>' + escapeHtml(airspaceKindLabel(zone.kind)) + ' · ' + escapeHtml(activeText) + ' · H ' + escapeHtml(zone.min_height == null ? 0 : zone.min_height) + '–' + escapeHtml(zone.max_height == null ? '∞' : zone.max_height) + 'm · buffer ' + escapeHtml(zone.safety_buffer_m || 0) + 'm' + escapeHtml(timeText) + '</span>' +
+            '<div class="admin-actions">' +
+              '<button type="button" data-action="editAirspaceZone" data-zone-kind="' + escapeHtml(zone.kind) + '" data-zone-id="' + escapeHtml(zone.id) + '">编辑</button>' +
+              '<button type="button" data-action="disableAirspaceZone" data-zone-kind="' + escapeHtml(zone.kind) + '" data-zone-id="' + escapeHtml(zone.id) + '">禁用</button>' +
+              '<button type="button" data-action="deleteAirspaceZone" data-zone-kind="' + escapeHtml(zone.kind) + '" data-zone-id="' + escapeHtml(zone.id) + '">删除</button>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+      }
+
+      function loadAirspaceZones() {
+        var selectNoFly = '?select=id,name,geom,min_height,max_height,safety_buffer_m,enabled,created_at,updated_at&order=id.desc&limit=50';
+        var selectTemp = '?select=id,name,geom,min_height,max_height,safety_buffer_m,valid_from,valid_to,status,created_at,updated_at&order=id.desc&limit=50';
+        state.airspaceAdmin.loading = true;
+        return Promise.all([
+          airspaceRequest('no_fly_zone', selectNoFly, { method: 'GET' }),
+          airspaceRequest('temp_control', selectTemp, { method: 'GET' })
+        ]).then(function (groups) {
+          state.airspaceAdmin.zones = (groups[0] || []).map(function (row) { return Object.assign({ kind: 'no_fly_zone' }, row); })
+            .concat((groups[1] || []).map(function (row) { return Object.assign({ kind: 'temp_control' }, row); }));
+          renderAirspaceZoneList();
+          log('已加载禁限飞区管理列表：' + state.airspaceAdmin.zones.length + ' 条。');
+        }).catch(function (error) {
+          console.error('[Tianditu3D] Airspace list failed:', error);
+          $('#airspaceZoneList').innerHTML = '<div class="feature-error">禁限飞区列表加载失败：' + escapeHtml(error.message) + '</div>';
+          log('禁限飞区列表加载失败；请确认 pgrest.conf 已暴露 airspace schema 且 web_anon 具备表权限。');
+        }).finally(function () {
+          state.airspaceAdmin.loading = false;
+        });
+      }
+
+      function editAirspaceZone(kind, id) {
+        var zone = state.airspaceAdmin.zones.find(function (item) {
+          return item.kind === kind && String(item.id) === String(id);
+        });
+        var points;
+        if (!zone) {
+          log('未找到待编辑的禁限飞区记录：' + kind + '#' + id);
+          return;
+        }
+        $('#airspaceZoneKind').value = kind;
+        $('#airspaceZoneName').value = zone.name || '';
+        $('#airspaceMinHeight').value = zone.min_height == null ? '0' : zone.min_height;
+        $('#airspaceMaxHeight').value = zone.max_height == null ? '' : zone.max_height;
+        $('#airspaceSafetyBuffer').value = zone.safety_buffer_m == null ? '0' : zone.safety_buffer_m;
+        $('#airspaceStatus').value = zone.status || 'planned';
+        $('#airspaceValidFrom').value = zone.valid_from ? formatDateTimeLocal(new Date(zone.valid_from)) : '';
+        $('#airspaceValidTo').value = zone.valid_to ? formatDateTimeLocal(new Date(zone.valid_to)) : '';
+        updateAirspaceTempFields();
+        state.airspaceAdmin.editingKind = kind;
+        state.airspaceAdmin.editingId = zone.id;
+        state.airspaceAdmin.existingGeometry = parseAirspaceGeometry(zone.geom);
+        points = geometryToDrawPoints(zone.geom);
+        state.airspaceAdmin.drawPoints = points;
+        state.airspaceAdmin.drawActive = false;
+        renderAirspaceDrawPreview();
+        if (points.length >= 3) {
+          zoomFlightObstacleBounds(cellsBounds(points.map(function (point) {
+            return { minLon: point.lon, maxLon: point.lon, minLat: point.lat, maxLat: point.lat, minHeight: 0, maxHeight: 0 };
+          })), '已定位到禁限飞区业务面，可编辑顶点后保存。');
+        }
+        log('已载入编辑：' + airspaceKindLabel(kind) + ' #' + zone.id + '。如需修改范围，请重新开始绘制。');
+      }
+
+      function disableAirspaceZone(kind, id) {
+        var payload = kind === 'no_fly_zone'
+          ? { enabled: false }
+          : { status: 'cancelled' };
+        if (!window.confirm('确认禁用 ' + airspaceKindLabel(kind) + ' #' + id + '？')) return Promise.resolve();
+        return airspaceRequest(kind, '?id=eq.' + encodeURIComponent(id), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
+          body: JSON.stringify(payload)
+        }).then(function () {
+          state.flightObstacles.cache = {};
+          log('禁限飞区已禁用。请运行 airspace 快速刷新后更新障碍图层。');
+          return loadAirspaceZones();
+        }).catch(function (error) {
+          console.error('[Tianditu3D] Airspace disable failed:', error);
+          log('禁限飞区禁用失败：' + error.message);
+        });
+      }
+
+      function deleteAirspaceZone(kind, id) {
+        if (!window.confirm('确认永久删除 ' + airspaceKindLabel(kind) + ' #' + id + '？该操作不可恢复。')) return Promise.resolve();
+        return airspaceRequest(kind, '?id=eq.' + encodeURIComponent(id), {
+          method: 'DELETE',
+          headers: { 'Prefer': 'return=minimal' }
+        }).then(function () {
+          state.flightObstacles.cache = {};
+          log('禁限飞区已删除。请运行 airspace 快速刷新后更新障碍图层。');
+          return loadAirspaceZones();
+        }).catch(function (error) {
+          console.error('[Tianditu3D] Airspace delete failed:', error);
+          log('禁限飞区删除失败：' + error.message);
         });
       }
 
@@ -1787,6 +2362,10 @@
       function bindFeaturePicking(viewer) {
         var handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
         handler.setInputAction(function (movement) {
+          if (state.airspaceAdmin.drawActive) {
+            addAirspaceDrawPoint(movement.position);
+            return;
+          }
           var picked = viewer.scene.pick(movement.position);
           if (picked && picked.id && picked.id.type === 'flightObstacle') {
             var pickedObstacle = state.flightObstacles.items.find(function (item) { return item.index === picked.id.index; });
@@ -2130,6 +2709,19 @@
         }
       }
 
+      function bindAirspaceAdminControls() {
+        var kindSelect = $('#airspaceZoneKind');
+        setupAirspaceDefaults();
+        updateAirspaceTempFields();
+        if (kindSelect) {
+          kindSelect.addEventListener('change', function () {
+            updateAirspaceTempFields();
+            renderAirspaceDrawPreview();
+          });
+        }
+        loadAirspaceZones();
+      }
+
       function scheduleTerrainLodRefresh() {
         if (!state.flightObstacles.enabled || !state.flightObstacles.sourceFilters.terrain) return;
         if (state.flightObstacles.terrainLod.moveEndTimer) window.clearTimeout(state.flightObstacles.terrainLod.moveEndTimer);
@@ -2351,6 +2943,16 @@
               var obstacle = state.flightObstacles.items.find(function (item) { return item.index === obstacleIndex; });
               zoomFlightObstacleBounds(obstacle && obstacle.bounds, obstacle ? '已定位到飞行障碍：' + (obstacle.source_name || obstacle.source_id) : null);
             }
+            if (action === 'newAirspaceZone') resetAirspaceForm();
+            if (action === 'startAirspaceDraw') startAirspaceDraw();
+            if (action === 'undoAirspacePoint') undoAirspacePoint();
+            if (action === 'finishAirspaceDraw') finishAirspaceDraw();
+            if (action === 'cancelAirspaceDraw') cancelAirspaceDraw();
+            if (action === 'saveAirspaceZone') saveAirspaceZone();
+            if (action === 'reloadAirspaceZones') loadAirspaceZones();
+            if (action === 'editAirspaceZone') editAirspaceZone(actionButton.dataset.zoneKind, actionButton.dataset.zoneId);
+            if (action === 'disableAirspaceZone') disableAirspaceZone(actionButton.dataset.zoneKind, actionButton.dataset.zoneId);
+            if (action === 'deleteAirspaceZone') deleteAirspaceZone(actionButton.dataset.zoneKind, actionButton.dataset.zoneId);
           }
 
           if (sourceButton) {
@@ -2456,6 +3058,7 @@
         addDemTileset(state.viewer);
         bindControls();
         bindAirspaceControls();
+        bindAirspaceAdminControls();
         bindObstacleControls();
         bindTerrainLodCameraRefresh(state.viewer);
         bindFeaturePicking(state.viewer);

@@ -697,33 +697,71 @@ P0 阶段不强制修改 RPC。
 
 ---
 
-## 10. 可选管理 RPC
+## 10. P1 管理能力：PostgREST 直接 CRUD
 
-如果需要前端在线新增、编辑、禁用禁限飞区，新增：
-
-```text
-backend/create_airspace_zone_admin_rpc.sql
-```
-
-建议 RPC：
+P1 不新增管理 RPC，直接使用 PostgREST 对 `airspace` schema 下两张业务表做 CRUD。已新增授权脚本：
 
 ```text
-citydb.create_no_fly_zone(...)
-citydb.update_no_fly_zone(...)
-citydb.disable_no_fly_zone(p_id bigint)
-citydb.create_temp_control_zone(...)
-citydb.update_temp_control_zone(...)
-citydb.disable_temp_control_zone(p_id bigint)
-citydb.list_airspace_zones(...)
+backend/create_airspace_postgrest_crud.sql
 ```
 
-注意：管理 RPC 也必须按现有表结构实现，不依赖 `priority` 字段。
+需要 PostgREST 暴露 `airspace` schema：
 
-安全建议：
+```text
+pgrest.conf
+db-schemas = "citydb, public, terrain, airspace"
+```
 
-1. 管理 RPC 不授予 `web_anon`。
-2. 使用独立角色，例如 `web_admin`。
-3. P0 阶段优先实现只读展示，不开放匿名写入。
+前端请求约定：
+
+```http
+Accept-Profile: airspace
+Content-Profile: airspace
+Content-Type: application/json
+```
+
+长期禁飞区：
+
+```text
+GET    /no_fly_zone?select=...
+POST   /no_fly_zone
+PATCH  /no_fly_zone?id=eq.<id>
+DELETE /no_fly_zone?id=eq.<id>
+```
+
+临时禁飞 / 管制区：
+
+```text
+GET    /temp_control_zone?select=...
+POST   /temp_control_zone
+PATCH  /temp_control_zone?id=eq.<id>
+DELETE /temp_control_zone?id=eq.<id>
+```
+
+几何字段写入约定：
+
+```json
+{
+  "geom": "{\"type\":\"MultiPolygon\",\"coordinates\":[...]}"
+}
+```
+
+说明：PostGIS 可将 GeoJSON 字符串作为 geometry 输入；PostgREST 查询返回时会把 `geom` 序列化为 GeoJSON 对象。
+
+禁用语义：
+
+1. `no_fly_zone`：`PATCH enabled = false`。
+2. `temp_control_zone`：`PATCH status = 'cancelled'`。
+
+### 10.1 P1 临时风险记录
+
+本阶段按要求**暂时跳过权限控制**，但必须记录风险点：
+
+1. `web_anon` 具备 `airspace.no_fly_zone` 与 `airspace.temp_control_zone` 的写权限时，任何可访问 PostgREST 的用户都能新增、修改、删除禁限飞区。
+2. 误删或恶意写入会影响后续 `--source airspace --refresh-total` 刷新结果，并可能改变前端展示和路径规划避障。
+3. PostgREST 直接 CRUD 绕过业务审批、审计、草稿发布流程；当前仅适合内网验证或受控演示环境。
+4. 生产化前应改为独立登录态 / `web_admin` 角色 / RLS 或管理 RPC，并禁用匿名 DELETE。
+5. 直接保存业务表后，物化视图不会自动更新，仍需后台执行 airspace 快速刷新命令。
 
 ---
 
@@ -814,6 +852,29 @@ Priority = 1100
 
 ```text
 当前没有当前规划时间内有效的临时禁飞区。请检查 airspace.temp_control_zone 的 status、valid_from、valid_to，并刷新障碍视图。
+```
+
+---
+
+### 11.5 P1 前端绘制与保存
+
+已在 `frontend/tianditu-3d.html` 增加 `Airspace Admin` 面板：
+
+1. 选择类型：长期禁飞区 / 临时禁飞管制。
+2. 填写名称、高度范围、安全缓冲；临时区额外填写 `valid_from`、`valid_to`、`status`。
+3. 点击“开始绘制”，在 Cesium 地图上左键逐点绘制 polygon。
+4. 支持撤销点、完成面、取消绘制。
+5. 点击“保存到 PostgREST”后写入 `airspace.no_fly_zone` 或 `airspace.temp_control_zone`。
+6. 管理列表支持刷新、编辑、禁用、删除。
+
+注意：前端保存只更新业务表。要让“飞行障碍”图层和路径规划看到最新禁限飞区，仍需执行：
+
+```bash
+uv run scripts/refresh_citydb_obstacle_grids.py \
+  --source airspace \
+  --refresh-total \
+  --airspace-mode polygon-prism \
+  --grant-role web_anon
 ```
 
 ---
@@ -1112,10 +1173,19 @@ select ST_FindGridsPath(
 
 ### P1：管理能力
 
-1. 新增 `backend/create_airspace_zone_admin_rpc.sql`。
-2. 提供禁限飞区新增、编辑、禁用、列表查询 RPC。
-3. 增加权限控制，避免匿名写入。
-4. 可选实现前端绘制 polygon 并保存。
+已完成：
+
+1. 不新增管理 RPC，改用 PostgREST 直接 CRUD `airspace.no_fly_zone` / `airspace.temp_control_zone`。
+2. `pgrest.conf` 增加 `airspace` schema 暴露。
+3. 新增 `backend/create_airspace_postgrest_crud.sql`，为 P1 原型授予 `web_anon` 对 `airspace.no_fly_zone` / `airspace.temp_control_zone` 的直接读写权限。
+4. 前端新增 `Airspace Admin` 面板，支持列表、绘制 polygon、新增、编辑、禁用、删除、保存。
+5. 文档记录“暂时跳过权限控制”的风险点。
+
+待生产化：
+
+1. 增加权限控制，避免匿名写入。
+2. 增加审计、审批、软删除策略。
+3. 评估是否用管理 RPC 或 RLS 替换直接匿名 CRUD。
 
 ### P2：高级能力
 
@@ -1133,6 +1203,7 @@ select ST_FindGridsPath(
 
 ```text
 scripts/seed_airspace_zones.py
+backend/create_airspace_postgrest_crud.sql
 data/airspace/huaguoshan_no_fly_zone.geojson
 data/airspace/huaguoshan_temp_control.geojson
 ```
@@ -1142,15 +1213,10 @@ data/airspace/huaguoshan_temp_control.geojson
 ```text
 scripts/refresh_citydb_obstacle_grids.py
 frontend/tianditu-3d.html
+pgrest.conf
 docs/airspace_no_fly_feature_plan.md
 docs/multi_source_flight_obstacles_plan.md
 docs/refined_flight_obstacles_plan.md
-```
-
-可选新增：
-
-```text
-backend/create_airspace_zone_admin_rpc.sql
 ```
 
 ---
@@ -1185,4 +1251,4 @@ citydb_grid.flight_obstacles
 前端展示 + RPC 查询 + 路径规划避障
 ```
 
-P0 阶段优先完成数据导入、增量刷新、前端展示和 E2E 验收；随后再扩展管理 RPC 和前端在线编辑能力。
+P0 阶段已完成数据导入、增量刷新、前端展示和 E2E 验收；P1 已用 PostgREST 直接 CRUD 实现前端在线绘制与保存。生产化前应补齐权限控制、审计和发布流程。
