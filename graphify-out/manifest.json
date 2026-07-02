@@ -90,9 +90,9 @@
     "semantic_hash": "cabad9b59573ed6690140b15938693bc"
   },
   "frontend/tianditu-3d.html": {
-    "mtime": 1782978659.329157,
-    "ast_hash": "c8c26d4f0fdd495f163df794231026b9",
-    "semantic_hash": "c8c26d4f0fdd495f163df794231026b9"
+    "mtime": 1782990961.8931522,
+    "ast_hash": "685e63b8c75c4ac2362e9af899b170fc",
+    "semantic_hash": "685e63b8c75c4ac2362e9af899b170fc"
   },
   "\u5f00\u53d1\u73af\u5883.md": {
     "mtime": 1782806439.6514714,
@@ -189,16 +189,6 @@
     "ast_hash": "fea6c1853221cd10ebfdd3fc44519c3b",
     "semantic_hash": "fea6c1853221cd10ebfdd3fc44519c3b"
   },
-  ".pi/todos/c3e03f1c.md": {
-    "mtime": 1782909340.2531886,
-    "ast_hash": "85060b26fab1df1232adfa9c658b008a",
-    "semantic_hash": "85060b26fab1df1232adfa9c658b008a"
-  },
-  ".pi/todos/da9458f2.md": {
-    "mtime": 1782909344.51622,
-    "ast_hash": "39d1d63a9a367fc77dcfd627ca29af10",
-    "semantic_hash": "39d1d63a9a367fc77dcfd627ca29af10"
-  },
   "docs/airspace_height_datum_semantics_plan.md": {
     "mtime": 1782978681.448976,
     "ast_hash": "abdccfa4b1fd52139545e0d45e9150d2",
@@ -208,5 +198,20 @@
     "mtime": 1782978664.5161355,
     "ast_hash": "069480be1da29c8e3279ed877aa5ab6c",
     "semantic_hash": "069480be1da29c8e3279ed877aa5ab6c"
+  },
+  "backend/create_flight_path_planning_rpc.sql": {
+    "mtime": 1782988285.5431936,
+    "ast_hash": "1e98367c613c922afd84729c200a6036",
+    "semantic_hash": "1e98367c613c922afd84729c200a6036"
+  },
+  "docs/flight_path_camera_follow_effects_plan.md": {
+    "mtime": 1782998881.0588112,
+    "ast_hash": "86adf7a39ad27c668f2af9f4d90d7fb1",
+    "semantic_hash": "86adf7a39ad27c668f2af9f4d90d7fb1"
+  },
+  "docs/flight_path_planning_management_plan.md": {
+    "mtime": 1782988466.9663687,
+    "ast_hash": "159bba1835bb90f9795b03dfd4ba1504",
+    "semantic_hash": "159bba1835bb90f9795b03dfd4ba1504"
   }
 }
