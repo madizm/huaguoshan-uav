@@ -657,8 +657,12 @@ frontend/tianditu-3d.html
 - `--airspace-mode bbox|polygon-prism`
 - `--terrain-mode tile-bbox|block-prism`
 - `--terrain-block-size-pixels`
+- `--refresh-total`：单来源/airspace 刷新后同步重建统一总障碍视图、wrapper 和 codes view。
+- `--source airspace`：组合刷新 `no-fly-zones` 与 `temp-control`，不重算建筑和地形。
 - `citydb_grid.make_polygon_prism_3d(...)` helper，基于 `ST_MakeValid` / `ST_CollectionExtract` / `ST_Extrude` 将 polygon footprint 精确挤出为 3D 占用体。
 - DEM block-prism 生成逻辑，基于 `ST_PixelAsPolygons` 按像元块计算局部 `min_elevation` / `max_elevation`。
+
+已新增 `scripts/seed_airspace_zones.py` 与 `data/airspace/*.geojson` 示例数据，用于按现有 `airspace.no_fly_zone` / `airspace.temp_control_zone` 表结构导入长期禁飞区和临时禁飞/管制区。
 
 当前刷新命令：
 
@@ -675,10 +679,10 @@ uv run scripts/refresh_citydb_obstacle_grids.py \
 
 ```text
 citydb_grid.obstacles_buildings: 18 rows
-citydb_grid.obstacles_terrain: 3750 rows
-citydb_grid.obstacles_no_fly_zones: 0 rows
-citydb_grid.obstacles_temp_control_active: 0 rows
-citydb_grid.flight_obstacles: 3768 rows
+citydb_grid.obstacles_terrain: 3022 rows
+citydb_grid.obstacles_no_fly_zones: 1 row
+citydb_grid.obstacles_temp_control_active: 1 row
+citydb_grid.flight_obstacles: 3042 rows
 ```
 
 验证结果：
@@ -687,6 +691,10 @@ citydb_grid.flight_obstacles: 3768 rows
 - `public.flight_obstacles(id, grids)` wrapper 可查询，保持 `ST_FindGridsPath` 兼容。
 - `list_flight_obstacles_gger` RPC 可查询 terrain 精细障碍，且响应不包含 BGC。
 - `citydb_grid.obstacles_terrain` 已重建唯一索引、`source_kind` 索引和 `grids gin_grids_ops` GIN 索引。
+- `_pi_validation_` 长期禁飞区生成 290 cells，`_pi_validation_` 临时禁飞区生成 273 cells，均已进入 `citydb_grid.flight_obstacles`。
+- `--source airspace --refresh-total` 与 `--refresh-only --source airspace --refresh-total` 已验证通过。
+- PostgREST `list_flight_obstacles_gger` 按 `no_fly_zone` / `temp_control` 查询均返回 `gger_grids_with_box`，且不包含 BGC 字段。
+- 前端浏览器验证通过：飞行障碍图层加载 20 条，其中长期禁飞区 1 条、临时禁飞/管制 1 条；关闭建筑后可单独展示 2 条禁限飞详情。
 
 与原方案的差异：
 

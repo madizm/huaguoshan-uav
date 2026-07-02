@@ -695,8 +695,8 @@
       <div class="source-toggles" aria-label="飞行障碍来源过滤">
         <button type="button" data-obstacle-source="building" aria-pressed="true" style="--source-color:#4cc9f0">建筑</button>
         <button type="button" data-obstacle-source="terrain" aria-pressed="false" style="--source-color:#8bc34a">地形</button>
-        <button type="button" data-obstacle-source="no_fly_zone" aria-pressed="true" style="--source-color:#ff3b30">禁飞区</button>
-        <button type="button" data-obstacle-source="temp_control" aria-pressed="true" style="--source-color:#ffb000">临时管制</button>
+        <button type="button" data-obstacle-source="no_fly_zone" aria-pressed="true" style="--source-color:#ff3b30">长期禁飞区</button>
+        <button type="button" data-obstacle-source="temp_control" aria-pressed="true" style="--source-color:#ffb000">临时禁飞/管制</button>
       </div>
       <div class="obstacle-actions">
         <button type="button" data-action="refreshFlightObstacles">刷新障碍</button>
@@ -814,8 +814,8 @@
       var flightObstacleSources = {
         building: { label: '建筑', color: '#4cc9f0' },
         terrain: { label: '地形', color: '#8bc34a' },
-        no_fly_zone: { label: '禁飞区', color: '#ff3b30' },
-        temp_control: { label: '临时管制', color: '#ffb000' }
+        no_fly_zone: { label: '长期禁飞区', color: '#ff3b30' },
+        temp_control: { label: '临时禁飞/管制', color: '#ffb000' }
       };
       var gridLayerColors = ['#5eead4', '#f6c85f', '#ff8f5f', '#8bd17c', '#80b7ff', '#c084fc', '#f472b6', '#67e8f9', '#facc15', '#a3e635'];
       var huaguoshan = { lon: 119.2683, lat: 34.6469 };
@@ -1149,6 +1149,34 @@
         return (flightObstacleSources[sourceKind] && flightObstacleSources[sourceKind].label) || sourceKind || '未知来源';
       }
 
+      function flightObstacleLineWidth(sourceKind) {
+        if (sourceKind === 'terrain') return 1.4;
+        if (sourceKind === 'no_fly_zone' || sourceKind === 'temp_control') return 2.8;
+        return 2.2;
+      }
+
+      function flightObstacleLineAlpha(sourceKind) {
+        if (sourceKind === 'terrain') return 0.62;
+        if (sourceKind === 'no_fly_zone' || sourceKind === 'temp_control') return 0.94;
+        return 0.86;
+      }
+
+      function flightObstacleHeightRange(bounds) {
+        if (!bounds || !Number.isFinite(bounds.minHeight) || !Number.isFinite(bounds.maxHeight)) return null;
+        return bounds.minHeight.toFixed(1) + 'm – ' + bounds.maxHeight.toFixed(1) + 'm';
+      }
+
+      function emptyFlightObstacleMessage() {
+        var sources = selectedFlightObstacleSources();
+        if (sources.length === 1 && sources[0] === 'no_fly_zone') {
+          return '当前没有启用的长期禁飞区。请先导入 airspace.no_fly_zone 并刷新障碍视图。';
+        }
+        if (sources.length === 1 && sources[0] === 'temp_control') {
+          return '当前没有当前规划时间内有效的临时禁飞区。请检查 airspace.temp_control_zone 的 status、valid_from、valid_to，并刷新障碍视图。';
+        }
+        return '当前过滤条件下没有可展示的飞行障碍。';
+      }
+
       function selectedFlightObstacleSources() {
         return Object.keys(state.flightObstacles.sourceFilters).filter(function (sourceKind) {
           return state.flightObstacles.sourceFilters[sourceKind];
@@ -1388,8 +1416,8 @@
                 CesiumRuntime.Cartesian3.fromDegrees(edge.lon1, edge.lat1, edge.h1),
                 CesiumRuntime.Cartesian3.fromDegrees(edge.lon2, edge.lat2, edge.h2)
               ],
-              width: sourceKind === 'terrain' ? 1.4 : 2.2,
-              material: gridLayerMaterial(CesiumRuntime, materialCache, edge.layerIndex, sourceKind === 'terrain' ? 0.62 : 0.86),
+              width: flightObstacleLineWidth(sourceKind),
+              material: gridLayerMaterial(CesiumRuntime, materialCache, edge.layerIndex, flightObstacleLineAlpha(sourceKind)),
               id: {
                 type: 'flightObstacle',
                 source_kind: obstacle.source_kind,
@@ -1423,7 +1451,7 @@
         var cards;
         showFeaturePanel();
         if (!obstacles.length) {
-          featurePanel().innerHTML = '<div class="feature-empty">当前过滤条件下没有可展示的飞行障碍。</div>';
+          featurePanel().innerHTML = '<div class="feature-empty">' + escapeHtml(emptyFlightObstacleMessage()) + '</div>';
           return;
         }
         summary = obstacles.reduce(function (acc, obstacle) {
@@ -1434,7 +1462,9 @@
         cards = obstacles.slice(0, 12).map(function (obstacle) {
           var color = flightObstacleColor(obstacle.source_kind);
           var metaRows = [
+            ['Type', flightObstacleLabel(obstacle.source_kind)],
             ['Source ID', obstacle.source_id],
+            ['Height', flightObstacleHeightRange(obstacle.bounds)],
             ['Terrain LOD', obstacle.lod_level != null ? 'LOD' + obstacle.lod_level + (obstacle.block_size_px ? ' · ' + obstacle.block_size_px + 'px block' : '') : null],
             ['Detail', obstacle.detail_level ? 'L' + obstacle.detail_level : null],
             ['Cells', obstacle.cell_count || obstacle.cells.length || 0],

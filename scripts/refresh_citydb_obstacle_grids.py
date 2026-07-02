@@ -25,6 +25,8 @@
     - 默认 ``--source all`` 会重建/刷新所有来源。
     - 可以用 ``--source buildings`` 等参数只处理某个来源。
     - ``--refresh-only`` 只刷新已有物化视图，不改变 DDL。
+    - ``--source airspace`` 只处理长期禁飞区与临时管制区。
+    - ``--refresh-total`` 在单来源/airspace 刷新后同步刷新统一总障碍视图。
     - ``--dry-run`` 只检查候选源数据数量，不创建或刷新对象。
 
 External display contract:
@@ -72,6 +74,7 @@ SOURCE_TO_VIEW = {
     "temp-control": "obstacles_temp_control_active",
 }
 SOURCE_ORDER = ("buildings", "terrain", "no-fly-zones", "temp-control")
+AIRSPACE_SOURCES = ("no-fly-zones", "temp-control")
 
 
 class ScriptError(RuntimeError):
@@ -116,9 +119,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dsn", default=os.getenv("CITYDB_DSN", DEFAULT_DSN), help="PostgreSQL DSN; can also use CITYDB_DSN.")
     parser.add_argument(
         "--source",
-        choices=[*SOURCE_ORDER, "all"],
+        choices=[*SOURCE_ORDER, "airspace", "all"],
         default="all",
-        help="Source materialized view(s) to rebuild/refresh before rebuilding the union view.",
+        help="Source materialized view(s) to rebuild/refresh. Use --refresh-total to update the union view for non-all sources.",
     )
     parser.add_argument("--citydb-schema", default=DEFAULT_CITYDB_SCHEMA, help="3DCityDB schema name.")
     parser.add_argument("--grid-schema", default=DEFAULT_GRID_SCHEMA, help="Schema for generated obstacle views.")
@@ -192,6 +195,15 @@ def parse_args() -> argparse.Namespace:
     refresh_group = parser.add_mutually_exclusive_group()
     refresh_group.add_argument("--refresh-only", action="store_true", help="Refresh existing materialized views only; do not rebuild DDL.")
     refresh_group.add_argument("--dry-run", action="store_true", help="Run checks and print source row counts without creating/refeshing views.")
+    parser.add_argument(
+        "--refresh-total",
+        action="store_true",
+        help=(
+            "After refreshing/rebuilding selected source view(s), also refresh/rebuild the unified "
+            "flight_obstacles view, wrapper, and codes view without refreshing unrelated sources. "
+            "Implicit for --source all."
+        ),
+    )
     concur_group = parser.add_mutually_exclusive_group()
     concur_group.add_argument("--concurrently", dest="concurrently", action="store_true", help="Use REFRESH MATERIALIZED VIEW CONCURRENTLY in --refresh-only mode.")
     concur_group.add_argument("--no-concurrently", dest="concurrently", action="store_false", help="Use plain REFRESH MATERIALIZED VIEW in --refresh-only mode.")
@@ -277,7 +289,15 @@ def selected_sources(args: argparse.Namespace) -> tuple[str, ...]:
 
     if args.source == "all":
         return SOURCE_ORDER
+    if args.source == "airspace":
+        return AIRSPACE_SOURCES
     return (args.source,)
+
+
+def should_update_total(args: argparse.Namespace) -> bool:
+    """Whether this run should update the unified obstacle view and wrappers."""
+
+    return args.source == "all" or args.refresh_total
 
 
 def qname(schema_name: str, relation_name: str) -> sql.Composed:
@@ -1225,12 +1245,17 @@ def grant_generated_objects(cur: psycopg.Cursor[Any], args: argparse.Namespace) 
     cur.execute(sql.SQL("grant usage on schema {} to {}").format(sql.Identifier(args.grid_schema), role))
     cur.execute(sql.SQL("grant usage on schema {} to {}").format(sql.Identifier(args.airspace_schema), role))
     cur.execute(sql.SQL("grant usage on schema {} to {}").format(sql.Identifier(args.public_wrapper_schema), role))
-    relations = [
-        qname(args.grid_schema, args.total_view_name),
-        qname(args.grid_schema, args.codes_view_name),
-        qname(args.public_wrapper_schema, args.public_wrapper_name),
-        *(qname(args.grid_schema, SOURCE_TO_VIEW[source]) for source in SOURCE_ORDER),
+    relation_names = [
+        (args.grid_schema, args.total_view_name),
+        (args.grid_schema, args.codes_view_name),
+        (args.public_wrapper_schema, args.public_wrapper_name),
+        *((args.grid_schema, SOURCE_TO_VIEW[source]) for source in SOURCE_ORDER),
     ]
+    relations = []
+    for schema_name, relation_name in relation_names:
+        cur.execute("select to_regclass(%s) is not null", (qname_literal(schema_name, relation_name),))
+        if bool(cur.fetchone()[0]):
+            relations.append(qname(schema_name, relation_name))
     if args.terrain_lod_display:
         cur.execute("select to_regclass(%s) is not null", (qname_literal(args.grid_schema, args.terrain_lod_view_name),))
         lod_exists = bool(cur.fetchone()[0])
@@ -1238,7 +1263,8 @@ def grant_generated_objects(cur: psycopg.Cursor[Any], args: argparse.Namespace) 
         lod_exists = False
     if lod_exists:
         relations.append(qname(args.grid_schema, args.terrain_lod_view_name))
-    cur.execute(sql.SQL("grant select on {} to {}").format(sql.SQL(", ").join(relations), role))
+    if relations:
+        cur.execute(sql.SQL("grant select on {} to {}").format(sql.SQL(", ").join(relations), role))
 
 
 def ensure_all_source_views_exist(cur: psycopg.Cursor[Any], args: argparse.Namespace, has_terrain_tables: bool) -> None:
@@ -1252,9 +1278,10 @@ def ensure_all_source_views_exist(cur: psycopg.Cursor[Any], args: argparse.Names
 
 
 def rebuild_views(conn: psycopg.Connection[Any], args: argparse.Namespace) -> None:
-    """Drop/recreate selected source views, then rebuild the unified total view."""
+    """Drop/recreate selected source views and optionally rebuild the unified total view."""
 
     sources = selected_sources(args)
+    update_total = should_update_total(args)
     has_terrain_tables = regclass_exists(conn, "terrain", "dem_tile") and regclass_exists(conn, "terrain", "dem_dataset")
     drop_dependent_views(conn, args)
     with conn.cursor() as cur:
@@ -1269,15 +1296,16 @@ def rebuild_views(conn: psycopg.Connection[Any], args: argparse.Namespace) -> No
                 cur.execute(build_obstacles_terrain_lod_sql(args, has_terrain_tables))
                 create_terrain_lod_indexes(cur, args)
 
-        ensure_all_source_views_exist(cur, args, has_terrain_tables)
-        cur.execute(build_total_view_sql(args))
-        create_source_indexes(cur, args, args.total_view_name)
-        cur.execute(build_codes_view_sql(args))
-        cur.execute(sql.SQL("create schema if not exists {}").format(sql.Identifier(args.public_wrapper_schema)))
-        cur.execute(build_public_wrapper_sql(args))
+        if update_total:
+            ensure_all_source_views_exist(cur, args, has_terrain_tables)
+            cur.execute(build_total_view_sql(args))
+            create_source_indexes(cur, args, args.total_view_name)
+            cur.execute(build_codes_view_sql(args))
+            cur.execute(sql.SQL("create schema if not exists {}").format(sql.Identifier(args.public_wrapper_schema)))
+            cur.execute(build_public_wrapper_sql(args))
         if args.grant_role:
             grant_generated_objects(cur, args)
-        if not args.skip_pgrst_notify:
+        if update_total and not args.skip_pgrst_notify:
             cur.execute("notify pgrst, 'reload schema'")
 
 
@@ -1287,20 +1315,22 @@ def refresh_one(cur: psycopg.Cursor[Any], args: argparse.Namespace, schema_name:
 
 
 def refresh_views(conn: psycopg.Connection[Any], args: argparse.Namespace) -> None:
-    """Refresh selected source views and the unified total view without DDL changes."""
+    """Refresh selected source views and optionally the unified total view without DDL changes."""
 
     sources = selected_sources(args)
+    update_total = should_update_total(args)
     with conn.cursor() as cur:
         for source in sources:
             refresh_one(cur, args, args.grid_schema, SOURCE_TO_VIEW[source])
             if source == "terrain" and args.terrain_lod_display:
                 refresh_one(cur, args, args.grid_schema, args.terrain_lod_view_name)
-        refresh_one(cur, args, args.grid_schema, args.total_view_name)
-        cur.execute(build_codes_view_sql(args))
-        cur.execute(build_public_wrapper_sql(args))
+        if update_total:
+            refresh_one(cur, args, args.grid_schema, args.total_view_name)
+            cur.execute(build_codes_view_sql(args))
+            cur.execute(build_public_wrapper_sql(args))
         if args.grant_role:
             grant_generated_objects(cur, args)
-        if not args.skip_pgrst_notify:
+        if update_total and not args.skip_pgrst_notify:
             cur.execute("notify pgrst, 'reload schema'")
 
 
@@ -1511,17 +1541,31 @@ def main() -> int:
                 rebuild_views(conn, args)
                 action = "Rebuilt"
 
-            total_count = relation_count(conn, args.grid_schema, args.total_view_name)
-            print(f"{action} {qname_literal(args.grid_schema, args.total_view_name)}.")
+            print(f"{action} source view(s): {', '.join(selected_sources(args))}.")
             for source in SOURCE_ORDER:
-                print(f"- {qname_literal(args.grid_schema, SOURCE_TO_VIEW[source])}: {relation_count(conn, args.grid_schema, SOURCE_TO_VIEW[source])} rows")
+                view_name = SOURCE_TO_VIEW[source]
+                if regclass_exists(conn, args.grid_schema, view_name):
+                    print(f"- {qname_literal(args.grid_schema, view_name)}: {relation_count(conn, args.grid_schema, view_name)} rows")
             if args.terrain_lod_display:
                 lod_counts = terrain_lod_counts(conn, args)
                 if lod_counts:
                     print(f"- {qname_literal(args.grid_schema, args.terrain_lod_view_name)}:")
                     for lod_level, row_count, total_cells in lod_counts:
                         print(f"  - LOD{lod_level}: {row_count} rows, {total_cells or 0} cells")
-            print_samples(total_count, fetch_samples(conn, args))
+            if should_update_total(args):
+                total_count = relation_count(conn, args.grid_schema, args.total_view_name)
+                print(f"Unified materialized view rows: {total_count}")
+                print_samples(total_count, fetch_samples(conn, args))
+            elif regclass_exists(conn, args.grid_schema, args.total_view_name):
+                print(
+                    f"Unified materialized view {qname_literal(args.grid_schema, args.total_view_name)} was not refreshed in this run. "
+                    "Run with --refresh-total or --source all to update it."
+                )
+            else:
+                print(
+                    f"Unified materialized view {qname_literal(args.grid_schema, args.total_view_name)} is not present. "
+                    "Run with --refresh-total or --source all to recreate it."
+                )
             print_post_action_hint(args)
             return 0
     except (psycopg.Error, ScriptError) as exc:

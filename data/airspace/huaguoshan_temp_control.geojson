@@ -1,0 +1,25 @@
+{
+  "type": "Feature",
+  "properties": {
+    "name": "花果山临时活动管制区",
+    "min_height": 0,
+    "max_height": 500,
+    "safety_buffer_m": 20,
+    "status": "active"
+  },
+  "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+      [
+        [
+          [119.2475, 34.6365],
+          [119.2568, 34.6374],
+          [119.2582, 34.6454],
+          [119.2514, 34.6502],
+          [119.2436, 34.6450],
+          [119.2475, 34.6365]
+        ]
+      ]
+    ]
+  }
+}

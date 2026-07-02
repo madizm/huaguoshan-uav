@@ -1,0 +1,25 @@
+{
+  "type": "Feature",
+  "properties": {
+    "name": "花果山核心长期禁飞区",
+    "min_height": 0,
+    "max_height": 300,
+    "safety_buffer_m": 20,
+    "enabled": true
+  },
+  "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+      [
+        [
+          [119.2588, 34.6418],
+          [119.2728, 34.6418],
+          [119.2744, 34.6514],
+          [119.2662, 34.6556],
+          [119.2572, 34.6492],
+          [119.2588, 34.6418]
+        ]
+      ]
+    ]
+  }
+}

@@ -323,9 +323,34 @@ uv run scripts/refresh_citydb_obstacle_grids.py \
 uv run scripts/refresh_citydb_obstacle_grids.py --source all --grant-role web_anon
 ```
 
+空域禁限飞快速刷新已支持：
+
+```bash
+# 只重建长期禁飞区并同步统一总障碍视图
+uv run scripts/refresh_citydb_obstacle_grids.py \
+  --source no-fly-zones \
+  --refresh-total \
+  --airspace-mode polygon-prism \
+  --grant-role web_anon
+
+# 只重建临时禁飞/管制区并同步统一总障碍视图
+uv run scripts/refresh_citydb_obstacle_grids.py \
+  --source temp-control \
+  --refresh-total \
+  --airspace-mode polygon-prism \
+  --grant-role web_anon
+
+# 同时重建长期禁飞区与临时禁飞/管制区，不重算建筑和地形
+uv run scripts/refresh_citydb_obstacle_grids.py \
+  --source airspace \
+  --refresh-total \
+  --airspace-mode polygon-prism \
+  --grant-role web_anon
+```
+
 当前已落地对象：
 
-- `scripts/refresh_citydb_obstacle_grids.py`：统一创建/刷新多源障碍物化视图。
+- `scripts/refresh_citydb_obstacle_grids.py`：统一创建/刷新多源障碍物化视图，支持 `--refresh-total` 与 `--source airspace`。
 - `citydb_grid.obstacles_buildings`
 - `citydb_grid.obstacles_terrain`
 - `citydb_grid.obstacles_no_fly_zones`
@@ -334,16 +359,18 @@ uv run scripts/refresh_citydb_obstacle_grids.py --source all --grant-role web_an
 - `public.flight_obstacles(id, grids)`
 - `citydb_grid.flight_obstacles_codes_view`
 - `public/citydb.list_flight_obstacles_gger(...)` / `citydb.list_flight_obstacles_gger(...)`
+- `scripts/seed_airspace_zones.py`：按现有 `airspace.no_fly_zone` / `airspace.temp_control_zone` 表结构导入 GeoJSON。
+- `data/airspace/huaguoshan_no_fly_zone.geojson` / `data/airspace/huaguoshan_temp_control.geojson` 示例数据。
 - 前端 `frontend/tianditu-3d.html` 的飞行障碍图层、来源过滤、刷新/定位/清除与详情面板。
 
 当前数据库快照：
 
 ```text
 citydb_grid.obstacles_buildings: 18 rows
-citydb_grid.obstacles_terrain: 3750 rows
-citydb_grid.obstacles_no_fly_zones: 0 rows
-citydb_grid.obstacles_temp_control_active: 0 rows
-citydb_grid.flight_obstacles: 3768 rows
+citydb_grid.obstacles_terrain: 3022 rows
+citydb_grid.obstacles_no_fly_zones: 1 row
+citydb_grid.obstacles_temp_control_active: 1 row
+citydb_grid.flight_obstacles: 3042 rows
 ```
 
 当前关键模式：
@@ -361,5 +388,7 @@ citydb_grid.flight_obstacles: 3768 rows
 - `citydb_grid.flight_obstacles_codes_view` 与 PostgREST RPC 保持 GGER-only。
 - `list_flight_obstacles_gger` 可查询 terrain 精细障碍。
 - L 形 polygon 测试中 `polygon-prism` 比 `bbox` 生成更少 cells，验证凹形缺口不再被完整 bbox 误占用。
+- `_pi_validation_` 长期禁飞区与临时禁飞区已通过 `--source airspace --refresh-total` 和 `--refresh-only --source airspace --refresh-total` 验证，并可通过 `list_flight_obstacles_gger` 分来源查询。
+- 前端 `frontend/tianditu-3d.html` 浏览器验证通过：开启飞行障碍后加载 20 条，其中长期禁飞区 1 条、临时禁飞/管制 1 条；关闭建筑后可单独展示 2 条禁限飞详情。
 
 精细化实现细节见：`docs/refined_flight_obstacles_plan.md`。
