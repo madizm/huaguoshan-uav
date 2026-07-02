@@ -736,3 +736,26 @@ flight_obstacles 对外契约保持不变
 2. 编辑已有记录时语义清晰。
 3. 任何写入路径都能被刷新脚本正确解释。
 4. grids 与路径规划真正考虑地形高程。
+
+---
+
+## 15. 实施状态
+
+当前实现采用计划中的方案 A：AGL 与 DEM block 相交后按分片生成 geomgrids，`source_id` 形如：
+
+```text
+<zone_id>:agl:<dataset_key>:<tile_id>:block:<x>:<y>
+```
+
+原因是先保证刷新和路径规划语义正确；如后续确认 iBEST-DB 环境中存在稳定的 geomgrids 聚合函数，再升级为“按业务 zone 聚合为一行”的方案 B。
+
+已实施范围：
+
+1. `airspace.no_fly_zone.height_datum` / `airspace.temp_control_zone.height_datum` 持久化。
+2. 前端 AGL 不再转换为 AMSL，`min_height/max_height` 按所选基准原样入库。
+3. `scripts/refresh_citydb_obstacle_grids.py` 在生成 no-fly/temp-control grids 时区分：
+   - `AMSL`：沿用原 polygon/bbox prism。
+   - `AGL`：使用 DEM pixel block 生成 terrain-aware local prism pieces。
+4. `scripts/seed_airspace_zones.py` 支持 `--height-datum AMSL|AGL`。
+
+部署注意：首次上线该变更后，需要执行一次非 `--refresh-only` 的 airspace rebuild，使物化视图定义包含 AGL 分支；之后 worker 的 `--refresh-only` 可继续使用。

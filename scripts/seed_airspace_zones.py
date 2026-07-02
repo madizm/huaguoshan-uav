@@ -34,6 +34,7 @@ DEFAULT_DSN = "postgresql://postgres:postgres@10.1.109.151:5432/huaguoshan_projd
 DEFAULT_AIRSPACE_SCHEMA = "airspace"
 VALID_KINDS = ("no-fly-zone", "temp-control")
 VALID_STATUSES = ("planned", "active", "cancelled")
+VALID_HEIGHT_DATUMS = ("AMSL", "AGL")
 
 
 class ScriptError(RuntimeError):
@@ -50,6 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--kind", choices=VALID_KINDS, required=True, help="Target airspace zone type.")
     parser.add_argument("--geojson", type=Path, required=True, help="GeoJSON Geometry, Feature, or FeatureCollection to import.")
     parser.add_argument("--name", default=None, help="Zone name. Feature property 'name' is used when omitted.")
+    parser.add_argument("--height-datum", choices=VALID_HEIGHT_DATUMS, default="AMSL", help="Height datum for min/max-height values; AGL is stored semantically and resolved during grid refresh.")
     parser.add_argument("--min-height", type=float, default=0.0, help="Fallback min_height in metres.")
     parser.add_argument("--max-height", type=float, default=None, help="Fallback max_height in metres; NULL uses refresh script default.")
     parser.add_argument("--safety-buffer-m", type=float, default=0.0, help="Fallback horizontal safety buffer in metres.")
@@ -122,7 +124,10 @@ def resolved_rows(args: argparse.Namespace) -> list[dict[str, Any]]:
         min_height = float(feature_value(feature, "min_height", args.min_height))
         max_height_raw = feature_value(feature, "max_height", args.max_height)
         max_height = None if max_height_raw is None else float(max_height_raw)
+        height_datum = str(feature_value(feature, "height_datum", args.height_datum)).upper()
         safety_buffer_m = float(feature_value(feature, "safety_buffer_m", args.safety_buffer_m))
+        if height_datum not in VALID_HEIGHT_DATUMS:
+            raise ScriptError(f"Feature #{index} height_datum must be one of {', '.join(VALID_HEIGHT_DATUMS)}")
         if safety_buffer_m < 0:
             raise ScriptError(f"Feature #{index} safety_buffer_m cannot be negative")
         if max_height is not None and max_height <= min_height:
@@ -131,6 +136,7 @@ def resolved_rows(args: argparse.Namespace) -> list[dict[str, Any]]:
             {
                 "name": str(name),
                 "geometry_json": json.dumps(geometry, ensure_ascii=False),
+                "height_datum": height_datum,
                 "min_height": min_height,
                 "max_height": max_height,
                 "safety_buffer_m": safety_buffer_m,
@@ -160,13 +166,13 @@ def insert_no_fly_zone(cur: psycopg.Cursor[Any], args: argparse.Namespace, row: 
         sql.SQL(
             """
             insert into {target}
-                (name, geom, min_height, max_height, safety_buffer_m, enabled, updated_at)
+                (name, geom, height_datum, min_height, max_height, safety_buffer_m, enabled, updated_at)
             values
-                (%s, {geom}, %s, %s, %s, %s, now())
+                (%s, {geom}, %s, %s, %s, %s, %s, now())
             returning id
             """
         ).format(target=qname(args.airspace_schema, "no_fly_zone"), geom=geometry_expression()),
-        (row["name"], row["geometry_json"], row["min_height"], row["max_height"], row["safety_buffer_m"], row["enabled"]),
+        (row["name"], row["geometry_json"], row["height_datum"], row["min_height"], row["max_height"], row["safety_buffer_m"], row["enabled"]),
     )
     return int(cur.fetchone()[0])
 
@@ -180,15 +186,16 @@ def insert_temp_control(cur: psycopg.Cursor[Any], args: argparse.Namespace, row:
         sql.SQL(
             """
             insert into {target}
-                (name, geom, min_height, max_height, safety_buffer_m, valid_from, valid_to, status, updated_at)
+                (name, geom, height_datum, min_height, max_height, safety_buffer_m, valid_from, valid_to, status, updated_at)
             values
-                (%s, {geom}, %s, %s, %s, %s::timestamptz, %s::timestamptz, %s, now())
+                (%s, {geom}, %s, %s, %s, %s, %s::timestamptz, %s::timestamptz, %s, now())
             returning id
             """
         ).format(target=qname(args.airspace_schema, "temp_control_zone"), geom=geometry_expression()),
         (
             row["name"],
             row["geometry_json"],
+            row["height_datum"],
             row["min_height"],
             row["max_height"],
             row["safety_buffer_m"],

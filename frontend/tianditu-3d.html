@@ -1715,8 +1715,6 @@
         if (maxInput <= minInput) return Promise.reject(new Error('最高高度必须大于最低高度。'));
 
         return sampleAirspaceTerrain(points.length >= 3 ? points : geometryToDrawPoints(geometry)).then(function (terrain) {
-          var minHeight = minInput;
-          var maxHeight = maxInput;
           state.airspaceAdmin.terrainSample = terrain;
           setAirspaceTerrainSummary('terrain ' + terrain.min.toFixed(1) + '–' + terrain.max.toFixed(1) + 'm · ' + terrain.source);
 
@@ -1724,8 +1722,6 @@
             if (maxInput <= AIRSPACE_HEIGHT_MARGIN_M) {
               throw new Error('AGL 最高高度过低。请设置为至少 ' + AIRSPACE_HEIGHT_MARGIN_M + 'm 以上，避免禁飞区被地形完全遮挡。');
             }
-            minHeight = terrain.min + minInput;
-            maxHeight = terrain.max + maxInput;
           } else if (maxInput <= terrain.max + AIRSPACE_HEIGHT_MARGIN_M) {
             throw new Error('AMSL 最高高度低于当前地形最高高程。请至少设置为 ' + (terrain.max + AIRSPACE_HEIGHT_MARGIN_M).toFixed(1) + 'm，或切换为 AGL 离地高度。');
           }
@@ -1733,8 +1729,9 @@
           payload = {
             name: ($('#airspaceZoneName').value || '').trim(),
             geom: JSON.stringify(geometry),
-            min_height: Number(minHeight.toFixed(2)),
-            max_height: Number(maxHeight.toFixed(2)),
+            height_datum: datum,
+            min_height: Number(minInput.toFixed(2)),
+            max_height: Number(maxInput.toFixed(2)),
             safety_buffer_m: Math.max(0, numberOrNull($('#airspaceSafetyBuffer').value) || 0)
           };
           if (!payload.name) throw new Error('请填写禁限飞区名称。');
@@ -1757,7 +1754,7 @@
         return prepareAirspacePayloadFromForm().then(function (form) {
           var method = editing ? 'PATCH' : 'POST';
           var suffix = editing ? '?id=eq.' + encodeURIComponent(state.airspaceAdmin.editingId) : '';
-          log('正在通过 PostgREST 保存' + airspaceKindLabel(form.kind) + '（' + form.datum + ' 已转换为海拔 ' + form.payload.min_height + '–' + form.payload.max_height + 'm）。');
+          log('正在通过 PostgREST 保存' + airspaceKindLabel(form.kind) + '（' + form.datum + ' ' + form.payload.min_height + '–' + form.payload.max_height + 'm；grids 刷新时按高度基准计算）。');
           return airspaceRequest(form.kind, suffix, {
             method: method,
             headers: { 'Content-Type': 'application/json', 'Prefer': 'return=representation' },
@@ -1789,10 +1786,11 @@
           var activeText = zone.kind === 'no_fly_zone'
             ? (zone.enabled === false ? 'disabled' : 'enabled')
             : (zone.status || 'planned');
+          var datumText = zone.height_datum || 'AMSL legacy';
           var timeText = zone.kind === 'temp_control' ? ' · ' + (zone.valid_from || '--') + ' → ' + (zone.valid_to || '--') : '';
           return '<div class="airspace-zone-item" data-zone-kind="' + escapeHtml(zone.kind) + '" data-zone-id="' + escapeHtml(zone.id) + '">' +
             '<strong>#' + escapeHtml(zone.id) + ' · ' + escapeHtml(zone.name || '(unnamed)') + '</strong>' +
-            '<span>' + escapeHtml(airspaceKindLabel(zone.kind)) + ' · ' + escapeHtml(activeText) + ' · AMSL ' + escapeHtml(zone.min_height == null ? 0 : zone.min_height) + '–' + escapeHtml(zone.max_height == null ? '∞' : zone.max_height) + 'm · buffer ' + escapeHtml(zone.safety_buffer_m || 0) + 'm' + escapeHtml(timeText) + '</span>' +
+            '<span>' + escapeHtml(airspaceKindLabel(zone.kind)) + ' · ' + escapeHtml(activeText) + ' · ' + escapeHtml(datumText) + ' ' + escapeHtml(zone.min_height == null ? 0 : zone.min_height) + '–' + escapeHtml(zone.max_height == null ? '∞' : zone.max_height) + 'm · buffer ' + escapeHtml(zone.safety_buffer_m || 0) + 'm' + escapeHtml(timeText) + '</span>' +
             '<div class="admin-actions">' +
               '<button type="button" data-action="editAirspaceZone" data-zone-kind="' + escapeHtml(zone.kind) + '" data-zone-id="' + escapeHtml(zone.id) + '">编辑</button>' +
               '<button type="button" data-action="disableAirspaceZone" data-zone-kind="' + escapeHtml(zone.kind) + '" data-zone-id="' + escapeHtml(zone.id) + '">禁用</button>' +
@@ -1803,8 +1801,8 @@
       }
 
       function loadAirspaceZones() {
-        var selectNoFly = '?select=id,name,geom,min_height,max_height,safety_buffer_m,enabled,created_at,updated_at&order=id.desc&limit=50';
-        var selectTemp = '?select=id,name,geom,min_height,max_height,safety_buffer_m,valid_from,valid_to,status,created_at,updated_at&order=id.desc&limit=50';
+        var selectNoFly = '?select=id,name,geom,height_datum,min_height,max_height,safety_buffer_m,enabled,created_at,updated_at&order=id.desc&limit=50';
+        var selectTemp = '?select=id,name,geom,height_datum,min_height,max_height,safety_buffer_m,valid_from,valid_to,status,created_at,updated_at&order=id.desc&limit=50';
         state.airspaceAdmin.loading = true;
         return Promise.all([
           airspaceRequest('no_fly_zone', selectNoFly, { method: 'GET' }),
@@ -1837,8 +1835,8 @@
         $('#airspaceMinHeight').value = zone.min_height == null ? '0' : zone.min_height;
         $('#airspaceMaxHeight').value = zone.max_height == null ? '' : zone.max_height;
         $('#airspaceSafetyBuffer').value = zone.safety_buffer_m == null ? '0' : zone.safety_buffer_m;
-        $('#airspaceHeightDatum').value = 'AMSL';
-        setAirspaceTerrainSummary('已存储高度为海拔高度；保存时会重新校验地形');
+        $('#airspaceHeightDatum').value = zone.height_datum || 'AMSL';
+        setAirspaceTerrainSummary((zone.height_datum === 'AGL' ? '已存储高度为离地高度；保存时会重新校验地形' : '已存储高度为海拔高度；保存时会重新校验地形'));
         $('#airspaceStatus').value = zone.status || 'planned';
         $('#airspaceValidFrom').value = zone.valid_from ? formatDateTimeLocal(new Date(zone.valid_from)) : '';
         $('#airspaceValidTo').value = zone.valid_to ? formatDateTimeLocal(new Date(zone.valid_to)) : '';
@@ -2857,7 +2855,7 @@
         if (datumSelect) {
           datumSelect.addEventListener('change', function () {
             state.airspaceAdmin.terrainSample = null;
-            setAirspaceTerrainSummary(datumSelect.value === 'AGL' ? 'AGL 保存时转换为海拔高度' : 'AMSL 保存时校验高于地形');
+            setAirspaceTerrainSummary(datumSelect.value === 'AGL' ? 'AGL 原样入库；刷新 grids 时结合地形计算' : 'AMSL 保存时校验高于地形');
           });
         }
         loadAirspaceZones();

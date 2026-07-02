@@ -28,6 +28,78 @@
 
 begin;
 
+alter table airspace.no_fly_zone
+  add column if not exists height_datum text not null default 'AMSL';
+
+alter table airspace.temp_control_zone
+  add column if not exists height_datum text not null default 'AMSL';
+
+update airspace.no_fly_zone
+set height_datum = upper(coalesce(height_datum, 'AMSL'))
+where height_datum is null or height_datum <> upper(height_datum);
+
+update airspace.temp_control_zone
+set height_datum = upper(coalesce(height_datum, 'AMSL'))
+where height_datum is null or height_datum <> upper(height_datum);
+
+alter table airspace.no_fly_zone
+  alter column height_datum set default 'AMSL',
+  alter column height_datum set not null;
+
+alter table airspace.temp_control_zone
+  alter column height_datum set default 'AMSL',
+  alter column height_datum set not null;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'no_fly_zone_height_datum_chk'
+      and conrelid = 'airspace.no_fly_zone'::regclass
+  ) then
+    alter table airspace.no_fly_zone
+      add constraint no_fly_zone_height_datum_chk
+      check (height_datum in ('AMSL', 'AGL'));
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'temp_control_zone_height_datum_chk'
+      and conrelid = 'airspace.temp_control_zone'::regclass
+  ) then
+    alter table airspace.temp_control_zone
+      add constraint temp_control_zone_height_datum_chk
+      check (height_datum in ('AMSL', 'AGL'));
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'no_fly_zone_height_range_chk'
+      and conrelid = 'airspace.no_fly_zone'::regclass
+  ) then
+    alter table airspace.no_fly_zone
+      add constraint no_fly_zone_height_range_chk
+      check (max_height is null or max_height > coalesce(min_height, 0));
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'temp_control_zone_height_range_chk'
+      and conrelid = 'airspace.temp_control_zone'::regclass
+  ) then
+    alter table airspace.temp_control_zone
+      add constraint temp_control_zone_height_range_chk
+      check (max_height is null or max_height > coalesce(min_height, 0));
+  end if;
+end;
+$$;
+
+create index if not exists no_fly_zone_height_datum_idx
+  on airspace.no_fly_zone (height_datum);
+
+create index if not exists temp_control_zone_height_datum_idx
+  on airspace.temp_control_zone (height_datum);
+
 grant usage on schema airspace to web_anon;
 
 grant select, insert, update, delete on table airspace.no_fly_zone to web_anon;
@@ -44,6 +116,7 @@ as $$
 declare
   v_kind text;
   v_id bigint;
+  v_height_datum text;
 begin
   if TG_TABLE_NAME = 'no_fly_zone' then
     v_kind := 'no_fly_zone';
@@ -54,6 +127,7 @@ begin
   end if;
 
   v_id := case when TG_OP = 'DELETE' then OLD.id else NEW.id end;
+  v_height_datum := case when TG_OP = 'DELETE' then OLD.height_datum else NEW.height_datum end;
 
   perform pg_notify(
     'airspace_changed',
@@ -62,6 +136,7 @@ begin
       'table', TG_TABLE_NAME,
       'kind', v_kind,
       'id', v_id,
+      'height_datum', v_height_datum,
       'operation', lower(TG_OP),
       'changed_at', now()
     )::text

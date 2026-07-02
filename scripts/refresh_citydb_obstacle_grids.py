@@ -510,23 +510,40 @@ def build_airspace_tables_sql(args: argparse.Namespace) -> sql.Composed:
           id bigserial primary key,
           name text not null,
           geom geometry(MultiPolygon, 4326) not null,
+          height_datum text not null default 'AMSL',
           min_height double precision default 0,
           max_height double precision,
           safety_buffer_m double precision default 0,
           enabled boolean default true,
           created_at timestamptz default now(),
-          updated_at timestamptz default now()
+          updated_at timestamptz default now(),
+          constraint no_fly_zone_height_datum_chk check (height_datum in ('AMSL', 'AGL')),
+          constraint no_fly_zone_height_range_chk check (max_height is null or max_height > coalesce(min_height, 0))
         );
+
+        alter table {airspace_schema}.no_fly_zone
+          add column if not exists height_datum text not null default 'AMSL';
+
+        update {airspace_schema}.no_fly_zone
+        set height_datum = upper(coalesce(height_datum, 'AMSL'))
+        where height_datum is null or height_datum <> upper(height_datum);
+
+        alter table {airspace_schema}.no_fly_zone
+          alter column height_datum set default 'AMSL',
+          alter column height_datum set not null;
 
         create index if not exists no_fly_zone_geom_gix
           on {airspace_schema}.no_fly_zone using gist (geom);
         create index if not exists no_fly_zone_enabled_idx
           on {airspace_schema}.no_fly_zone (enabled);
+        create index if not exists no_fly_zone_height_datum_idx
+          on {airspace_schema}.no_fly_zone (height_datum);
 
         create table if not exists {airspace_schema}.temp_control_zone (
           id bigserial primary key,
           name text not null,
           geom geometry(MultiPolygon, 4326) not null,
+          height_datum text not null default 'AMSL',
           min_height double precision default 0,
           max_height double precision,
           safety_buffer_m double precision default 0,
@@ -535,16 +552,79 @@ def build_airspace_tables_sql(args: argparse.Namespace) -> sql.Composed:
           status text not null default 'planned',
           created_at timestamptz default now(),
           updated_at timestamptz default now(),
+          constraint temp_control_zone_height_datum_chk check (height_datum in ('AMSL', 'AGL')),
+          constraint temp_control_zone_height_range_chk check (max_height is null or max_height > coalesce(min_height, 0)),
           constraint temp_control_zone_valid_window_chk check (valid_to > valid_from),
           constraint temp_control_zone_status_chk check (status in ('planned', 'active', 'cancelled'))
         );
+
+        alter table {airspace_schema}.temp_control_zone
+          add column if not exists height_datum text not null default 'AMSL';
+
+        update {airspace_schema}.temp_control_zone
+        set height_datum = upper(coalesce(height_datum, 'AMSL'))
+        where height_datum is null or height_datum <> upper(height_datum);
+
+        alter table {airspace_schema}.temp_control_zone
+          alter column height_datum set default 'AMSL',
+          alter column height_datum set not null;
 
         create index if not exists temp_control_zone_geom_gix
           on {airspace_schema}.temp_control_zone using gist (geom);
         create index if not exists temp_control_zone_active_window_idx
           on {airspace_schema}.temp_control_zone (status, valid_from, valid_to);
+        create index if not exists temp_control_zone_height_datum_idx
+          on {airspace_schema}.temp_control_zone (height_datum);
+
+        do $do$
+        begin
+          if not exists (
+            select 1 from pg_constraint
+            where conname = 'no_fly_zone_height_datum_chk'
+              and conrelid = {no_fly_zone_regclass}::regclass
+          ) then
+            alter table {airspace_schema}.no_fly_zone
+              add constraint no_fly_zone_height_datum_chk
+              check (height_datum in ('AMSL', 'AGL'));
+          end if;
+
+          if not exists (
+            select 1 from pg_constraint
+            where conname = 'temp_control_zone_height_datum_chk'
+              and conrelid = {temp_control_zone_regclass}::regclass
+          ) then
+            alter table {airspace_schema}.temp_control_zone
+              add constraint temp_control_zone_height_datum_chk
+              check (height_datum in ('AMSL', 'AGL'));
+          end if;
+
+          if not exists (
+            select 1 from pg_constraint
+            where conname = 'no_fly_zone_height_range_chk'
+              and conrelid = {no_fly_zone_regclass}::regclass
+          ) then
+            alter table {airspace_schema}.no_fly_zone
+              add constraint no_fly_zone_height_range_chk
+              check (max_height is null or max_height > coalesce(min_height, 0));
+          end if;
+
+          if not exists (
+            select 1 from pg_constraint
+            where conname = 'temp_control_zone_height_range_chk'
+              and conrelid = {temp_control_zone_regclass}::regclass
+          ) then
+            alter table {airspace_schema}.temp_control_zone
+              add constraint temp_control_zone_height_range_chk
+              check (max_height is null or max_height > coalesce(min_height, 0));
+          end if;
+        end;
+        $do$;
         """
-    ).format(airspace_schema=sql.Identifier(args.airspace_schema))
+    ).format(
+        airspace_schema=sql.Identifier(args.airspace_schema),
+        no_fly_zone_regclass=sql.Literal(f"{args.airspace_schema}.no_fly_zone"),
+        temp_control_zone_regclass=sql.Literal(f"{args.airspace_schema}.temp_control_zone"),
+    )
 
 
 def build_empty_obstacle_view_sql(args: argparse.Namespace, view_name: str) -> sql.Composed:
@@ -948,33 +1028,115 @@ def build_obstacles_terrain_sql(args: argparse.Namespace, has_terrain_tables: bo
     )
 
 
-def build_obstacles_no_fly_zones_sql(args: argparse.Namespace) -> sql.Composed:
+def build_airspace_terrain_blocks_cte(args: argparse.Namespace, has_terrain_tables: bool) -> sql.Composed:
+    """Return a CTE body with DEM blocks used to resolve AGL airspace heights.
+
+    AGL zones are semantically relative to local ground height.  We reuse the
+    same DEM pixel/block approach as terrain ``block-prism`` so each airspace
+    piece gets a local min/max elevation instead of one coarse polygon-wide
+    terrain range.  If terrain tables are unavailable the CTE is empty; AGL
+    zones are intentionally omitted rather than misinterpreted as AMSL.
+    """
+
+    if not has_terrain_tables:
+        return sql.SQL(
+            """
+            select
+                null::text as block_id,
+                null::geometry as extent,
+                null::double precision as min_elevation,
+                null::double precision as max_elevation
+            where false
+            """
+        )
+
+    dataset_filter = sql.SQL("")
+    if args.terrain_dataset_key is not None:
+        dataset_filter = sql.SQL("and ds.dataset_key = {} ").format(sql.Literal(args.terrain_dataset_key))
+
+    return sql.SQL(
+        """
+        with pixels as (
+            select
+                t.id as tile_pk,
+                coalesce(ds.dataset_key, ds.id::text) as dataset_key,
+                ((px.x - 1) / {block_size})::integer as block_x,
+                ((px.y - 1) / {block_size})::integer as block_y,
+                px.geom,
+                px.val::double precision as elevation
+            from terrain.dem_tile t
+            join terrain.dem_dataset ds on ds.id = t.dataset_id
+            cross join lateral public.ST_PixelAsPolygons(t.rast, 1, true) as px(geom, val, x, y)
+            where t.rast is not null
+              {dataset_filter}
+        )
+        select
+            (dataset_key || ':' || tile_pk::text || ':block:' || block_x::text || ':' || block_y::text) as block_id,
+            public.ST_Envelope(public.ST_Collect(geom)) as extent,
+            min(elevation)::double precision as min_elevation,
+            max(elevation)::double precision as max_elevation
+        from pixels
+        where elevation is not null
+        group by tile_pk, dataset_key, block_x, block_y
+        """
+    ).format(block_size=sql.Literal(args.terrain_block_size_pixels), dataset_filter=dataset_filter)
+
+
+def build_obstacles_no_fly_zones_sql(args: argparse.Namespace, has_terrain_tables: bool) -> sql.Composed:
     """Build the long-lived no-fly-zone source view from airspace polygons."""
 
     airspace_volume = sql.SQL("{grid_schema}.make_polygon_prism_3d(footprint, min_z, max_z)") if args.airspace_mode == "polygon-prism" else sql.SQL("{grid_schema}.make_bbox_prism_3d(footprint, min_z, max_z)")
     return sql.SQL(
         """
         create materialized view {target_view} as
-        with prepared as (
+        with zones as (
             select
                 id,
                 name,
+                upper(coalesce(height_datum, 'AMSL')) as height_datum,
                 case
                     when coalesce(safety_buffer_m, 0) > 0
                     then public.ST_Buffer(geom::geography, safety_buffer_m)::geometry
                     else geom
-                end as footprint,
-                coalesce(min_height, 0)::double precision as min_z,
-                coalesce(max_height, {default_max_height})::double precision as max_z
+                end as footprint_4326,
+                coalesce(min_height, 0)::double precision as height_min,
+                coalesce(max_height, {default_max_height})::double precision as height_max
             from {airspace_schema}.no_fly_zone
             where enabled is true
               and geom is not null
               and not public.ST_IsEmpty(geom)
+        ), terrain_blocks as (
+            {terrain_blocks_cte}
+        ), amsl_pieces as (
+            select
+                id::text as source_id,
+                name as source_name,
+                footprint_4326 as footprint,
+                height_min as min_z,
+                height_max as max_z
+            from zones
+            where height_datum <> 'AGL'
+        ), agl_pieces as (
+            select
+                (z.id::text || ':agl:' || b.block_id) as source_id,
+                z.name as source_name,
+                public.ST_CollectionExtract(public.ST_MakeValid(public.ST_Intersection(public.ST_Transform(z.footprint_4326, public.ST_SRID(b.extent)), b.extent)), 3) as footprint,
+                (b.min_elevation + z.height_min)::double precision as min_z,
+                (b.max_elevation + z.height_max)::double precision as max_z
+            from zones z
+            join terrain_blocks b
+              on z.height_datum = 'AGL'
+             and b.extent is not null
+             and public.ST_Intersects(public.ST_Transform(z.footprint_4326, public.ST_SRID(b.extent)), b.extent)
+        ), volume_pieces as (
+            select * from amsl_pieces
+            union all
+            select * from agl_pieces
         ), generated_grids as (
             select
                 'no_fly_zone'::text as source_kind,
-                id::text as source_id,
-                name as source_name,
+                source_id,
+                source_name,
                 3::smallint as dimension,
                 {is_agg}::boolean as is_agg,
                 public.ST_AsGrids3D(
@@ -983,8 +1145,10 @@ def build_obstacles_no_fly_zones_sql(args: argparse.Namespace) -> sql.Composed:
                     {is_agg}
                 ) as grids,
                 now() as generated_at
-            from prepared
-            where max_z > min_z
+            from volume_pieces
+            where footprint is not null
+              and not public.ST_IsEmpty(footprint)
+              and max_z > min_z
         )
         select
             source_kind,
@@ -1005,6 +1169,7 @@ def build_obstacles_no_fly_zones_sql(args: argparse.Namespace) -> sql.Composed:
         target_view=qname(args.grid_schema, SOURCE_TO_VIEW["no-fly-zones"]),
         airspace_schema=sql.Identifier(args.airspace_schema),
         default_max_height=sql.Literal(args.default_zone_max_height),
+        terrain_blocks_cte=build_airspace_terrain_blocks_cte(args, has_terrain_tables),
         airspace_volume=airspace_volume.format(grid_schema=sql.Identifier(args.grid_schema)),
         grid_schema=sql.Identifier(args.grid_schema),
         detail_level=detail_literal(args),
@@ -1018,7 +1183,7 @@ def planning_time_expression(args: argparse.Namespace) -> sql.Composable:
     return sql.SQL("now()")
 
 
-def build_obstacles_temp_control_sql(args: argparse.Namespace) -> sql.Composed:
+def build_obstacles_temp_control_sql(args: argparse.Namespace, has_terrain_tables: bool) -> sql.Composed:
     """Build the currently active temporary-control source view."""
 
     planning_time = planning_time_expression(args)
@@ -1026,17 +1191,18 @@ def build_obstacles_temp_control_sql(args: argparse.Namespace) -> sql.Composed:
     return sql.SQL(
         """
         create materialized view {target_view} as
-        with prepared as (
+        with zones as (
             select
                 id,
                 name,
+                upper(coalesce(height_datum, 'AMSL')) as height_datum,
                 case
                     when coalesce(safety_buffer_m, 0) > 0
                     then public.ST_Buffer(geom::geography, safety_buffer_m)::geometry
                     else geom
-                end as footprint,
-                coalesce(min_height, 0)::double precision as min_z,
-                coalesce(max_height, {default_max_height})::double precision as max_z,
+                end as footprint_4326,
+                coalesce(min_height, 0)::double precision as height_min,
+                coalesce(max_height, {default_max_height})::double precision as height_max,
                 valid_from,
                 valid_to
             from {airspace_schema}.temp_control_zone
@@ -1045,11 +1211,42 @@ def build_obstacles_temp_control_sql(args: argparse.Namespace) -> sql.Composed:
               and {planning_time} < valid_to
               and geom is not null
               and not public.ST_IsEmpty(geom)
+        ), terrain_blocks as (
+            {terrain_blocks_cte}
+        ), amsl_pieces as (
+            select
+                id::text as source_id,
+                name as source_name,
+                footprint_4326 as footprint,
+                height_min as min_z,
+                height_max as max_z,
+                valid_from,
+                valid_to
+            from zones
+            where height_datum <> 'AGL'
+        ), agl_pieces as (
+            select
+                (z.id::text || ':agl:' || b.block_id) as source_id,
+                z.name as source_name,
+                public.ST_CollectionExtract(public.ST_MakeValid(public.ST_Intersection(public.ST_Transform(z.footprint_4326, public.ST_SRID(b.extent)), b.extent)), 3) as footprint,
+                (b.min_elevation + z.height_min)::double precision as min_z,
+                (b.max_elevation + z.height_max)::double precision as max_z,
+                z.valid_from,
+                z.valid_to
+            from zones z
+            join terrain_blocks b
+              on z.height_datum = 'AGL'
+             and b.extent is not null
+             and public.ST_Intersects(public.ST_Transform(z.footprint_4326, public.ST_SRID(b.extent)), b.extent)
+        ), volume_pieces as (
+            select * from amsl_pieces
+            union all
+            select * from agl_pieces
         ), generated_grids as (
             select
                 'temp_control'::text as source_kind,
-                id::text as source_id,
-                name as source_name,
+                source_id,
+                source_name,
                 3::smallint as dimension,
                 {is_agg}::boolean as is_agg,
                 public.ST_AsGrids3D(
@@ -1060,8 +1257,10 @@ def build_obstacles_temp_control_sql(args: argparse.Namespace) -> sql.Composed:
                 valid_from,
                 valid_to,
                 now() as generated_at
-            from prepared
-            where max_z > min_z
+            from volume_pieces
+            where footprint is not null
+              and not public.ST_IsEmpty(footprint)
+              and max_z > min_z
         )
         select
             source_kind,
@@ -1083,6 +1282,7 @@ def build_obstacles_temp_control_sql(args: argparse.Namespace) -> sql.Composed:
         airspace_schema=sql.Identifier(args.airspace_schema),
         default_max_height=sql.Literal(args.default_zone_max_height),
         planning_time=planning_time,
+        terrain_blocks_cte=build_airspace_terrain_blocks_cte(args, has_terrain_tables),
         airspace_volume=airspace_volume.format(grid_schema=sql.Identifier(args.grid_schema)),
         grid_schema=sql.Identifier(args.grid_schema),
         detail_level=detail_literal(args),
@@ -1096,9 +1296,9 @@ def source_view_sql(args: argparse.Namespace, source: str, has_terrain_tables: b
     if source == "terrain":
         return build_obstacles_terrain_sql(args, has_terrain_tables)
     if source == "no-fly-zones":
-        return build_obstacles_no_fly_zones_sql(args)
+        return build_obstacles_no_fly_zones_sql(args, has_terrain_tables)
     if source == "temp-control":
-        return build_obstacles_temp_control_sql(args)
+        return build_obstacles_temp_control_sql(args, has_terrain_tables)
     raise AssertionError(f"Unhandled source: {source}")
 
 
