@@ -162,6 +162,7 @@
       background: rgba(0, 0, 0, 0.14);
     }
 
+    .flight-path-controls,
     .airspace-admin-controls,
     .airspace-controls,
     .obstacle-controls {
@@ -188,6 +189,7 @@
         rgba(0, 0, 0, 0.18);
     }
 
+    .flight-path-controls h2,
     .airspace-admin-controls h2,
     .airspace-controls h2,
     .obstacle-controls h2 {
@@ -204,6 +206,18 @@
 
     .airspace-admin-controls h2 {
       color: #ffb000;
+    }
+
+    .flight-path-controls {
+      border-color: rgba(94, 234, 212, 0.32);
+      background:
+        radial-gradient(circle at top left, rgba(94, 234, 212, 0.16), transparent 48%),
+        linear-gradient(135deg, rgba(76, 201, 240, 0.12), rgba(215, 168, 70, 0.08)),
+        rgba(0, 0, 0, 0.18);
+    }
+
+    .flight-path-controls h2 {
+      color: #5eead4;
     }
 
     .source-toggles {
@@ -296,6 +310,8 @@
       line-height: 1.55;
     }
 
+    .flight-path-point-list,
+    .flight-path-plan-list,
     .airspace-zone-list {
       display: grid;
       gap: 8px;
@@ -305,6 +321,8 @@
       padding-right: 2px;
     }
 
+    .flight-path-point-item,
+    .flight-path-plan-item,
     .airspace-zone-item {
       display: grid;
       gap: 6px;
@@ -314,22 +332,28 @@
       background: rgba(0, 0, 0, 0.16);
     }
 
+    .flight-path-point-item strong,
+    .flight-path-plan-item strong,
     .airspace-zone-item strong {
       overflow-wrap: anywhere;
       color: var(--paper-strong);
       font-size: 13px;
     }
 
+    .flight-path-point-item span,
+    .flight-path-plan-item span,
     .airspace-zone-item span {
       color: rgba(255, 247, 223, 0.62);
       font-size: 12px;
       line-height: 1.4;
     }
 
+    .flight-path-plan-item .admin-actions,
     .airspace-zone-item .admin-actions {
       margin-top: 0;
     }
 
+    .flight-path-plan-item button,
     .airspace-zone-item button {
       padding: 7px 10px;
       font-size: 12px;
@@ -780,6 +804,53 @@
         <button type="button" data-action="clearFlightObstacles">清除</button>
       </div>
     </div>
+    <div class="flight-path-controls" aria-label="飞行路径规划">
+      <h2>Flight Path Planner</h2>
+      <div class="control-grid">
+        <label class="field">方案名称
+          <input id="flightPathName" type="text" value="花果山低空路径" />
+        </label>
+        <label class="field">巡航高度 m
+          <input id="flightPathHeight" type="number" step="1" value="120" />
+        </label>
+        <label class="field">网格层级
+          <input id="flightPathDetailLevel" type="number" min="1" max="32" step="1" value="19" />
+        </label>
+        <label class="field">巡航速度 m/s
+          <input id="flightPathSpeed" type="number" min="0.1" step="0.1" value="10" />
+        </label>
+        <label class="field">规划时间
+          <input id="flightPathPlanningTime" type="datetime-local" />
+        </label>
+        <label class="field">高度基准
+          <select id="flightPathHeightDatum">
+            <option value="AMSL" selected>海拔高度 AMSL</option>
+            <option value="AGL">离地高度 AGL</option>
+            <option value="ELLIPSOID">椭球高 ELLIPSOID</option>
+          </select>
+        </label>
+      </div>
+      <div class="draw-actions" aria-label="路径控制点编辑">
+        <button type="button" data-action="setFlightPathStart">点选起点</button>
+        <button type="button" data-action="addFlightPathWaypoint">点选途径点</button>
+        <button type="button" data-action="setFlightPathEnd">点选终点</button>
+        <button type="button" data-action="undoFlightPathPoint">撤销点</button>
+        <button type="button" data-action="clearFlightPathDraft">清空</button>
+      </div>
+      <div class="admin-actions">
+        <button class="primary" type="button" data-action="saveFlightPathPlan">保存路径</button>
+        <button type="button" data-action="computeFlightPathPlan">计算路径</button>
+        <button type="button" data-action="reloadFlightPathPlans">刷新方案</button>
+        <button type="button" data-action="zoomFlightPathRoute">定位路径</button>
+      </div>
+      <p class="admin-hint">点击“点选起点 / 途径点 / 终点”后在地图上取点；计算结果会写入 <code>flight_path.plan_result</code>，并生成 iBEST-DB <code>trajectory</code>。</p>
+      <div class="flight-path-point-list" id="flightPathPointList">
+        <div class="feature-empty">尚未设置起点和终点。</div>
+      </div>
+      <div class="flight-path-plan-list" id="flightPathPlanList">
+        <div class="feature-empty">尚未加载飞行路径方案。</div>
+      </div>
+    </div>
     <div class="airspace-admin-controls" aria-label="禁限飞空域管理">
       <h2>Airspace Admin</h2>
       <div class="control-grid">
@@ -1018,6 +1089,18 @@
           drawEntities: [],
           existingGeometry: null,
           terrainSample: null,
+          loading: false
+        },
+        flightPath: {
+          plans: [],
+          currentPlanId: null,
+          drawMode: null,
+          points: [],
+          pointEntities: [],
+          rawLineEntity: null,
+          routeEntity: null,
+          routeGlowEntity: null,
+          latestResult: null,
           loading: false
         }
       };
@@ -1375,6 +1458,23 @@
         });
       }
 
+      function postgrestRpc(name, payload) {
+        return fetch(postgrestBaseUrl + '/rpc/' + name, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(payload || {})
+        }).then(function (response) {
+          if (!response.ok) {
+            return response.text().then(function (text) {
+              throw new Error('PostgREST RPC ' + name + ' HTTP ' + response.status + (text ? ': ' + text : ''));
+            });
+          }
+          return response.text();
+        }).then(function (text) {
+          return text ? JSON.parse(text) : null;
+        });
+      }
+
       function formatDateTimeLocal(date) {
         var pad = function (value) { return String(value).padStart(2, '0'); };
         return [
@@ -1393,6 +1493,416 @@
       function numberOrNull(value) {
         var num = Number(value);
         return Number.isFinite(num) ? num : null;
+      }
+
+      function setupFlightPathDefaults() {
+        var planningTime = $('#flightPathPlanningTime');
+        if (planningTime && !planningTime.value) planningTime.value = formatDateTimeLocal(new Date());
+      }
+
+      function flightPathHeight() {
+        var value = numberOrNull($('#flightPathHeight') && $('#flightPathHeight').value);
+        return value == null ? 120 : value;
+      }
+
+      function flightPathDetailLevel() {
+        var value = numberOrNull($('#flightPathDetailLevel') && $('#flightPathDetailLevel').value);
+        return Math.max(1, Math.min(32, value == null ? 19 : Math.round(value)));
+      }
+
+      function flightPathSpeed() {
+        var value = numberOrNull($('#flightPathSpeed') && $('#flightPathSpeed').value);
+        return Math.max(0.1, value == null ? 10 : value);
+      }
+
+      function flightPathRoleLabel(role) {
+        if (role === 'start') return '起点';
+        if (role === 'end') return '终点';
+        return '途径点';
+      }
+
+      function flightPathDisplayHeight(point) {
+        if (!point) return flightPathHeight();
+        if (Number.isFinite(point.effective_height_m)) return point.effective_height_m;
+        if ((point.height_datum || 'AMSL') === 'AGL') {
+          return (Number.isFinite(point.terrain_height_m) ? point.terrain_height_m : 0) + (Number.isFinite(point.height_m) ? point.height_m : flightPathHeight());
+        }
+        return Number.isFinite(point.height_m) ? point.height_m : flightPathHeight();
+      }
+
+      function flightPathPointSummary(point) {
+        var datum = point.height_datum || 'AMSL';
+        var inputHeight = Number.isFinite(point.height_m) ? point.height_m : flightPathHeight();
+        var displayHeight = flightPathDisplayHeight(point);
+        if (datum === 'AGL') {
+          return inputHeight.toFixed(1) + 'm AGL · calc ≈ ' + displayHeight.toFixed(1) + 'm AMSL';
+        }
+        return inputHeight.toFixed(1) + 'm ' + datum;
+      }
+
+      function normalizedFlightPathPoints(points) {
+        var start = points.find(function (point) { return point.role === 'start'; });
+        var end = points.find(function (point) { return point.role === 'end'; });
+        var waypoints = points.filter(function (point) { return point.role === 'waypoint'; });
+        return (start ? [start] : []).concat(waypoints, end ? [end] : []).map(function (point, index) {
+          return Object.assign({}, point, { seq: index });
+        });
+      }
+
+      function clearFlightPathPointEntities() {
+        if (!state.viewer) return;
+        state.flightPath.pointEntities.forEach(function (entity) { state.viewer.entities.remove(entity); });
+        state.flightPath.pointEntities = [];
+        if (state.flightPath.rawLineEntity) state.viewer.entities.remove(state.flightPath.rawLineEntity);
+        state.flightPath.rawLineEntity = null;
+      }
+
+      function clearFlightPathRoute() {
+        if (!state.viewer) return;
+        if (state.flightPath.routeEntity) state.viewer.entities.remove(state.flightPath.routeEntity);
+        if (state.flightPath.routeGlowEntity) state.viewer.entities.remove(state.flightPath.routeGlowEntity);
+        state.flightPath.routeEntity = null;
+        state.flightPath.routeGlowEntity = null;
+        state.flightPath.latestResult = null;
+      }
+
+      function renderFlightPathDraft() {
+        var CesiumRuntime = window.Cesium;
+        var points = normalizedFlightPathPoints(state.flightPath.points);
+        var list = $('#flightPathPointList');
+        var positions;
+        state.flightPath.points = points;
+        clearFlightPathPointEntities();
+        if (list) {
+          list.innerHTML = points.length ? points.map(function (point) {
+            return '<div class="flight-path-point-item">' +
+              '<strong>' + escapeHtml(point.seq + 1) + '. ' + escapeHtml(flightPathRoleLabel(point.role)) + ' · ' + escapeHtml(point.name || '') + '</strong>' +
+              '<span>' + escapeHtml(point.lon.toFixed(6)) + ', ' + escapeHtml(point.lat.toFixed(6)) + ' · ' + escapeHtml(flightPathPointSummary(point)) + '</span>' +
+            '</div>';
+          }).join('') : '<div class="feature-empty">尚未设置起点和终点。</div>';
+        }
+        if (!state.viewer || !CesiumRuntime) return;
+        positions = points.map(function (point) {
+          return CesiumRuntime.Cartesian3.fromDegrees(point.lon, point.lat, flightPathDisplayHeight(point));
+        });
+        points.forEach(function (point, index) {
+          var color = point.role === 'start' ? '#2ef29f' : (point.role === 'end' ? '#ff4d3d' : '#4cc9f0');
+          state.flightPath.pointEntities.push(state.viewer.entities.add({
+            name: 'Flight path ' + flightPathRoleLabel(point.role),
+            position: CesiumRuntime.Cartesian3.fromDegrees(point.lon, point.lat, flightPathDisplayHeight(point)),
+            point: {
+              pixelSize: point.role === 'waypoint' ? 10 : 13,
+              color: CesiumRuntime.Color.fromCssColorString(color),
+              outlineColor: CesiumRuntime.Color.WHITE,
+              outlineWidth: 2,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY
+            },
+            label: {
+              text: point.role === 'waypoint' ? String(index) : flightPathRoleLabel(point.role),
+              font: '13px sans-serif',
+              fillColor: CesiumRuntime.Color.WHITE,
+              outlineColor: CesiumRuntime.Color.BLACK,
+              outlineWidth: 2,
+              style: CesiumRuntime.LabelStyle.FILL_AND_OUTLINE,
+              pixelOffset: new CesiumRuntime.Cartesian2(12, -14),
+              disableDepthTestDistance: Number.POSITIVE_INFINITY
+            }
+          }));
+        });
+        if (positions.length >= 2) {
+          state.flightPath.rawLineEntity = state.viewer.entities.add({
+            name: 'Flight path control polyline',
+            polyline: {
+              positions: positions,
+              width: 2,
+              material: CesiumRuntime.Color.fromCssColorString('#fff7df').withAlpha(0.55),
+              depthFailMaterial: CesiumRuntime.Color.fromCssColorString('#fff7df').withAlpha(0.55)
+            }
+          });
+        }
+      }
+
+      function setFlightPathDrawMode(role) {
+        state.flightPath.drawMode = role;
+        log('路径取点模式：请在地图上点击设置' + flightPathRoleLabel(role) + '。');
+      }
+
+      function addFlightPathPoint(position) {
+        var point = pickLonLatFromScreen(position);
+        var role = state.flightPath.drawMode || 'waypoint';
+        var height = flightPathHeight();
+        var datum = ($('#flightPathHeightDatum') && $('#flightPathHeightDatum').value) || 'AMSL';
+        var terrainHeight = Number.isFinite(point && point.height) ? point.height : null;
+        var nextPoint;
+        if (!point) {
+          log('无法从当前点击位置读取经纬度，请点击地球表面。');
+          return;
+        }
+        nextPoint = {
+          role: role,
+          name: flightPathRoleLabel(role),
+          lon: point.lon,
+          lat: point.lat,
+          height_m: height,
+          height_datum: datum,
+          terrain_height_m: terrainHeight,
+          effective_height_m: datum === 'AGL' ? (Number.isFinite(terrainHeight) ? terrainHeight + height : height) : height
+        };
+        if (role === 'start') {
+          state.flightPath.points = [nextPoint].concat(state.flightPath.points.filter(function (item) { return item.role !== 'start'; }));
+        } else if (role === 'end') {
+          state.flightPath.points = state.flightPath.points.filter(function (item) { return item.role !== 'end'; }).concat([nextPoint]);
+        } else {
+          state.flightPath.points = state.flightPath.points.filter(function (item) { return item.role !== 'end'; }).concat([nextPoint], state.flightPath.points.filter(function (item) { return item.role === 'end'; }));
+        }
+        state.flightPath.points = normalizedFlightPathPoints(state.flightPath.points);
+        clearFlightPathRoute();
+        renderFlightPathDraft();
+        log('已添加' + flightPathRoleLabel(role) + '：' + point.lon.toFixed(6) + ', ' + point.lat.toFixed(6) + ' @ ' + flightPathPointSummary(nextPoint) + '。');
+      }
+
+      function undoFlightPathPoint() {
+        var points = state.flightPath.points.slice();
+        var waypointIndex = -1;
+        points.forEach(function (point, index) { if (point.role === 'waypoint') waypointIndex = index; });
+        if (waypointIndex >= 0) points.splice(waypointIndex, 1);
+        else if (points.length) points.pop();
+        state.flightPath.points = normalizedFlightPathPoints(points);
+        clearFlightPathRoute();
+        renderFlightPathDraft();
+        log('已撤销一个路径控制点。');
+      }
+
+      function clearFlightPathDraft() {
+        state.flightPath.currentPlanId = null;
+        state.flightPath.drawMode = null;
+        state.flightPath.points = [];
+        clearFlightPathRoute();
+        renderFlightPathDraft();
+        log('已清空当前路径草稿。');
+      }
+
+      function flightPathPayload() {
+        var points = normalizedFlightPathPoints(state.flightPath.points);
+        var name = ($('#flightPathName') && $('#flightPathName').value || '').trim();
+        var planningTime = isoFromDateTimeLocal($('#flightPathPlanningTime') && $('#flightPathPlanningTime').value) || new Date().toISOString();
+        if (!name) throw new Error('请填写路径方案名称。');
+        if (points.length < 2 || points[0].role !== 'start' || points[points.length - 1].role !== 'end') {
+          throw new Error('请至少设置起点和终点；途径点必须位于两者之间。');
+        }
+        return {
+          p_name: name,
+          p_description: 'created from tianditu-3d.html',
+          p_detail_level: flightPathDetailLevel(),
+          p_cruise_height_m: flightPathHeight(),
+          p_height_datum: ($('#flightPathHeightDatum') && $('#flightPathHeightDatum').value) || 'AMSL',
+          p_planning_time: planningTime,
+          p_points: points.map(function (point) {
+            return {
+              role: point.role,
+              name: point.name || flightPathRoleLabel(point.role),
+              lon: point.lon,
+              lat: point.lat,
+              height_m: point.height_m,
+              height_datum: point.height_datum || 'AMSL',
+              metadata: {
+                terrain_height_m: Number.isFinite(point.terrain_height_m) ? point.terrain_height_m : null,
+                effective_height_m: flightPathDisplayHeight(point)
+              }
+            };
+          }),
+          p_has_below: false,
+          p_safety_buffer_m: 0,
+          p_metadata: { cruise_speed_mps: flightPathSpeed() }
+        };
+      }
+
+      function saveFlightPathPlan() {
+        var payload;
+        try {
+          payload = flightPathPayload();
+        } catch (error) {
+          log(error.message);
+          return Promise.reject(error);
+        }
+        state.flightPath.loading = true;
+        if (state.flightPath.currentPlanId != null) {
+          payload.p_plan_id = state.flightPath.currentPlanId;
+          log('正在更新飞行路径方案 #' + state.flightPath.currentPlanId + '。');
+          return postgrestRpc('update_flight_path_plan', payload).then(function () {
+            log('飞行路径方案已更新：#' + state.flightPath.currentPlanId + '。');
+            return loadFlightPathPlans();
+          }).finally(function () { state.flightPath.loading = false; });
+        }
+        log('正在保存新的飞行路径方案。');
+        return postgrestRpc('create_flight_path_plan', payload).then(function (planId) {
+          state.flightPath.currentPlanId = planId;
+          log('飞行路径方案已保存：#' + planId + '。');
+          return loadFlightPathPlans();
+        }).finally(function () { state.flightPath.loading = false; });
+      }
+
+      function renderFlightPathPlanList() {
+        var list = $('#flightPathPlanList');
+        var rows = state.flightPath.plans;
+        if (!list) return;
+        if (!rows.length) {
+          list.innerHTML = '<div class="feature-empty">暂无飞行路径方案。</div>';
+          return;
+        }
+        list.innerHTML = rows.map(function (plan) {
+          return '<div class="flight-path-plan-item" data-plan-id="' + escapeHtml(plan.id) + '">' +
+            '<strong>#' + escapeHtml(plan.id) + ' · ' + escapeHtml(plan.name || '(unnamed)') + '</strong>' +
+            '<span>' + escapeHtml(plan.status) + ' · points ' + escapeHtml(plan.point_count || 0) + ' · waypoints ' + escapeHtml(plan.waypoint_count || 0) + ' · ' + escapeHtml(plan.cruise_height_m == null ? '--' : plan.cruise_height_m) + 'm ' + escapeHtml(plan.height_datum || 'AMSL') + '</span>' +
+            '<div class="admin-actions">' +
+              '<button type="button" data-action="loadFlightPathPlan" data-plan-id="' + escapeHtml(plan.id) + '">载入</button>' +
+              '<button type="button" data-action="computeListedFlightPathPlan" data-plan-id="' + escapeHtml(plan.id) + '">计算</button>' +
+              '<button type="button" data-action="archiveFlightPathPlan" data-plan-id="' + escapeHtml(plan.id) + '">归档</button>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+      }
+
+      function loadFlightPathPlans() {
+        state.flightPath.loading = true;
+        return postgrestRpc('list_flight_path_plans', { p_limit: 20, p_offset: 0 }).then(function (data) {
+          state.flightPath.plans = data && Array.isArray(data.items) ? data.items : [];
+          renderFlightPathPlanList();
+          log('已加载飞行路径方案：' + state.flightPath.plans.length + ' 条。');
+        }).catch(function (error) {
+          console.error('[Tianditu3D] Flight path list failed:', error);
+          if ($('#flightPathPlanList')) $('#flightPathPlanList').innerHTML = '<div class="feature-error">飞行路径方案加载失败：' + escapeHtml(error.message) + '</div>';
+          log('飞行路径方案加载失败：' + error.message);
+        }).finally(function () { state.flightPath.loading = false; });
+      }
+
+      function loadFlightPathPlan(planId) {
+        return postgrestRpc('get_flight_path_plan', { p_plan_id: Number(planId) }).then(function (data) {
+          var plan = data && data.plan;
+          var points = data && Array.isArray(data.points) ? data.points : [];
+          if (!plan) throw new Error('未找到飞行路径方案 #' + planId);
+          state.flightPath.currentPlanId = plan.id;
+          $('#flightPathName').value = plan.name || '';
+          $('#flightPathHeight').value = plan.cruise_height_m == null ? '120' : plan.cruise_height_m;
+          $('#flightPathDetailLevel').value = plan.detail_level || 19;
+          $('#flightPathHeightDatum').value = plan.height_datum || 'AMSL';
+          $('#flightPathPlanningTime').value = plan.planning_time ? formatDateTimeLocal(new Date(plan.planning_time)) : formatDateTimeLocal(new Date());
+          $('#flightPathSpeed').value = plan.metadata && plan.metadata.cruise_speed_mps ? plan.metadata.cruise_speed_mps : 10;
+          state.flightPath.points = normalizedFlightPathPoints(points.map(function (point) {
+            return {
+              role: point.point_role,
+              name: point.name,
+              lon: Number(point.lon),
+              lat: Number(point.lat),
+              height_m: Number(point.height_m == null ? plan.cruise_height_m || 120 : point.height_m),
+              height_datum: point.height_datum || plan.height_datum || 'AMSL',
+              terrain_height_m: point.metadata && Number.isFinite(Number(point.metadata.terrain_height_m)) ? Number(point.metadata.terrain_height_m) : null,
+              effective_height_m: point.metadata && Number.isFinite(Number(point.metadata.effective_height_m)) ? Number(point.metadata.effective_height_m) : null
+            };
+          }));
+          clearFlightPathRoute();
+          renderFlightPathDraft();
+          log('已载入飞行路径方案 #' + plan.id + '。');
+          return loadLatestFlightPathResult(plan.id, false);
+        }).catch(function (error) {
+          console.error('[Tianditu3D] Flight path load failed:', error);
+          log('飞行路径方案载入失败：' + error.message);
+        });
+      }
+
+      function renderFlightPathResult(result) {
+        var CesiumRuntime = window.Cesium;
+        var coords = result && result.route_geojson && result.route_geojson.coordinates;
+        var positions;
+        clearFlightPathRoute();
+        state.flightPath.latestResult = result || null;
+        if (!result) return;
+        if (result.result_status !== 'success') {
+          log('路径计算失败：' + (result.error_message || '未知错误'));
+          return;
+        }
+        if (!state.viewer || !CesiumRuntime || !Array.isArray(coords) || coords.length < 2) return;
+        positions = coords.map(function (coord) {
+          return CesiumRuntime.Cartesian3.fromDegrees(Number(coord[0]), Number(coord[1]), Number(coord[2] || flightPathHeight()));
+        });
+        state.flightPath.routeGlowEntity = state.viewer.entities.add({
+          name: 'Flight path planned route glow',
+          polyline: {
+            positions: positions,
+            width: 9,
+            material: CesiumRuntime.Color.fromCssColorString('#00f5d4').withAlpha(0.22),
+            depthFailMaterial: CesiumRuntime.Color.fromCssColorString('#00f5d4').withAlpha(0.22)
+          }
+        });
+        state.flightPath.routeEntity = state.viewer.entities.add({
+          name: 'Flight path planned route',
+          polyline: {
+            positions: positions,
+            width: 4,
+            material: CesiumRuntime.Color.fromCssColorString('#5eead4'),
+            depthFailMaterial: CesiumRuntime.Color.fromCssColorString('#5eead4')
+          }
+        });
+        log('路径计算成功：' + (result.distance_m || 0).toFixed(1) + 'm，' + (result.grid_cell_count || 0) + ' cells，' + (result.traj_point_count || 0) + ' trajectory points。');
+      }
+
+      function loadLatestFlightPathResult(planId, shouldZoom) {
+        return postgrestRpc('get_latest_flight_path_result', { p_plan_id: Number(planId) }).then(function (result) {
+          renderFlightPathResult(result);
+          if (shouldZoom) zoomFlightPathRoute();
+          return result;
+        }).catch(function (error) {
+          console.error('[Tianditu3D] Flight path result failed:', error);
+          log('飞行路径结果加载失败：' + error.message);
+        });
+      }
+
+      function computeFlightPathPlan(planId) {
+        var id = planId || state.flightPath.currentPlanId;
+        var afterSave;
+        if (!id) {
+          afterSave = saveFlightPathPlan().then(function () { return state.flightPath.currentPlanId; });
+        } else if (String(id) === String(state.flightPath.currentPlanId)) {
+          afterSave = saveFlightPathPlan().then(function () { return state.flightPath.currentPlanId; });
+        } else {
+          afterSave = Promise.resolve(Number(id));
+        }
+        return afterSave.then(function (savedId) {
+          log('正在计算飞行路径方案 #' + savedId + '；将自动避开 flight_obstacles。');
+          return postgrestRpc('compute_flight_path_plan', { p_plan_id: Number(savedId) }).then(function (resultId) {
+            log('路径计算已完成，结果 #' + resultId + '，正在加载 GeoJSON。');
+            state.flightPath.currentPlanId = Number(savedId);
+            return loadLatestFlightPathResult(savedId, true);
+          });
+        }).catch(function (error) {
+          console.error('[Tianditu3D] Flight path compute failed:', error);
+          log('飞行路径计算失败：' + error.message);
+        });
+      }
+
+      function archiveFlightPathPlan(planId) {
+        if (!window.confirm('确认归档飞行路径方案 #' + planId + '？')) return Promise.resolve();
+        return postgrestRpc('archive_flight_path_plan', { p_plan_id: Number(planId) }).then(function () {
+          if (String(state.flightPath.currentPlanId) === String(planId)) clearFlightPathDraft();
+          log('飞行路径方案已归档：#' + planId + '。');
+          return loadFlightPathPlans();
+        }).catch(function (error) {
+          console.error('[Tianditu3D] Flight path archive failed:', error);
+          log('飞行路径方案归档失败：' + error.message);
+        });
+      }
+
+      function zoomFlightPathRoute() {
+        var entities = [];
+        if (state.flightPath.routeEntity) entities.push(state.flightPath.routeEntity);
+        if (!entities.length && state.flightPath.rawLineEntity) entities.push(state.flightPath.rawLineEntity);
+        if (!entities.length) entities = state.flightPath.pointEntities.slice();
+        if (!state.viewer || !entities.length) {
+          log('当前没有可定位的飞行路径。');
+          return;
+        }
+        state.viewer.flyTo(entities, { duration: 1.5 });
+        log('已定位到当前飞行路径。');
       }
 
       function setupAirspaceDefaults() {
@@ -2498,6 +3008,10 @@
             addAirspaceDrawPoint(movement.position);
             return;
           }
+          if (state.flightPath.drawMode) {
+            addFlightPathPoint(movement.position);
+            return;
+          }
           var picked = viewer.scene.pick(movement.position);
           if (picked && picked.id && picked.id.type === 'flightObstacle') {
             var pickedObstacle = state.flightObstacles.items.find(function (item) { return item.index === picked.id.index; });
@@ -2861,6 +3375,12 @@
         loadAirspaceZones();
       }
 
+      function bindFlightPathControls() {
+        setupFlightPathDefaults();
+        renderFlightPathDraft();
+        loadFlightPathPlans();
+      }
+
       function scheduleTerrainLodRefresh() {
         if (!state.flightObstacles.enabled || !state.flightObstacles.sourceFilters.terrain) return;
         if (state.flightObstacles.terrainLod.moveEndTimer) window.clearTimeout(state.flightObstacles.terrainLod.moveEndTimer);
@@ -3092,6 +3612,21 @@
             if (action === 'editAirspaceZone') editAirspaceZone(actionButton.dataset.zoneKind, actionButton.dataset.zoneId);
             if (action === 'disableAirspaceZone') disableAirspaceZone(actionButton.dataset.zoneKind, actionButton.dataset.zoneId);
             if (action === 'deleteAirspaceZone') deleteAirspaceZone(actionButton.dataset.zoneKind, actionButton.dataset.zoneId);
+            if (action === 'setFlightPathStart') setFlightPathDrawMode('start');
+            if (action === 'addFlightPathWaypoint') setFlightPathDrawMode('waypoint');
+            if (action === 'setFlightPathEnd') setFlightPathDrawMode('end');
+            if (action === 'undoFlightPathPoint') undoFlightPathPoint();
+            if (action === 'clearFlightPathDraft') clearFlightPathDraft();
+            if (action === 'saveFlightPathPlan') saveFlightPathPlan().catch(function (error) {
+              console.error('[Tianditu3D] Flight path save failed:', error);
+              log('飞行路径方案保存失败：' + error.message);
+            });
+            if (action === 'computeFlightPathPlan') computeFlightPathPlan();
+            if (action === 'reloadFlightPathPlans') loadFlightPathPlans();
+            if (action === 'zoomFlightPathRoute') zoomFlightPathRoute();
+            if (action === 'loadFlightPathPlan') loadFlightPathPlan(actionButton.dataset.planId);
+            if (action === 'computeListedFlightPathPlan') computeFlightPathPlan(actionButton.dataset.planId);
+            if (action === 'archiveFlightPathPlan') archiveFlightPathPlan(actionButton.dataset.planId);
           }
 
           if (sourceButton) {
@@ -3198,6 +3733,7 @@
         bindControls();
         bindAirspaceControls();
         bindAirspaceAdminControls();
+        bindFlightPathControls();
         bindObstacleControls();
         bindTerrainLodCameraRefresh(state.viewer);
         bindFeaturePicking(state.viewer);
