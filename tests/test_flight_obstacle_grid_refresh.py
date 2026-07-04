@@ -7,6 +7,12 @@ from pathlib import Path
 import unittest
 
 
+try:
+    import psycopg  # noqa: F401
+except ImportError:
+    raise unittest.SkipTest("psycopg is required for refresh_citydb_obstacle_grids tests")
+
+
 MODULE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "refresh_citydb_obstacle_grids.py"
 spec = importlib.util.spec_from_file_location("refresh_citydb_obstacle_grids", MODULE_PATH)
 refresh = importlib.util.module_from_spec(spec)
