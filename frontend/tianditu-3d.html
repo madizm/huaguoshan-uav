@@ -973,7 +973,8 @@
       var flightObstaclesRpcUrl = 'http://10.1.109.151:13000/rpc/list_flight_obstacles_gger';
       var flightObstaclesLodRpcUrl = 'http://10.1.109.151:13000/rpc/list_flight_obstacles_gger_lod';
       var postgrestBaseUrl = 'http://10.1.109.151:13000';
-      var airspaceProfile = 'airspace';
+      var airspaceProfile = 'api';
+      var postgrestJwtStorageKey = 'postgrest.jwt';
       var airspaceTableByKind = {
         no_fly_zone: 'no_fly_zone',
         temp_control: 'temp_control_zone'
@@ -1286,12 +1287,17 @@
         return airspaceTableByKind[kind] || airspaceTableByKind.no_fly_zone;
       }
 
+      function postgrestAuthHeaders() {
+        var jwt = window.localStorage ? window.localStorage.getItem(postgrestJwtStorageKey) : null;
+        return jwt ? { 'Authorization': 'Bearer ' + jwt } : {};
+      }
+
       function airspaceHeaders(extra) {
         return Object.assign({
           'Accept': 'application/json',
           'Accept-Profile': airspaceProfile,
           'Content-Profile': airspaceProfile
-        }, extra || {});
+        }, postgrestAuthHeaders(), extra || {});
       }
 
       function airspaceRequest(kind, pathSuffix, options) {
@@ -1314,7 +1320,7 @@
       function postgrestRpc(name, payload) {
         return fetch(postgrestBaseUrl + '/rpc/' + name, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          headers: Object.assign({ 'Content-Type': 'application/json', 'Accept': 'application/json' }, postgrestAuthHeaders()),
           body: JSON.stringify(payload || {})
         }).then(function (response) {
           if (!response.ok) {
@@ -1687,7 +1693,7 @@
 
         return fetch(citydbFeatureRpcUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: Object.assign({ 'Content-Type': 'application/json' }, postgrestAuthHeaders()),
           body: JSON.stringify({ p_feature_identifier: identifier })
         }).then(function (response) {
           if (!response.ok) throw new Error('PostgREST RPC HTTP ' + response.status);
@@ -1710,7 +1716,7 @@
 
         return fetch(citydbFeatureGridRpcUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: Object.assign({ 'Content-Type': 'application/json' }, postgrestAuthHeaders()),
           body: JSON.stringify({ p_feature_identifier: identifier })
         }).then(function (response) {
           if (!response.ok) throw new Error('PostgREST GGER RPC HTTP ' + response.status);
@@ -2040,7 +2046,7 @@
           requestSource: function (sourceKind, limit) {
             return fetch(flightObstaclesRpcUrl, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: Object.assign({ 'Content-Type': 'application/json' }, postgrestAuthHeaders()),
               body: JSON.stringify({
                 p_source_kind: sourceKind,
                 p_limit: limit,
@@ -2057,7 +2063,7 @@
           requestTerrainLod: function (payload) {
             return fetch(flightObstaclesLodRpcUrl, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: Object.assign({ 'Content-Type': 'application/json' }, postgrestAuthHeaders()),
               body: JSON.stringify(payload)
             }).then(function (response) {
               if (!response.ok) throw new Error('PostgREST terrain LOD RPC HTTP ' + response.status);
