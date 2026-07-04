@@ -82,12 +82,19 @@ class Argon2PasswordVerifier:
             return False
 
 
+def _ensure_str(value: str | bytes) -> str:
+    """Ensure a value from the database is a Python str."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return value
+
+
 class PgUserAccountRepository:
     def __init__(self, dsn: str, auth_schema: str = "auth") -> None:
         import psycopg
         from psycopg.rows import dict_row
 
-        self._conn = psycopg.connect(dsn, connect_timeout=15, row_factory=dict_row)
+        self._conn = psycopg.connect(dsn, connect_timeout=15, row_factory=dict_row, client_encoding="UTF8")
         self._auth_schema = quote_identifier(auth_schema)
 
     def close(self) -> None:
@@ -113,8 +120,8 @@ class PgUserAccountRepository:
             return None
         return UserAccount(
             id=row["id"],
-            username=row["username"],
-            password_hash=row["password_hash"],
+            username=_ensure_str(row["username"]),
+            password_hash=_ensure_str(row["password_hash"]),
             enabled=row["enabled"],
             failed_login_count=row["failed_login_count"],
             locked_until=row["locked_until"],
