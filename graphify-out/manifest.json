@@ -15,9 +15,9 @@
     "semantic_hash": "ea51691c7678fc1a3979944f0d015a73"
   },
   "js/BeidouAirspaceGrid.js": {
-    "mtime": 1782896667.4701464,
-    "ast_hash": "33dc610be0be7782c7239623b5da8808",
-    "semantic_hash": "33dc610be0be7782c7239623b5da8808"
+    "mtime": 1783141820.1508956,
+    "ast_hash": "20a6bac42a85e64fdc93edfc1fe6a426",
+    "semantic_hash": "20a6bac42a85e64fdc93edfc1fe6a426"
   },
   "js/BeidouGridBounds.js": {
     "mtime": 1782799600.898709,
@@ -90,14 +90,14 @@
     "semantic_hash": "cabad9b59573ed6690140b15938693bc"
   },
   "frontend/tianditu-3d.html": {
-    "mtime": 1782990961.8931522,
-    "ast_hash": "685e63b8c75c4ac2362e9af899b170fc",
-    "semantic_hash": "685e63b8c75c4ac2362e9af899b170fc"
+    "mtime": 1783157382.3589425,
+    "ast_hash": "42800e8ec94056d9eb373c12782ef6de",
+    "semantic_hash": "42800e8ec94056d9eb373c12782ef6de"
   },
   "\u5f00\u53d1\u73af\u5883.md": {
-    "mtime": 1782806439.6514714,
-    "ast_hash": "0a435b1921174e79675e8d9da5e0df98",
-    "semantic_hash": "0a435b1921174e79675e8d9da5e0df98"
+    "mtime": 1783088990.3308794,
+    "ast_hash": "5b74e73f1d0634ed1824e7e5c075adaa",
+    "semantic_hash": "5b74e73f1d0634ed1824e7e5c075adaa"
   },
   "backend/create_citydb_feature_gger_grids_rpc.sql": {
     "mtime": 1782876864.5157866,
@@ -105,9 +105,9 @@
     "semantic_hash": "c7e0bcbdd3b7aa9254feeee6e1b3686d"
   },
   "js/GGERAirspaceGrid.js": {
-    "mtime": 1782896625.8819258,
-    "ast_hash": "0cf15506e1b39c21c058e749c9a68e6c",
-    "semantic_hash": "0cf15506e1b39c21c058e749c9a68e6c"
+    "mtime": 1783141820.151376,
+    "ast_hash": "c4258346e96996d9dc3eb28c1a78c3bc",
+    "semantic_hash": "c4258346e96996d9dc3eb28c1a78c3bc"
   },
   "js/GGERGridBounds.js": {
     "mtime": 1782826810.8977704,
@@ -150,9 +150,9 @@
     "semantic_hash": "c0c6f74cc28ca733ff89b811edbcb002"
   },
   "scripts/refresh_citydb_obstacle_grids.py": {
-    "mtime": 1782978783.550892,
-    "ast_hash": "00e5fb7abe01fde5b49bcbb00bf3ac6d",
-    "semantic_hash": "00e5fb7abe01fde5b49bcbb00bf3ac6d"
+    "mtime": 1783157382.3615122,
+    "ast_hash": "7c19789df145903ea5df2e5940f469cb",
+    "semantic_hash": "7c19789df145903ea5df2e5940f469cb"
   },
   "docs/refined_flight_obstacles_plan.md": {
     "mtime": 1782971575.187109,
@@ -165,12 +165,12 @@
     "semantic_hash": "8301632696cbab700aeb3240053b9810"
   },
   "backend/create_airspace_postgrest_crud.sql": {
-    "mtime": 1782978776.045761,
+    "mtime": 1783157382.3579783,
     "ast_hash": "9e7ed114f1b5fa3e272e89c28a81a4c0",
     "semantic_hash": "9e7ed114f1b5fa3e272e89c28a81a4c0"
   },
   "scripts/seed_airspace_zones.py": {
-    "mtime": 1782978643.5779207,
+    "mtime": 1783157382.3628583,
     "ast_hash": "bbb60b680d6a1ce285fb098dd0f9585a",
     "semantic_hash": "bbb60b680d6a1ce285fb098dd0f9585a"
   },
@@ -213,5 +213,95 @@
     "mtime": 1782988466.9663687,
     "ast_hash": "159bba1835bb90f9795b03dfd4ba1504",
     "semantic_hash": "159bba1835bb90f9795b03dfd4ba1504"
+  },
+  "js/AirspaceConstraintEditor.js": {
+    "mtime": 1783157382.3604484,
+    "ast_hash": "349b11d608d7c65d3b319f47a7eb12d8",
+    "semantic_hash": "349b11d608d7c65d3b319f47a7eb12d8"
+  },
+  "js/AirspaceGridRenderer.js": {
+    "mtime": 1783141820.1369836,
+    "ast_hash": "6cf60ee383b362181a99e6e9a26ffd4a",
+    "semantic_hash": "6cf60ee383b362181a99e6e9a26ffd4a"
+  },
+  "js/FlightObstacleSituationLayer.js": {
+    "mtime": 1783145827.8960338,
+    "ast_hash": "2f825f6ed7dd69ed953116bc344b227e",
+    "semantic_hash": "2f825f6ed7dd69ed953116bc344b227e"
+  },
+  "js/FlightPathWorkbench.js": {
+    "mtime": 1783151605.1330397,
+    "ast_hash": "1efbc04d8bb03f0ec348a9a5c20c7f13",
+    "semantic_hash": "1efbc04d8bb03f0ec348a9a5c20c7f13"
+  },
+  "tests/test_airspace_constraint_editor.js": {
+    "mtime": 1783157382.3636005,
+    "ast_hash": "952205d939fe54c0950456316696969a",
+    "semantic_hash": "952205d939fe54c0950456316696969a"
+  },
+  "tests/test_airspace_grid_renderer.js": {
+    "mtime": 1783141803.2417054,
+    "ast_hash": "868243b40957ecb39ac6a1846fdcbfd4",
+    "semantic_hash": "868243b40957ecb39ac6a1846fdcbfd4"
+  },
+  "tests/test_flight_obstacle_grid_refresh.py": {
+    "mtime": 1783139871.1388614,
+    "ast_hash": "86c02c4574f0bd344e8267b715ea96bd",
+    "semantic_hash": "86c02c4574f0bd344e8267b715ea96bd"
+  },
+  "tests/test_flight_obstacle_situation_layer.js": {
+    "mtime": 1783145757.4674149,
+    "ast_hash": "5c79e8c97aa49bd52671aa69586da102",
+    "semantic_hash": "5c79e8c97aa49bd52671aa69586da102"
+  },
+  "tests/test_flight_path_workbench.js": {
+    "mtime": 1783151911.4394658,
+    "ast_hash": "b5d740e3654b9dfa89f09c8b0a8bca94",
+    "semantic_hash": "b5d740e3654b9dfa89f09c8b0a8bca94"
+  },
+  "AGENTS.md": {
+    "mtime": 1783098715.205462,
+    "ast_hash": "52d755f70bbb851ac04fdf5b63223800",
+    "semantic_hash": "52d755f70bbb851ac04fdf5b63223800"
+  },
+  "CONTEXT.md": {
+    "mtime": 1783157382.3574333,
+    "ast_hash": "5a270a6d6c362a1187c1f3ab72f800dc",
+    "semantic_hash": "5a270a6d6c362a1187c1f3ab72f800dc"
+  },
+  "docs/adr/0001-use-airspace-grid-as-core-spatial-index.md": {
+    "mtime": 1783101205.57588,
+    "ast_hash": "3085544a6f22c0695cbd6e5d3a3fb5af",
+    "semantic_hash": "3085544a6f22c0695cbd6e5d3a3fb5af"
+  },
+  "docs/adr/0002-use-situation-snapshots-and-event-history-first.md": {
+    "mtime": 1783101205.576084,
+    "ast_hash": "d98e880d0ec5efdc670a4ed45867a07f",
+    "semantic_hash": "d98e880d0ec5efdc670a4ed45867a07f"
+  },
+  "docs/adr/0003-use-shared-airspace-event-workbench-for-mvp-scenarios.md": {
+    "mtime": 1783137192.0008934,
+    "ast_hash": "718bc5f0a607939c4806b2cfc91d56d4",
+    "semantic_hash": "718bc5f0a607939c4806b2cfc91d56d4"
+  },
+  "docs/agents/domain.md": {
+    "mtime": 1783098715.2042184,
+    "ast_hash": "3bb46f208f65608d2cf2856b4ca53027",
+    "semantic_hash": "3bb46f208f65608d2cf2856b4ca53027"
+  },
+  "docs/agents/issue-tracker.md": {
+    "mtime": 1783098739.6265132,
+    "ast_hash": "b5839197146453aae4f999759c3a4ce8",
+    "semantic_hash": "b5839197146453aae4f999759c3a4ce8"
+  },
+  "docs/agents/triage-labels.md": {
+    "mtime": 1783098715.2042134,
+    "ast_hash": "22add54cb98451c55b20e6b7992d4a85",
+    "semantic_hash": "22add54cb98451c55b20e6b7992d4a85"
+  },
+  "docs/mvp-airspace-event-loop-design.md": {
+    "mtime": 1783137392.4760056,
+    "ast_hash": "b8ed0d311098577d3be2179d93c27310",
+    "semantic_hash": "b8ed0d311098577d3be2179d93c27310"
   }
 }
