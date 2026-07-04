@@ -40,7 +40,7 @@ import math
 import os
 import sys
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import psycopg
 from psycopg import sql
@@ -109,6 +109,49 @@ class TerrainLodSpec:
     lod_level: int
     block_size_px: int
     detail_level: int
+
+
+@dataclass(frozen=True)
+class ObstacleSourceAdapter:
+    """Internal seam for a source that produces standard 飞行障碍 rows."""
+
+    source: str
+    view_name: str
+    description: str
+    build_view_sql: Callable[[], sql.Composed]
+
+
+@dataclass(frozen=True)
+class AirspaceConstraintObstacleAdapter:
+    """Configured adapter for 空域约束 sources that share one implementation."""
+
+    args: argparse.Namespace
+    has_terrain_tables: bool
+    source: str
+    view_name: str
+    source_kind: str
+    table_name: str
+    priority: int
+    description: str
+    enabled_filter_sql: sql.Composable
+    include_validity_window: bool = False
+
+    def build_view_sql(self) -> sql.Composed:
+        return build_airspace_constraint_obstacles_sql(self.args, self, self.has_terrain_tables)
+
+
+@dataclass(frozen=True)
+class TerrainLodDisplayAdapter:
+    """Display-only adapter kept out of the unified route-planning view."""
+
+    args: argparse.Namespace
+    has_terrain_tables: bool
+    source: str = "terrain-lod-display"
+    view_name: str = DEFAULT_TERRAIN_LOD_VIEW_NAME
+    description: str = "display-only terrain LOD adapter"
+
+    def build_view_sql(self) -> sql.Composed:
+        return build_obstacles_terrain_lod_sql(self.args, self.has_terrain_tables)
 
 
 def parse_args() -> argparse.Namespace:
@@ -1082,10 +1125,33 @@ def build_airspace_terrain_blocks_cte(args: argparse.Namespace, has_terrain_tabl
     ).format(block_size=sql.Literal(args.terrain_block_size_pixels), dataset_filter=dataset_filter)
 
 
-def build_obstacles_no_fly_zones_sql(args: argparse.Namespace, has_terrain_tables: bool) -> sql.Composed:
-    """Build the long-lived no-fly-zone source view from airspace polygons."""
+def build_airspace_constraint_obstacles_sql(
+    args: argparse.Namespace,
+    adapter: AirspaceConstraintObstacleAdapter,
+    has_terrain_tables: bool,
+) -> sql.Composed:
+    """Build a configured 空域约束 source view.
 
-    airspace_volume = sql.SQL("{grid_schema}.make_polygon_prism_3d(footprint, min_z, max_z)") if args.airspace_mode == "polygon-prism" else sql.SQL("{grid_schema}.make_bbox_prism_3d(footprint, min_z, max_z)")
+    Long-lived no-fly zones and currently active temporary-control zones share
+    the same height-datum, safety-buffer, terrain-block, and prism projection
+    implementation; only source table, validity policy, and priority vary.
+    """
+
+    airspace_volume = (
+        sql.SQL("{grid_schema}.make_polygon_prism_3d(footprint, min_z, max_z)")
+        if args.airspace_mode == "polygon-prism"
+        else sql.SQL("{grid_schema}.make_bbox_prism_3d(footprint, min_z, max_z)")
+    )
+    zone_validity_columns = sql.SQL(",\n                valid_from,\n                valid_to") if adapter.include_validity_window else sql.SQL("")
+    amsl_validity_columns = sql.SQL(",\n                valid_from,\n                valid_to") if adapter.include_validity_window else sql.SQL("")
+    agl_validity_columns = sql.SQL(",\n                z.valid_from,\n                z.valid_to") if adapter.include_validity_window else sql.SQL("")
+    generated_validity_columns = sql.SQL(",\n                valid_from,\n                valid_to") if adapter.include_validity_window else sql.SQL("")
+    final_validity_columns = (
+        sql.SQL("valid_from,\n            valid_to")
+        if adapter.include_validity_window
+        else sql.SQL("null::timestamptz as valid_from,\n            null::timestamptz as valid_to")
+    )
+
     return sql.SQL(
         """
         create materialized view {target_view} as
@@ -1100,9 +1166,9 @@ def build_obstacles_no_fly_zones_sql(args: argparse.Namespace, has_terrain_table
                     else geom
                 end as footprint_4326,
                 coalesce(min_height, 0)::double precision as height_min,
-                coalesce(max_height, {default_max_height})::double precision as height_max
-            from {airspace_schema}.no_fly_zone
-            where enabled is true
+                coalesce(max_height, {default_max_height})::double precision as height_max{zone_validity_columns}
+            from {airspace_table}
+            where {enabled_filter}
               and geom is not null
               and not public.ST_IsEmpty(geom)
         ), terrain_blocks as (
@@ -1113,7 +1179,7 @@ def build_obstacles_no_fly_zones_sql(args: argparse.Namespace, has_terrain_table
                 name as source_name,
                 footprint_4326 as footprint,
                 height_min as min_z,
-                height_max as max_z
+                height_max as max_z{amsl_validity_columns}
             from zones
             where height_datum <> 'AGL'
         ), agl_pieces as (
@@ -1122,7 +1188,7 @@ def build_obstacles_no_fly_zones_sql(args: argparse.Namespace, has_terrain_table
                 z.name as source_name,
                 public.ST_CollectionExtract(public.ST_MakeValid(public.ST_Intersection(public.ST_Transform(z.footprint_4326, public.ST_SRID(b.extent)), b.extent)), 3) as footprint,
                 (b.min_elevation + z.height_min)::double precision as min_z,
-                (b.max_elevation + z.height_max)::double precision as max_z
+                (b.max_elevation + z.height_max)::double precision as max_z{agl_validity_columns}
             from zones z
             join terrain_blocks b
               on z.height_datum = 'AGL'
@@ -1134,7 +1200,7 @@ def build_obstacles_no_fly_zones_sql(args: argparse.Namespace, has_terrain_table
             select * from agl_pieces
         ), generated_grids as (
             select
-                'no_fly_zone'::text as source_kind,
+                {source_kind}::text as source_kind,
                 source_id,
                 source_name,
                 3::smallint as dimension,
@@ -1143,7 +1209,7 @@ def build_obstacles_no_fly_zones_sql(args: argparse.Namespace, has_terrain_table
                     public.ST_Transform({airspace_volume}, 4326),
                     {detail_level},
                     {is_agg}
-                ) as grids,
+                ) as grids{generated_validity_columns},
                 now() as generated_at
             from volume_pieces
             where footprint is not null
@@ -1158,23 +1224,35 @@ def build_obstacles_no_fly_zones_sql(args: argparse.Namespace, has_terrain_table
             public.ST_DetailLevel(grids)::integer as detail_level,
             is_agg,
             grids,
-            null::timestamptz as valid_from,
-            null::timestamptz as valid_to,
-            1000::integer as priority,
+            {final_validity_columns},
+            {priority}::integer as priority,
             generated_at
         from generated_grids
         where grids is not null
         """
     ).format(
-        target_view=qname(args.grid_schema, SOURCE_TO_VIEW["no-fly-zones"]),
-        airspace_schema=sql.Identifier(args.airspace_schema),
+        target_view=qname(args.grid_schema, adapter.view_name),
+        airspace_table=qname(args.airspace_schema, adapter.table_name),
+        source_kind=sql.Literal(adapter.source_kind),
         default_max_height=sql.Literal(args.default_zone_max_height),
+        enabled_filter=adapter.enabled_filter_sql,
+        zone_validity_columns=zone_validity_columns,
+        amsl_validity_columns=amsl_validity_columns,
+        agl_validity_columns=agl_validity_columns,
+        generated_validity_columns=generated_validity_columns,
+        final_validity_columns=final_validity_columns,
+        priority=sql.Literal(adapter.priority),
         terrain_blocks_cte=build_airspace_terrain_blocks_cte(args, has_terrain_tables),
         airspace_volume=airspace_volume.format(grid_schema=sql.Identifier(args.grid_schema)),
-        grid_schema=sql.Identifier(args.grid_schema),
         detail_level=detail_literal(args),
         is_agg=bool_literal(args.is_agg),
     )
+
+
+def build_obstacles_no_fly_zones_sql(args: argparse.Namespace, has_terrain_tables: bool) -> sql.Composed:
+    """Build the long-lived no-fly-zone source view from airspace polygons."""
+
+    return obstacle_source_adapter(args, "no-fly-zones", has_terrain_tables).build_view_sql()
 
 
 def planning_time_expression(args: argparse.Namespace) -> sql.Composable:
@@ -1186,120 +1264,84 @@ def planning_time_expression(args: argparse.Namespace) -> sql.Composable:
 def build_obstacles_temp_control_sql(args: argparse.Namespace, has_terrain_tables: bool) -> sql.Composed:
     """Build the currently active temporary-control source view."""
 
-    planning_time = planning_time_expression(args)
-    airspace_volume = sql.SQL("{grid_schema}.make_polygon_prism_3d(footprint, min_z, max_z)") if args.airspace_mode == "polygon-prism" else sql.SQL("{grid_schema}.make_bbox_prism_3d(footprint, min_z, max_z)")
-    return sql.SQL(
-        """
-        create materialized view {target_view} as
-        with zones as (
-            select
-                id,
-                name,
-                upper(coalesce(height_datum, 'AMSL')) as height_datum,
-                case
-                    when coalesce(safety_buffer_m, 0) > 0
-                    then public.ST_Buffer(geom::geography, safety_buffer_m)::geometry
-                    else geom
-                end as footprint_4326,
-                coalesce(min_height, 0)::double precision as height_min,
-                coalesce(max_height, {default_max_height})::double precision as height_max,
-                valid_from,
-                valid_to
-            from {airspace_schema}.temp_control_zone
-            where status in ('planned', 'active')
-              and {planning_time} >= valid_from
-              and {planning_time} < valid_to
-              and geom is not null
-              and not public.ST_IsEmpty(geom)
-        ), terrain_blocks as (
-            {terrain_blocks_cte}
-        ), amsl_pieces as (
-            select
-                id::text as source_id,
-                name as source_name,
-                footprint_4326 as footprint,
-                height_min as min_z,
-                height_max as max_z,
-                valid_from,
-                valid_to
-            from zones
-            where height_datum <> 'AGL'
-        ), agl_pieces as (
-            select
-                (z.id::text || ':agl:' || b.block_id) as source_id,
-                z.name as source_name,
-                public.ST_CollectionExtract(public.ST_MakeValid(public.ST_Intersection(public.ST_Transform(z.footprint_4326, public.ST_SRID(b.extent)), b.extent)), 3) as footprint,
-                (b.min_elevation + z.height_min)::double precision as min_z,
-                (b.max_elevation + z.height_max)::double precision as max_z,
-                z.valid_from,
-                z.valid_to
-            from zones z
-            join terrain_blocks b
-              on z.height_datum = 'AGL'
-             and b.extent is not null
-             and public.ST_Intersects(public.ST_Transform(z.footprint_4326, public.ST_SRID(b.extent)), b.extent)
-        ), volume_pieces as (
-            select * from amsl_pieces
-            union all
-            select * from agl_pieces
-        ), generated_grids as (
-            select
-                'temp_control'::text as source_kind,
-                source_id,
-                source_name,
-                3::smallint as dimension,
-                {is_agg}::boolean as is_agg,
-                public.ST_AsGrids3D(
-                    public.ST_Transform({airspace_volume}, 4326),
-                    {detail_level},
-                    {is_agg}
-                ) as grids,
-                valid_from,
-                valid_to,
-                now() as generated_at
-            from volume_pieces
-            where footprint is not null
-              and not public.ST_IsEmpty(footprint)
-              and max_z > min_z
-        )
-        select
-            source_kind,
-            source_id,
-            source_name,
-            dimension,
-            public.ST_DetailLevel(grids)::integer as detail_level,
-            is_agg,
-            grids,
-            valid_from,
-            valid_to,
-            1100::integer as priority,
-            generated_at
-        from generated_grids
-        where grids is not null
-        """
-    ).format(
-        target_view=qname(args.grid_schema, SOURCE_TO_VIEW["temp-control"]),
-        airspace_schema=sql.Identifier(args.airspace_schema),
-        default_max_height=sql.Literal(args.default_zone_max_height),
-        planning_time=planning_time,
-        terrain_blocks_cte=build_airspace_terrain_blocks_cte(args, has_terrain_tables),
-        airspace_volume=airspace_volume.format(grid_schema=sql.Identifier(args.grid_schema)),
-        grid_schema=sql.Identifier(args.grid_schema),
-        detail_level=detail_literal(args),
-        is_agg=bool_literal(args.is_agg),
+    return obstacle_source_adapter(args, "temp-control", has_terrain_tables).build_view_sql()
+
+
+def _airspace_constraint_adapters(args: argparse.Namespace, has_terrain_tables: bool) -> tuple[AirspaceConstraintObstacleAdapter, ...]:
+    return (
+        AirspaceConstraintObstacleAdapter(
+            args=args,
+            has_terrain_tables=has_terrain_tables,
+            source="no-fly-zones",
+            view_name=SOURCE_TO_VIEW["no-fly-zones"],
+            source_kind="no_fly_zone",
+            table_name="no_fly_zone",
+            priority=1000,
+            description="long-lived 空域约束 adapter",
+            enabled_filter_sql=sql.SQL("enabled is true"),
+        ),
+        AirspaceConstraintObstacleAdapter(
+            args=args,
+            has_terrain_tables=has_terrain_tables,
+            source="temp-control",
+            view_name=SOURCE_TO_VIEW["temp-control"],
+            source_kind="temp_control",
+            table_name="temp_control_zone",
+            priority=1100,
+            description="time-bound 空域约束 adapter",
+            enabled_filter_sql=sql.SQL("status in ('planned', 'active')\n              and {planning_time} >= valid_from\n              and {planning_time} < valid_to").format(
+                planning_time=planning_time_expression(args)
+            ),
+            include_validity_window=True,
+        ),
+    )
+
+
+def obstacle_source_adapters(args: argparse.Namespace, has_terrain_tables: bool) -> tuple[ObstacleSourceAdapter | AirspaceConstraintObstacleAdapter, ...]:
+    """Return configured source adapters in unified 飞行障碍 source order."""
+
+    airspace_adapters = {adapter.source: adapter for adapter in _airspace_constraint_adapters(args, has_terrain_tables)}
+    return (
+        ObstacleSourceAdapter(
+            source="buildings",
+            view_name=SOURCE_TO_VIEW["buildings"],
+            description="3DCityDB building geometry adapter",
+            build_view_sql=lambda args=args: build_obstacles_buildings_sql(args),
+        ),
+        ObstacleSourceAdapter(
+            source="terrain",
+            view_name=SOURCE_TO_VIEW["terrain"],
+            description="DEM terrain obstacle adapter",
+            build_view_sql=lambda args=args, has_terrain_tables=has_terrain_tables: build_obstacles_terrain_sql(args, has_terrain_tables),
+        ),
+        airspace_adapters["no-fly-zones"],
+        airspace_adapters["temp-control"],
+    )
+
+
+def obstacle_source_adapter(args: argparse.Namespace, source: str, has_terrain_tables: bool) -> ObstacleSourceAdapter | AirspaceConstraintObstacleAdapter:
+    for adapter in obstacle_source_adapters(args, has_terrain_tables):
+        if adapter.source == source:
+            return adapter
+    raise AssertionError(f"Unhandled source: {source}")
+
+
+def obstacle_display_adapters(args: argparse.Namespace, has_terrain_tables: bool) -> tuple[TerrainLodDisplayAdapter, ...]:
+    """Return display-only adapters that are not part of the route-planning union."""
+
+    if not args.terrain_lod_display:
+        return ()
+    return (
+        TerrainLodDisplayAdapter(
+            args=args,
+            has_terrain_tables=has_terrain_tables,
+            view_name=args.terrain_lod_view_name,
+        ),
     )
 
 
 def source_view_sql(args: argparse.Namespace, source: str, has_terrain_tables: bool) -> sql.Composed:
-    if source == "buildings":
-        return build_obstacles_buildings_sql(args)
-    if source == "terrain":
-        return build_obstacles_terrain_sql(args, has_terrain_tables)
-    if source == "no-fly-zones":
-        return build_obstacles_no_fly_zones_sql(args, has_terrain_tables)
-    if source == "temp-control":
-        return build_obstacles_temp_control_sql(args, has_terrain_tables)
-    raise AssertionError(f"Unhandled source: {source}")
+    return obstacle_source_adapter(args, source, has_terrain_tables).build_view_sql()
 
 
 def build_total_view_sql(args: argparse.Namespace) -> sql.Composed:
@@ -1468,13 +1510,12 @@ def grant_generated_objects(cur: psycopg.Cursor[Any], args: argparse.Namespace) 
 
 
 def ensure_all_source_views_exist(cur: psycopg.Cursor[Any], args: argparse.Namespace, has_terrain_tables: bool) -> None:
-    for source in SOURCE_ORDER:
-        view_name = SOURCE_TO_VIEW[source]
-        cur.execute("select to_regclass(%s) is not null", (qname_literal(args.grid_schema, view_name),))
+    for adapter in obstacle_source_adapters(args, has_terrain_tables):
+        cur.execute("select to_regclass(%s) is not null", (qname_literal(args.grid_schema, adapter.view_name),))
         exists = bool(cur.fetchone()[0])
         if not exists:
-            cur.execute(source_view_sql(args, source, has_terrain_tables))
-            create_source_indexes(cur, args, view_name)
+            cur.execute(adapter.build_view_sql())
+            create_source_indexes(cur, args, adapter.view_name)
 
 
 def rebuild_views(conn: psycopg.Connection[Any], args: argparse.Namespace) -> None:
@@ -1488,13 +1529,15 @@ def rebuild_views(conn: psycopg.Connection[Any], args: argparse.Namespace) -> No
         ensure_schemas_and_helpers(cur, args)
         cur.execute(sql.SQL("drop materialized view if exists {}").format(qname(args.grid_schema, args.total_view_name)))
         for source in sources:
-            cur.execute(sql.SQL("drop materialized view if exists {}").format(qname(args.grid_schema, SOURCE_TO_VIEW[source])))
-            cur.execute(source_view_sql(args, source, has_terrain_tables))
-            create_source_indexes(cur, args, SOURCE_TO_VIEW[source])
-            if source == "terrain" and args.terrain_lod_display:
-                cur.execute(sql.SQL("drop materialized view if exists {}").format(qname(args.grid_schema, args.terrain_lod_view_name)))
-                cur.execute(build_obstacles_terrain_lod_sql(args, has_terrain_tables))
-                create_terrain_lod_indexes(cur, args)
+            adapter = obstacle_source_adapter(args, source, has_terrain_tables)
+            cur.execute(sql.SQL("drop materialized view if exists {}").format(qname(args.grid_schema, adapter.view_name)))
+            cur.execute(adapter.build_view_sql())
+            create_source_indexes(cur, args, adapter.view_name)
+            if source == "terrain":
+                for display_adapter in obstacle_display_adapters(args, has_terrain_tables):
+                    cur.execute(sql.SQL("drop materialized view if exists {}").format(qname(args.grid_schema, display_adapter.view_name)))
+                    cur.execute(display_adapter.build_view_sql())
+                    create_terrain_lod_indexes(cur, args)
 
         if update_total:
             ensure_all_source_views_exist(cur, args, has_terrain_tables)
@@ -1521,9 +1564,11 @@ def refresh_views(conn: psycopg.Connection[Any], args: argparse.Namespace) -> No
     update_total = should_update_total(args)
     with conn.cursor() as cur:
         for source in sources:
-            refresh_one(cur, args, args.grid_schema, SOURCE_TO_VIEW[source])
-            if source == "terrain" and args.terrain_lod_display:
-                refresh_one(cur, args, args.grid_schema, args.terrain_lod_view_name)
+            adapter = obstacle_source_adapter(args, source, False)
+            refresh_one(cur, args, args.grid_schema, adapter.view_name)
+            if source == "terrain":
+                for display_adapter in obstacle_display_adapters(args, False):
+                    refresh_one(cur, args, args.grid_schema, display_adapter.view_name)
         if update_total:
             refresh_one(cur, args, args.grid_schema, args.total_view_name)
             cur.execute(build_codes_view_sql(args))
