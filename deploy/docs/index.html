@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>花果山 API 文档门户</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23083d33'/%3E%3Ccircle cx='32' cy='32' r='16' fill='%23d7a846'/%3E%3Ccircle cx='32' cy='32' r='8' fill='%23d85a35'/%3E%3C/svg%3E" />
+  <script id="api-reference" type="application/json"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --ink: #10201b;
+      --paper: #f4ecd8;
+      --paper-strong: #fff7df;
+      --jade: #1d6b57;
+      --jade-deep: #083d33;
+      --cinnabar: #d85a35;
+      --gold: #d7a846;
+    }
+    body {
+      font-family: "Avenir Next Condensed", "DIN Condensed", "Microsoft YaHei", sans-serif;
+      background: #071713;
+      color: var(--paper);
+      min-height: 100vh;
+    }
+    header {
+      padding: 22px 32px;
+      border-bottom: 1px solid rgba(244, 236, 216, 0.14);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .brand h1 {
+      font-family: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
+      font-size: 26px;
+      color: var(--paper-strong);
+      letter-spacing: -0.03em;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--gold);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .badge::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--cinnabar);
+      box-shadow: 0 0 0 4px rgba(216, 90, 53, 0.18);
+    }
+    .auth-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+    }
+    .auth-bar input {
+      border: 1px solid rgba(244, 236, 216, 0.24);
+      border-radius: 999px;
+      padding: 7px 14px;
+      background: rgba(0, 0, 0, 0.24);
+      color: var(--paper);
+      font: inherit;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 160ms ease;
+    }
+    .auth-bar input:focus {
+      border-color: var(--gold);
+    }
+    .auth-bar button {
+      border: 1px solid rgba(244, 236, 216, 0.28);
+      border-radius: 999px;
+      padding: 8px 16px;
+      background: rgba(244, 236, 216, 0.08);
+      color: var(--paper-strong);
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 160ms ease, border-color 160ms ease;
+    }
+    .auth-bar button:hover {
+      border-color: var(--gold);
+      background: rgba(215, 168, 70, 0.18);
+    }
+    .auth-bar button.primary {
+      border-color: rgba(216, 90, 53, 0.7);
+      background: linear-gradient(135deg, var(--cinnabar), #a53b25);
+    }
+    .status {
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+    }
+    .status.logged-in {
+      border-color: var(--jade);
+      color: var(--jade);
+    }
+    .status.anon {
+      border-color: rgba(244, 236, 216, 0.28);
+      color: rgba(244, 236, 216, 0.55);
+    }
+    .status.error {
+      border-color: var(--cinnabar);
+      color: var(--cinnabar);
+    }
+    main {
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 32px 24px 80px;
+    }
+    .card {
+      margin-bottom: 24px;
+      border: 1px solid rgba(215, 168, 70, 0.18);
+      border-radius: 18px;
+      padding: 22px;
+      background: rgba(16, 32, 27, 0.4);
+      backdrop-filter: blur(8px);
+    }
+    .card h2 {
+      font-size: 18px;
+      color: var(--paper-strong);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .card p {
+      font-size: 14px;
+      color: rgba(244, 236, 216, 0.68);
+      line-height: 1.7;
+      margin-bottom: 14px;
+    }
+    .card code {
+      background: rgba(215, 168, 70, 0.12);
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-family: "SF Mono", "Cascadia Code", monospace;
+      font-size: 13px;
+    }
+    .endpoint-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .endpoint-list li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      padding: 8px 12px;
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.16);
+    }
+    .method {
+      font-weight: 700;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      padding: 2px 8px;
+      border-radius: 6px;
+      min-width: 42px;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .method.post { background: var(--jade); color: var(--paper-strong); }
+    .method.get  { background: rgba(29, 107, 87, 0.6); color: var(--paper-strong); }
+    .note {
+      font-size: 12px;
+      color: rgba(215, 168, 70, 0.7);
+      padding: 10px 14px;
+      border-left: 3px solid rgba(215, 168, 70, 0.4);
+      margin-top: 10px;
+      line-height: 1.6;
+    }
+    footer {
+      text-align: center;
+      padding: 24px;
+      color: rgba(244, 236, 216, 0.36);
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="badge">API 文档</span>
+      <h1>花果山</h1>
+    </div>
+    <div class="auth-bar" id="authBar">
+      <input type="text" id="tokenInput" placeholder="粘贴 admin JWT…" />
+      <button id="applyTokenBtn">🔑 应用令牌</button>
+      <button id="clearTokenBtn">清除</button>
+      <span class="status anon" id="authStatus">未认证</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- 认证入口服务 API -->
+    <div class="card" id="authApiCard">
+      <h2><span class="badge">公开</span> 认证入口服务 API</h2>
+      <p>
+        轻量认证入口，负责凭证校验与 JWT 签发。
+        API 文档<strong>匿名可见</strong>，无需认证即可浏览。
+      </p>
+      <ul class="endpoint-list">
+        <li><span class="method post">POST</span> <code>/auth/login</code> — 管理员登录，返回 JWT</li>
+        <li><span class="method get">GET</span> <code>/auth/me</code> — 验证令牌并返回当前用户</li>
+        <li><span class="method get">GET</span> <code>/healthz</code> — 健康检查</li>
+      </ul>
+      <div id="scalarAuthRef"></div>
+    </div>
+
+    <!-- PostgREST 业务 API -->
+    <div class="card" id="postgrestApiCard">
+      <h2>PostgREST 业务 API</h2>
+      <p>
+        空域约束、飞行障碍、航迹规划等业务 API。
+        <strong>需要 <code>role=admin</code> JWT</strong> 才能看到完整接口。
+        匿名用户看到的是空白 OpenAPI 文档——这是 PostgREST 按角色公开 API 的正常行为，不要误判为 PostgREST 故障。
+      </p>
+      <div id="scalarPgrstRef"></div>
+    </div>
+
+    <p class="note">
+      提示：从上方输入栏粘贴登录后获得的 <code>access_token</code> 后点击"应用令牌"，
+      PostgREST OpenAPI 将加载完整的业务接口。令牌存储在浏览器
+      <code>localStorage</code> 的 <code>postgrest.jwt</code> 键中，
+      与前端工作台共享同一令牌。
+    </p>
+  </main>
+
+  <footer>花果山低空空域事件处置平台 · API 文档门户</footer>
+
+  <script>
+    (function () {
+      var TOKEN_KEY = 'postgrest.jwt';
+
+      // ── Token management ────────────────────────────────────────
+
+      var tokenInput = document.getElementById('tokenInput');
+      var authStatus = document.getElementById('authStatus');
+      var storedToken = localStorage.getItem(TOKEN_KEY);
+
+      function updateAuthUI() {
+        var t = localStorage.getItem(TOKEN_KEY);
+        if (t) {
+          tokenInput.value = t;
+          authStatus.textContent = '已认证 (admin)';
+          authStatus.className = 'status logged-in';
+        } else {
+          tokenInput.value = '';
+          authStatus.textContent = '未认证';
+          authStatus.className = 'status anon';
+        }
+        // Re-render Scalar instances so they pick up the new token.
+        renderScalarInstances();
+      }
+
+      document.getElementById('applyTokenBtn').addEventListener('click', function () {
+        var val = tokenInput.value.trim();
+        if (val) {
+          localStorage.setItem(TOKEN_KEY, val);
+        } else {
+          localStorage.removeItem(TOKEN_KEY);
+        }
+        updateAuthUI();
+      });
+
+      document.getElementById('clearTokenBtn').addEventListener('click', function () {
+        localStorage.removeItem(TOKEN_KEY);
+        updateAuthUI();
+      });
+
+      // ── Scalar integration ──────────────────────────────────────
+
+      function getAuthHeaders() {
+        var t = localStorage.getItem(TOKEN_KEY);
+        return t ? { 'Authorization': 'Bearer ' + t } : {};
+      }
+
+      function renderScalarInstances() {
+        // Render auth service OpenAPI reference (always anonymous).
+        var authContainer = document.getElementById('scalarAuthRef');
+        if (authContainer && typeof Scalar !== 'undefined') {
+          authContainer.innerHTML = '';
+          Scalar.createApiReference(authContainer, {
+            spec: { url: '/openapi.json' },
+          });
+        }
+
+        // Render PostgREST OpenAPI reference (with token if available).
+        var pgrstContainer = document.getElementById('scalarPgrstRef');
+        if (pgrstContainer && typeof Scalar !== 'undefined') {
+          pgrstContainer.innerHTML = '';
+          var headers = getAuthHeaders();
+          var authHeader = headers['Authorization'] || '';
+          Scalar.createApiReference(pgrstContainer, {
+            spec: { url: '/postgrest/' },
+            authentication: authHeader ? {
+              preferredSecurityScheme: 'bearerAuth',
+              http: {
+                bearer: {
+                  token: authHeader.replace('Bearer ', ''),
+                },
+              },
+            } : undefined,
+          });
+        }
+      }
+
+      // ── Load Scalar lazily ──────────────────────────────────────
+
+      function loadScalar(callback) {
+        if (typeof Scalar !== 'undefined') {
+          callback();
+          return;
+        }
+        var script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/@scalar/api-reference@latest';
+        script.onload = callback;
+        script.onerror = function () {
+          document.getElementById('scalarAuthRef').innerHTML = '<p style="color:var(--cinnabar)">无法加载 Scalar CDN，请检查网络连接。</p>';
+          document.getElementById('scalarPgrstRef').innerHTML = '<p style="color:var(--cinnabar)">无法加载 Scalar CDN，请检查网络连接。</p>';
+        };
+        document.head.appendChild(script);
+      }
+
+      // ── Init ────────────────────────────────────────────────────
+
+      updateAuthUI();
+      loadScalar(function () {
+        renderScalarInstances();
+      });
+    })();
+  </script>
+</body>
+</html>

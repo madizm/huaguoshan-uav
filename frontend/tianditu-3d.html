@@ -131,6 +131,51 @@
       flex-wrap: wrap;
       gap: 10px;
       margin-top: 14px;
+    .auth-bar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+      padding: 12px;
+      border: 1px solid rgba(215, 168, 70, 0.18);
+      border-radius: 14px;
+      background: rgba(0, 0, 0, 0.18);
+    }
+    .auth-bar input {
+      border: 1px solid rgba(244, 236, 216, 0.22);
+      border-radius: 999px;
+      padding: 7px 14px;
+      background: rgba(8, 20, 17, 0.72);
+      color: var(--paper-strong);
+      font: inherit;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 160ms ease;
+      min-width: 0;
+      flex: 1 1 100px;
+    }
+    .auth-bar input:focus {
+      border-color: var(--gold);
+    }
+    .auth-bar .auth-status {
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+    }
+    .auth-bar .auth-status.anon {
+      border-color: rgba(244, 236, 216, 0.28);
+      color: rgba(244, 236, 216, 0.55);
+    }
+    .auth-bar .auth-status.logged-in {
+      border-color: var(--jade);
+      color: var(--jade);
+    }
+    .auth-bar .auth-status.error {
+      border-color: var(--cinnabar);
+      color: var(--cinnabar);
+    }
     }
 
     button,
@@ -805,7 +850,13 @@
     <p class="intro">
       使用 Cesium 1.108 + 天地图 Cesium 扩展加载影像、国界、地形、三维地名、本工程导出的 3D Tiles、DEM 与 GGER 空域网格；默认飞行至连云港花果山景区。
     </p>
-    <div class="actions" aria-label="相机操作">
+    <div class="auth-bar" id="authBar" aria-label="认证登录">
+      <input type="text" id="authUsername" placeholder="管理员用户名" autocomplete="username" />
+      <input type="password" id="authPassword" placeholder="密码" autocomplete="current-password" />
+      <button class="primary" type="button" id="authLoginBtn">登录</button>
+      <button type="button" id="authLogoutBtn" style="display:none">登出</button>
+      <span class="auth-status anon" id="authStatus">未登录</span>
+    </div>
       <button class="primary" type="button" data-action="huaguoshan">飞到花果山</button>
       <button type="button" data-action="tileset">查看 3D Tiles</button>
       <button type="button" data-action="dem">查看 DEM</button>
@@ -968,12 +1019,11 @@
       var subdomains = ['0', '1', '2', '3', '4', '5', '6', '7'];
       var localTilesetUrl = '../exports/citydb-3dtiler/huaguoshan_3dtiles/tileset.json';
       var demTilesetUrl = '../exports/terrain/huaguoshan_dem_3dtiles/tileset.json';
-      var citydbFeatureRpcUrl = 'http://10.1.109.151:13000/rpc/get_citydb_feature_properties';
-      var citydbFeatureGridRpcUrl = 'http://10.1.109.151:13000/rpc/get_citydb_feature_gger_grids';
-      var flightObstaclesRpcUrl = 'http://10.1.109.151:13000/rpc/list_flight_obstacles_gger';
-      var flightObstaclesLodRpcUrl = 'http://10.1.109.151:13000/rpc/list_flight_obstacles_gger_lod';
-      var postgrestBaseUrl = 'http://10.1.109.151:13000';
-      var airspaceProfile = 'api';
+      var postgrestBaseUrl = '/postgrest';
+      var citydbFeatureRpcUrl = postgrestBaseUrl + '/rpc/get_citydb_feature_properties';
+      var citydbFeatureGridRpcUrl = postgrestBaseUrl + '/rpc/get_citydb_feature_gger_grids';
+      var flightObstaclesRpcUrl = postgrestBaseUrl + '/rpc/list_flight_obstacles_gger';
+      var flightObstaclesLodRpcUrl = postgrestBaseUrl + '/rpc/list_flight_obstacles_gger_lod';
       var postgrestJwtStorageKey = 'postgrest.jwt';
       var airspaceTableByKind = {
         no_fly_zone: 'no_fly_zone',
@@ -1285,6 +1335,81 @@
 
       function airspaceTable(kind) {
         return airspaceTableByKind[kind] || airspaceTableByKind.no_fly_zone;
+      }
+
+      var authCheckIntervalSeconds = 300;
+      function updateAuthUI() {
+        var jwt = window.localStorage ? window.localStorage.getItem(postgrestJwtStorageKey) : null;
+        var loginBtn = document.getElementById('authLoginBtn');
+        var logoutBtn = document.getElementById('authLogoutBtn');
+        var statusEl = document.getElementById('authStatus');
+        var userInput = document.getElementById('authUsername');
+        var passInput = document.getElementById('authPassword');
+
+        if (jwt) {
+          if (loginBtn) loginBtn.style.display = 'none';
+          if (logoutBtn) logoutBtn.style.display = '';
+          if (statusEl) { statusEl.textContent = '已登录'; statusEl.className = 'auth-status logged-in'; }
+          if (userInput) userInput.value = '';
+          if (passInput) passInput.value = '';
+        } else {
+          if (loginBtn) loginBtn.style.display = '';
+          if (logoutBtn) logoutBtn.style.display = 'none';
+          if (statusEl) { statusEl.textContent = '未登录'; statusEl.className = 'auth-status anon'; }
+        }
+      }
+
+      function authenticate(username, password) {
+        return fetch('/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: username, password: password })
+        }).then(function (response) {
+          if (!response.ok) {
+            return response.json().then(function (body) {
+              throw new Error(body.detail || '登录失败');
+            });
+          }
+          return response.json();
+        }).then(function (payload) {
+          if (window.localStorage) {
+            window.localStorage.setItem(postgrestJwtStorageKey, payload.access_token);
+          }
+          updateAuthUI();
+          log('认证成功 — 已登录为 ' + payload.user.username + ' (role=' + payload.user.role + ')');
+          return payload;
+        });
+      }
+
+      function logout() {
+        if (window.localStorage) {
+          window.localStorage.removeItem(postgrestJwtStorageKey);
+        }
+        updateAuthUI();
+        log('已登出');
+      }
+
+      function checkAuthStatus() {
+        var jwt = window.localStorage ? window.localStorage.getItem(postgrestJwtStorageKey) : null;
+        if (!jwt) {
+          updateAuthUI();
+          return;
+        }
+        return fetch('/auth/me', {
+          headers: { 'Authorization': 'Bearer ' + jwt }
+        }).then(function (response) {
+          if (!response.ok) {
+            if (window.localStorage) {
+              window.localStorage.removeItem(postgrestJwtStorageKey);
+            }
+            updateAuthUI();
+            log('令牌已过期，请重新登录');
+          } else {
+            updateAuthUI();
+          }
+        }).catch(function () {
+          updateAuthUI();
+        });
       }
 
       function postgrestAuthHeaders() {
@@ -2551,6 +2676,50 @@
         flyToHuaguoshan();
         log('天地图影像、国界、三维地形、三维地名、本地 3D Tiles 与 DEM 网格正在初始化。右键/滚轮缩放，中键或 Ctrl+拖拽倾斜视角。');
       }
+
+      // ── Auth init ───────────────────────────────────────────────
+
+      function initAuth() {
+        var loginBtn = document.getElementById('authLoginBtn');
+        var logoutBtn = document.getElementById('authLogoutBtn');
+        var usernameInput = document.getElementById('authUsername');
+        var passwordInput = document.getElementById('authPassword');
+
+        if (loginBtn) {
+          loginBtn.addEventListener('click', function () {
+            var username = usernameInput ? usernameInput.value.trim() : '';
+            var password = passwordInput ? passwordInput.value : '';
+            if (!username || !password) {
+              log('请输入用户名和密码');
+              return;
+            }
+            authenticate(username, password).catch(function (error) {
+              log('登录失败：' + error.message);
+              var statusEl = document.getElementById('authStatus');
+              if (statusEl) { statusEl.textContent = '登录失败'; statusEl.className = 'auth-status error'; }
+            });
+          });
+        }
+
+        if (logoutBtn) {
+          logoutBtn.addEventListener('click', logout);
+        }
+
+        // Allow Enter key on password field to trigger login.
+        if (passwordInput) {
+          passwordInput.addEventListener('keydown', function (event) {
+            if (event.key === 'Enter' && loginBtn) {
+              loginBtn.click();
+            }
+          });
+        }
+
+        // Verify stored token on page load.
+        checkAuthStatus();
+      }
+
+      // Call auth init after the main init.
+      initAuth();
 
       window.addEventListener('error', function (event) {
         log('运行异常：' + event.message);
