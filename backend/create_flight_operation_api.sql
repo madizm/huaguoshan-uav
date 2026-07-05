@@ -85,7 +85,7 @@ create table if not exists flight_operation.execution_route (
   external_source text,
   external_id text,
   external_raw_payload jsonb,
-  platform_path_planning_result_id bigint,
+  platform_path_planning_result_id bigint references flight_path.plan_result(id) on delete restrict,
   platform_validated boolean not null default false,
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
@@ -136,6 +136,10 @@ comment on column flight_operation.execution_route.route_geometry is
   'Auxiliary GeoJSON geometry for map preview or grid-code conversion input; not the primary business expression.';
 comment on column flight_operation.execution_route.platform_validated is
   'False for third-party and manual execution routes; such routes are displayed as not platform reviewed for obstacle, compliance, or flyability.';
+
+create index if not exists flight_operation_execution_route_platform_result_idx
+  on flight_operation.execution_route(platform_path_planning_result_id)
+  where platform_path_planning_result_id is not null;
 
 create unique index if not exists flight_operation_execution_route_plan_active_uniq
   on flight_operation.execution_route(flight_plan_id)
@@ -664,6 +668,76 @@ begin
 end;
 $$;
 
+create or replace function api.select_platform_path_planning_execution_route(
+  p_flight_plan_id bigint default null,
+  p_platform_path_planning_result_id bigint default null,
+  p_route_grid_codes jsonb default null,
+  p_metadata jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = flight_operation, flight_path, public, pg_temp
+as $$
+declare
+  v_result flight_path.plan_result;
+  v_route flight_operation.execution_route;
+  v_route_geometry jsonb;
+begin
+  perform flight_operation.require_admin();
+
+  if p_flight_plan_id is null then
+    raise exception 'flight_plan_id is required for execution routes';
+  end if;
+  if p_platform_path_planning_result_id is null then
+    raise exception 'platform_path_planning_result_id is required for platform path planning execution routes';
+  end if;
+  if p_route_grid_codes is null then
+    raise exception 'non-empty GGER route_grid_codes array is required';
+  end if;
+  if jsonb_typeof(p_route_grid_codes) <> 'array' or jsonb_array_length(p_route_grid_codes) = 0 then
+    raise exception 'non-empty GGER route_grid_codes array is required';
+  end if;
+
+  select * into v_result
+  from flight_path.plan_result
+  where id = p_platform_path_planning_result_id;
+
+  if not found then
+    raise exception 'platform path planning result % does not exist', p_platform_path_planning_result_id;
+  end if;
+  if v_result.result_status <> 'success' then
+    raise exception 'platform path planning result % is not successful', p_platform_path_planning_result_id;
+  end if;
+
+  v_route_geometry := case
+    when coalesce(v_result.smooth_route_geom, v_result.route_geom) is null then null
+    else ST_AsGeoJSON(coalesce(v_result.smooth_route_geom, v_result.route_geom))::jsonb
+  end;
+
+  update flight_operation.execution_route
+  set is_active = false
+  where flight_plan_id = p_flight_plan_id
+    and is_active;
+
+  insert into flight_operation.execution_route (
+    flight_plan_id, source, is_active, route_geometry, route_grid_codes,
+    platform_path_planning_result_id, platform_validated, metadata
+  ) values (
+    p_flight_plan_id, 'platform_path_planning_result', true, v_route_geometry, p_route_grid_codes,
+    p_platform_path_planning_result_id, true, coalesce(p_metadata, '{}'::jsonb)
+  ) returning * into v_route;
+
+  update flight_operation.flight_plan
+  set active_execution_route_id = v_route.id,
+      route_preview_geometry = v_route_geometry,
+      route_preview_source = 'platform'
+  where id = p_flight_plan_id;
+
+  return flight_operation.execution_route_api_json(v_route);
+end;
+$$;
+
 revoke all on schema flight_operation from public;
 grant usage on schema flight_operation to admin;
 grant select, insert, update, delete, truncate, references, trigger
@@ -675,10 +749,12 @@ revoke all on function api.get_today_flight_operation_dashboard(timestamptz) fro
 revoke all on function api.import_approval_reported_flight(text, text, text, text, timestamptz, timestamptz, text, jsonb, jsonb, text, integer, jsonb) from public, anonymous;
 revoke all on function api.create_third_party_execution_route(bigint, text, text, jsonb, jsonb, jsonb, jsonb) from public, anonymous;
 revoke all on function api.create_manual_execution_route(bigint, jsonb, jsonb, jsonb) from public, anonymous;
+revoke all on function api.select_platform_path_planning_execution_route(bigint, bigint, jsonb, jsonb) from public, anonymous;
 grant execute on function api.get_today_flight_operation_dashboard(timestamptz) to admin;
 grant execute on function api.import_approval_reported_flight(text, text, text, text, timestamptz, timestamptz, text, jsonb, jsonb, text, integer, jsonb) to admin;
 grant execute on function api.create_third_party_execution_route(bigint, text, text, jsonb, jsonb, jsonb, jsonb) to admin;
 grant execute on function api.create_manual_execution_route(bigint, jsonb, jsonb, jsonb) to admin;
+grant execute on function api.select_platform_path_planning_execution_route(bigint, bigint, jsonb, jsonb) to admin;
 
 alter default privileges for role postgres in schema flight_operation
   grant select, insert, update, delete, truncate, references, trigger on tables to admin;

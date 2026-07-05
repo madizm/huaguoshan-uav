@@ -64,7 +64,7 @@ create table if not exists flight_path.plan_point (
 
 create table if not exists flight_path.plan_result (
   id bigserial primary key,
-  plan_id bigint not null references flight_path.plan(id) on delete cascade,
+  plan_id bigint not null references flight_path.plan(id) on delete restrict,
   result_status text not null,
   detail_level integer not null,
   planning_time timestamptz not null,
@@ -90,6 +90,30 @@ alter table flight_path.plan_result
   alter column obstacle_field set default 'grids',
   alter column route_geom type geometry using route_geom::geometry,
   alter column smooth_route_geom type geometry using smooth_route_geom::geometry;
+
+do $$
+declare
+  v_plan_result_fk_name text;
+begin
+  select c.conname into v_plan_result_fk_name
+  from pg_constraint c
+  join pg_attribute a
+    on a.attrelid = c.conrelid
+   and a.attnum = any(c.conkey)
+  where c.conrelid = 'flight_path.plan_result'::regclass
+    and c.contype = 'f'
+    and a.attname = 'plan_id'
+  limit 1;
+
+  if v_plan_result_fk_name is not null then
+    execute format('alter table flight_path.plan_result drop constraint %I', v_plan_result_fk_name);
+  end if;
+
+  alter table flight_path.plan_result
+    add constraint flight_path_plan_result_plan_fk
+    foreign key (plan_id) references flight_path.plan(id) on delete restrict;
+end;
+$$;
 
 do $$
 begin
@@ -787,6 +811,10 @@ security definer
 set search_path = flight_path, public, pg_temp
 as $$
 begin
+  if exists (select 1 from flight_path.plan_result where plan_id = p_plan_id) then
+    raise exception 'path planning results exist; archive the path planning scheme instead of deleting it';
+  end if;
+
   delete from flight_path.plan
   where id = p_plan_id;
 

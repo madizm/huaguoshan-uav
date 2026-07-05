@@ -44,6 +44,7 @@ class FlightOperationSchemaContractTests(unittest.TestCase):
         self.assertIn("source in ('platform_path_planning_result', 'third_party', 'manual')", self.sql)
         self.assertIn("route_grid_codes jsonb not null", self.sql)
         self.assertIn("jsonb_array_length(route_grid_codes) > 0", self.sql)
+        self.assertIn("platform_path_planning_result_id bigint references flight_path.plan_result(id) on delete restrict", self.sql)
         self.assertIn("platform_validated boolean not null default false", self.sql)
         self.assertIn("external_source is not null", self.sql)
         self.assertIn("external_id is not null", self.sql)
@@ -54,8 +55,12 @@ class FlightOperationSchemaContractTests(unittest.TestCase):
     def test_execution_route_rpcs_preserve_immutable_gger_evidence(self):
         self.assertIn("create or replace function api.create_third_party_execution_route", self.sql)
         self.assertIn("create or replace function api.create_manual_execution_route", self.sql)
+        self.assertIn("create or replace function api.select_platform_path_planning_execution_route", self.sql)
         self.assertIn("p_route_grid_codes jsonb", self.sql)
         self.assertIn("if jsonb_typeof(p_route_grid_codes) <> 'array' or jsonb_array_length(p_route_grid_codes) = 0 then", self.sql)
+        self.assertIn("p_platform_path_planning_result_id", self.sql)
+        self.assertIn("result_status <> 'success'", self.sql)
+        self.assertIn("'platform_path_planning_result', true", self.sql)
         self.assertIn("active_execution_route_id = v_route.id", self.sql)
         self.assertNotIn("update flight_operation.execution_route\n  set route_grid_codes", self.sql)
 
@@ -75,6 +80,7 @@ class FlightOperationSchemaContractTests(unittest.TestCase):
             self.assertIn(name, self.sql)
 
         self.assertIn("flight_plan_id bigint not null references flight_operation.flight_plan(id) on delete restrict", self.sql)
+        self.assertNotIn("flight_path_plan_id", self.sql)
 
     def test_today_dashboard_rpc_encodes_business_window_and_statistics(self):
         self.assertIn("create or replace function api.get_today_flight_operation_dashboard", self.sql)
@@ -125,6 +131,7 @@ class FlightOperationAuthorizationContractTests(unittest.TestCase):
         self.assertIn("grant execute on function api.import_approval_reported_flight", self.sql)
         self.assertIn("grant execute on function api.create_third_party_execution_route", self.sql)
         self.assertIn("grant execute on function api.create_manual_execution_route", self.sql)
+        self.assertIn("grant execute on function api.select_platform_path_planning_execution_route", self.sql)
         self.assertNotRegex(self.sql, re.compile(r"grant execute .* to anonymous"))
 
     def test_role_migration_includes_flight_operation_business_schema(self):

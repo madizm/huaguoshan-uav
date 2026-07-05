@@ -792,7 +792,7 @@ comment on function api.update_flight_path_plan(bigint, text, text, integer, dou
 comment on function api.list_flight_path_plans(text, text, integer, integer) is '分页查询路径规划方案/工作区。参数：p_keyword 名称或说明关键字，p_status 状态过滤，p_limit/p_offset 分页。';
 comment on function api.get_flight_path_plan(bigint) is '查询单个路径规划方案/工作区详情，包含控制点和最新路径规划结果。参数：p_plan_id。';
 comment on function api.archive_flight_path_plan(bigint) is '归档路径规划方案/工作区，使其不再出现在默认列表中。参数：p_plan_id。';
-comment on function api.delete_flight_path_plan(bigint) is '删除路径规划方案/工作区及其控制点和路径规划结果。参数：p_plan_id。';
+comment on function api.delete_flight_path_plan(bigint) is '删除尚无路径规划结果的路径规划方案/工作区；有路径规划结果时应归档而不是物理删除。参数：p_plan_id。';
 comment on function api.compute_flight_path_plan(bigint) is '执行路径规划方案计算并保存一次路径规划结果，返回 result_id；结果不是实际飞行事实。参数：p_plan_id。';
 comment on function api.get_latest_flight_path_result(bigint) is '查询路径规划方案最新一次路径规划结果。参数：p_plan_id。';
 comment on function api.search_flight_path_results_by_time(timestamp, timestamp, integer, integer) is '按轨迹时间范围分页查询成功的路径规划结果。参数：p_start_time、p_end_time、p_limit、p_offset。';
