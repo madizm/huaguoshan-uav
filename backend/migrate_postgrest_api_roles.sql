@@ -86,6 +86,18 @@ stable
 as $$
   select coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role', current_user);
 $$;
+create or replace function flight_path.current_actor_name()
+returns text
+language sql
+stable
+as $$
+  select coalesce(
+    nullif(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'username', ''),
+    nullif(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub', ''),
+    current_user
+  );
+$$;
+
 
 create or replace function flight_path.require_planning_actor()
 returns text
@@ -298,6 +310,7 @@ $$;
 
 grant execute on function flight_path.current_actor_id() to admin;
 grant execute on function flight_path.current_actor_role() to admin;
+grant execute on function flight_path.current_actor_name() to admin;
 grant execute on function flight_path.require_planning_actor() to admin;
 grant execute on function flight_path.assert_plan_access(bigint) to admin;
 grant execute on function flight_path.assert_plan_ownership(bigint, text) to admin;
@@ -418,6 +431,79 @@ as $$
   );
 $$;
 
+drop function if exists api.create_flight_path_plan(text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb, text);
+drop function if exists citydb.create_flight_path_plan(text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb, text);
+drop function if exists flight_path.create_plan(text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb, text);
+
+create or replace function flight_path.create_plan(
+  p_name text,
+  p_description text default null,
+  p_detail_level integer default 19,
+  p_cruise_height_m double precision default null,
+  p_height_datum text default 'AMSL',
+  p_planning_time timestamptz default now(),
+  p_points jsonb default '[]'::jsonb,
+  p_has_below boolean default false,
+  p_safety_buffer_m double precision default 0,
+  p_metadata jsonb default '{}'::jsonb
+)
+returns bigint
+language plpgsql
+security definer
+set search_path = flight_path, public, pg_temp
+as $$
+declare
+  v_plan_id bigint;
+  v_height_datum text := upper(coalesce(p_height_datum, 'AMSL'));
+begin
+  perform flight_path.require_planning_actor();
+
+  if nullif(trim(p_name), '') is null then
+    raise exception 'p_name is required';
+  end if;
+
+  if v_height_datum not in ('AMSL', 'AGL', 'ELLIPSOID') then
+    raise exception 'invalid p_height_datum: %', p_height_datum;
+  end if;
+
+  insert into flight_path.plan(
+    name,
+    description,
+    status,
+    detail_level,
+    cruise_height_m,
+    height_datum,
+    planning_time,
+    has_below,
+    safety_buffer_m,
+    metadata,
+    created_by
+  ) values (
+    trim(p_name),
+    p_description,
+    'draft',
+    coalesce(p_detail_level, 19),
+    p_cruise_height_m,
+    v_height_datum,
+    coalesce(p_planning_time, now()),
+    coalesce(p_has_below, false),
+    coalesce(p_safety_buffer_m, 0),
+    coalesce(p_metadata, '{}'::jsonb),
+    flight_path.current_actor_name()
+  ) returning id into v_plan_id;
+
+  perform flight_path.replace_plan_points(v_plan_id, p_points);
+
+  update flight_path.plan
+  set status = 'planned'
+  where id = v_plan_id;
+
+  return v_plan_id;
+end;
+$$;
+
+grant execute on function flight_path.create_plan(text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb) to admin;
+
 create or replace function api.create_flight_path_plan(
   p_name text,
   p_description text default null,
@@ -428,8 +514,7 @@ create or replace function api.create_flight_path_plan(
   p_points jsonb default '[]'::jsonb,
   p_has_below boolean default false,
   p_safety_buffer_m double precision default 0,
-  p_metadata jsonb default '{}'::jsonb,
-  p_created_by text default null
+  p_metadata jsonb default '{}'::jsonb
 )
 returns bigint
 language sql
@@ -446,8 +531,7 @@ as $$
     p_points,
     p_has_below,
     p_safety_buffer_m,
-    p_metadata,
-    p_created_by
+    p_metadata
   );
 $$;
 

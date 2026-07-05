@@ -431,6 +431,18 @@ begin
 end;
 $$;
 
+create or replace function flight_path.current_actor_name()
+returns text
+language sql
+stable
+as $$
+  select coalesce(
+    nullif(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'username', ''),
+    nullif(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub', ''),
+    current_user
+  );
+$$;
+
 create or replace function flight_path.replace_plan_points(
   p_plan_id bigint,
   p_points jsonb
@@ -545,6 +557,9 @@ begin
 end;
 $$;
 
+drop function if exists citydb.create_flight_path_plan(text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb, text);
+drop function if exists flight_path.create_plan(text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb, text);
+
 create or replace function flight_path.create_plan(
   p_name text,
   p_description text default null,
@@ -555,8 +570,7 @@ create or replace function flight_path.create_plan(
   p_points jsonb default '[]'::jsonb,
   p_has_below boolean default false,
   p_safety_buffer_m double precision default 0,
-  p_metadata jsonb default '{}'::jsonb,
-  p_created_by text default null
+  p_metadata jsonb default '{}'::jsonb
 )
 returns bigint
 language plpgsql
@@ -598,7 +612,7 @@ begin
     coalesce(p_has_below, false),
     coalesce(p_safety_buffer_m, 0),
     coalesce(p_metadata, '{}'::jsonb),
-    p_created_by
+    flight_path.current_actor_name()
   ) returning id into v_plan_id;
 
   perform flight_path.replace_plan_points(v_plan_id, p_points);
@@ -1217,8 +1231,7 @@ create or replace function citydb.create_flight_path_plan(
   p_points jsonb default '[]'::jsonb,
   p_has_below boolean default false,
   p_safety_buffer_m double precision default 0,
-  p_metadata jsonb default '{}'::jsonb,
-  p_created_by text default null
+  p_metadata jsonb default '{}'::jsonb
 )
 returns bigint
 language sql
@@ -1227,7 +1240,7 @@ set search_path = flight_path, public, pg_temp
 as $$
   select flight_path.create_plan(
     p_name, p_description, p_detail_level, p_cruise_height_m, p_height_datum,
-    p_planning_time, p_points, p_has_below, p_safety_buffer_m, p_metadata, p_created_by
+    p_planning_time, p_points, p_has_below, p_safety_buffer_m, p_metadata
   );
 $$;
 
@@ -1359,7 +1372,7 @@ grant select, insert, update, delete on table flight_path.plan_result to admin;
 grant usage, select on all sequences in schema flight_path to admin;
 
 grant execute on all functions in schema flight_path to admin;
-grant execute on function citydb.create_flight_path_plan(text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb, text) to admin;
+grant execute on function citydb.create_flight_path_plan(text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb) to admin;
 grant execute on function citydb.update_flight_path_plan(bigint, text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb) to admin;
 grant execute on function citydb.list_flight_path_plans(text, text, integer, integer) to admin;
 grant execute on function citydb.get_flight_path_plan(bigint) to admin;
@@ -1371,7 +1384,7 @@ grant execute on function citydb.search_flight_path_results_by_time(timestamp, t
 grant execute on function citydb.search_flight_path_results_by_bbox(double precision, double precision, double precision, double precision, timestamp, timestamp, integer, integer) to admin;
 
 comment on schema flight_path is 'Flight path planning, control points, planned route geometry, and iBEST-DB trajectory results.';
-comment on function citydb.create_flight_path_plan(text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb, text)
+comment on function citydb.create_flight_path_plan(text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb)
 is 'Create a persisted flight path plan with start/end/waypoint JSON control points.';
 comment on function citydb.compute_flight_path_plan(bigint)
 is 'Compute a flight path through all control points using ST_FindGridsPath, then store geometry and trajectory results.';
