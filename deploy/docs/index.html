@@ -410,8 +410,8 @@
               spec: { content: postgrestSpec },
               authentication: token ? {
                 preferredSecurityScheme: 'bearerAuth',
-                http: {
-                  bearer: {
+                securitySchemes: {
+                  bearerAuth: {
                     token: token
                   }
                 }
