@@ -177,6 +177,14 @@ class AuthServiceHttpTests(unittest.TestCase):
         self.assertEqual(repo.accounts["admin"].failed_login_count, 0)
         self.assertIsNone(repo.accounts["admin"].locked_until)
 
+    def test_decode_tolerates_token_issued_one_second_in_future(self):
+        settings = auth_service.AuthSettings(jwt_secret="test-secret-with-at-least-32-bytes", token_ttl_seconds=300)
+        token = auth_service.sign_access_token(account(), settings=settings, now=clock() + timedelta(seconds=1))
+
+        claims = auth_service.decode_access_token(token, settings, now=clock())
+
+        self.assertEqual(claims["username"], "admin")
+
     def test_me_rejects_missing_invalid_and_expired_tokens(self):
         repo = FakeUserAccountRepository()
         client = make_client(repo)

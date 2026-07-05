@@ -212,7 +212,7 @@ def decode_access_token(token: str, settings: AuthSettings, *, now: datetime | N
             token,
             settings.jwt_secret,
             algorithms=["HS256"],
-            options={"verify_exp": False, "require": ["sub", "role", "username", "iat", "exp"]},
+            options={"verify_exp": False, "verify_iat": False, "require": ["sub", "role", "username", "iat", "exp"]},
         )
     except jwt.PyJWTError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid bearer token") from exc
