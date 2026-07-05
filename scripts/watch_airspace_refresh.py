@@ -47,7 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lock-key", type=int, default=DEFAULT_ADVISORY_LOCK_KEY, help="PostgreSQL advisory lock key used to avoid multiple workers refreshing concurrently.")
     parser.add_argument("--refresh-script", default=str(Path(__file__).with_name("refresh_citydb_obstacle_grids.py")), help="Path to refresh_citydb_obstacle_grids.py.")
     parser.add_argument("--airspace-mode", choices=["bbox", "polygon-prism"], default="polygon-prism", help="Airspace prism generation mode passed to the refresh script.")
-    parser.add_argument("--grant-role", default="web_anon", help="Optional role passed to --grant-role. Use empty string to omit.")
+    parser.add_argument("--grant-role", default="admin", help="Optional role passed to --grant-role. Use empty string to omit.")
     parser.add_argument("--python", default=sys.executable, help="Python executable used to invoke the refresh script.")
     parser.add_argument("--dry-run-refresh", action="store_true", help="Listen and debounce, but print the refresh command instead of executing it.")
     parser.add_argument("--once", action="store_true", help="Exit after the first refresh attempt. Useful for supervised tests.")

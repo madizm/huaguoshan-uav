@@ -56,7 +56,7 @@ $$;
 comment on function public.list_flight_obstacles_gger(text, integer, boolean)
 is 'List multi-source flight obstacle geomgrids as GGER text and optional ST_WithBox bbox text. Returns no BGC fields.';
 
-grant execute on function public.list_flight_obstacles_gger(text, integer, boolean) to web_anon;
+grant execute on function public.list_flight_obstacles_gger(text, integer, boolean) to admin;
 
 -- PostgREST exposes the first configured schema (`citydb`) as the default RPC
 -- schema in this project. Keep implementation in public and expose a citydb
@@ -78,10 +78,10 @@ $$;
 comment on function citydb.list_flight_obstacles_gger(text, integer, boolean)
 is 'PostgREST wrapper for public.list_flight_obstacles_gger(text, integer, boolean).';
 
-grant usage on schema citydb_grid to web_anon;
-grant select on citydb_grid.flight_obstacles to web_anon;
-grant select on citydb_grid.flight_obstacles_codes_view to web_anon;
-grant execute on function citydb.list_flight_obstacles_gger(text, integer, boolean) to web_anon;
+grant usage on schema citydb_grid to admin;
+grant select on citydb_grid.flight_obstacles to admin;
+grant select on citydb_grid.flight_obstacles_codes_view to admin;
+grant execute on function citydb.list_flight_obstacles_gger(text, integer, boolean) to admin;
 
 notify pgrst, 'reload schema';
 

@@ -108,7 +108,7 @@ $$;
 comment on function public.get_citydb_feature_gger_grids(text)
 is 'Fetch GGER geomgrids and ST_WithBox bbox text for a CityDB feature identifier. Returns no BGC fields.';
 
-grant execute on function public.get_citydb_feature_gger_grids(text) to web_anon;
+grant execute on function public.get_citydb_feature_gger_grids(text) to admin;
 
 -- PostgREST uses the first exposed schema in pgrest.conf (`citydb`) as the
 -- default RPC schema. Keep the main implementation in `public`, and expose this
@@ -127,10 +127,10 @@ $$;
 comment on function citydb.get_citydb_feature_gger_grids(text)
 is 'PostgREST wrapper for public.get_citydb_feature_gger_grids(text).';
 
-grant usage on schema citydb_grid to web_anon;
-grant select on citydb_grid.flight_obstacles to web_anon;
-grant select on citydb_grid.flight_obstacles_codes_view to web_anon;
-grant execute on function citydb.get_citydb_feature_gger_grids(text) to web_anon;
+grant usage on schema citydb_grid to admin;
+grant select on citydb_grid.flight_obstacles to admin;
+grant select on citydb_grid.flight_obstacles_codes_view to admin;
+grant execute on function citydb.get_citydb_feature_gger_grids(text) to admin;
 
 notify pgrst, 'reload schema';
 

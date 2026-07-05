@@ -140,7 +140,7 @@ $$;
 comment on function public.get_citydb_feature_properties(text)
 is 'Fetch a CityDB feature and nested citydb.property rows for a picked 3D Tiles metadata identifier.';
 
-grant execute on function public.get_citydb_feature_properties(text) to web_anon;
+grant execute on function public.get_citydb_feature_properties(text) to admin;
 
 -- PostgREST uses the first exposed schema in pgrest.conf (`citydb`) as the
 -- default RPC schema. Keep the main implementation in `public`, and expose this
@@ -159,7 +159,7 @@ $$;
 comment on function citydb.get_citydb_feature_properties(text)
 is 'PostgREST wrapper for public.get_citydb_feature_properties(text).';
 
-grant execute on function citydb.get_citydb_feature_properties(text) to web_anon;
+grant execute on function citydb.get_citydb_feature_properties(text) to admin;
 
 notify pgrst, 'reload schema';
 

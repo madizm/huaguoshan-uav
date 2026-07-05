@@ -178,7 +178,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--grant-role",
         default=None,
-        help="Optional database role to grant USAGE/SELECT on generated schema and views, e.g. web_anon.",
+        help="Optional database role to grant USAGE/SELECT on generated schema and views, e.g. admin.",
     )
     return parser.parse_args()
 

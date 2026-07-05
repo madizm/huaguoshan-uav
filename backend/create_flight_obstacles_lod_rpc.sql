@@ -91,7 +91,7 @@ $$;
 comment on function public.list_flight_obstacles_gger_lod(text, integer, double precision, double precision, double precision, double precision, double precision, double precision, integer, boolean)
 is 'List display-only terrain flight obstacle LOD geomgrids as GGER text and optional ST_WithBox bbox text. Bbox-filtered results can be prioritized by view center. Returns no BGC fields.';
 
-grant execute on function public.list_flight_obstacles_gger_lod(text, integer, double precision, double precision, double precision, double precision, double precision, double precision, integer, boolean) to web_anon;
+grant execute on function public.list_flight_obstacles_gger_lod(text, integer, double precision, double precision, double precision, double precision, double precision, double precision, integer, boolean) to admin;
 
 -- PostgREST exposes the first configured schema (`citydb`) as the default RPC
 -- schema in this project. Keep implementation in public and expose a citydb
@@ -120,9 +120,9 @@ $$;
 comment on function citydb.list_flight_obstacles_gger_lod(text, integer, double precision, double precision, double precision, double precision, double precision, double precision, integer, boolean)
 is 'PostgREST wrapper for public.list_flight_obstacles_gger_lod(text, integer, double precision, double precision, double precision, double precision, double precision, double precision, integer, boolean).';
 
-grant usage on schema citydb_grid to web_anon;
-grant select on citydb_grid.obstacles_terrain_lod to web_anon;
-grant execute on function citydb.list_flight_obstacles_gger_lod(text, integer, double precision, double precision, double precision, double precision, double precision, double precision, integer, boolean) to web_anon;
+grant usage on schema citydb_grid to admin;
+grant select on citydb_grid.obstacles_terrain_lod to admin;
+grant execute on function citydb.list_flight_obstacles_gger_lod(text, integer, double precision, double precision, double precision, double precision, double precision, double precision, integer, boolean) to admin;
 
 notify pgrst, 'reload schema';
 

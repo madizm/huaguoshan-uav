@@ -23,7 +23,7 @@
 --   airspace obstacle-grid refresh command outside the user write transaction.
 --
 -- SECURITY NOTE:
--- This grants web_anon write access for P1 prototyping because permission
+-- This grants admin write access for P1 prototyping because permission
 -- control is explicitly deferred. Do not use these grants as-is in production.
 
 begin;
@@ -100,12 +100,12 @@ create index if not exists no_fly_zone_height_datum_idx
 create index if not exists temp_control_zone_height_datum_idx
   on airspace.temp_control_zone (height_datum);
 
-grant usage on schema airspace to web_anon;
+grant usage on schema airspace to admin;
 
-grant select, insert, update, delete on table airspace.no_fly_zone to web_anon;
-grant select, insert, update, delete on table airspace.temp_control_zone to web_anon;
+grant select, insert, update, delete on table airspace.no_fly_zone to admin;
+grant select, insert, update, delete on table airspace.temp_control_zone to admin;
 
-grant usage, select on all sequences in schema airspace to web_anon;
+grant usage, select on all sequences in schema airspace to admin;
 
 create or replace function airspace.notify_airspace_changed()
 returns trigger

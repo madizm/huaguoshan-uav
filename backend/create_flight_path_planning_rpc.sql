@@ -25,7 +25,7 @@ create extension if not exists best_geotrack cascade;
 
 create schema if not exists flight_path;
 
-grant usage on schema flight_path to web_anon;
+grant usage on schema flight_path to admin;
 
 create table if not exists flight_path.plan (
   id bigserial primary key,
@@ -1353,22 +1353,22 @@ as $$
   );
 $$;
 
-grant select, insert, update, delete on table flight_path.plan to web_anon;
-grant select, insert, update, delete on table flight_path.plan_point to web_anon;
-grant select, insert, update, delete on table flight_path.plan_result to web_anon;
-grant usage, select on all sequences in schema flight_path to web_anon;
+grant select, insert, update, delete on table flight_path.plan to admin;
+grant select, insert, update, delete on table flight_path.plan_point to admin;
+grant select, insert, update, delete on table flight_path.plan_result to admin;
+grant usage, select on all sequences in schema flight_path to admin;
 
-grant execute on all functions in schema flight_path to web_anon;
-grant execute on function citydb.create_flight_path_plan(text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb, text) to web_anon;
-grant execute on function citydb.update_flight_path_plan(bigint, text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb) to web_anon;
-grant execute on function citydb.list_flight_path_plans(text, text, integer, integer) to web_anon;
-grant execute on function citydb.get_flight_path_plan(bigint) to web_anon;
-grant execute on function citydb.archive_flight_path_plan(bigint) to web_anon;
-grant execute on function citydb.delete_flight_path_plan(bigint) to web_anon;
-grant execute on function citydb.compute_flight_path_plan(bigint) to web_anon;
-grant execute on function citydb.get_latest_flight_path_result(bigint) to web_anon;
-grant execute on function citydb.search_flight_path_results_by_time(timestamp, timestamp, integer, integer) to web_anon;
-grant execute on function citydb.search_flight_path_results_by_bbox(double precision, double precision, double precision, double precision, timestamp, timestamp, integer, integer) to web_anon;
+grant execute on all functions in schema flight_path to admin;
+grant execute on function citydb.create_flight_path_plan(text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb, text) to admin;
+grant execute on function citydb.update_flight_path_plan(bigint, text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb) to admin;
+grant execute on function citydb.list_flight_path_plans(text, text, integer, integer) to admin;
+grant execute on function citydb.get_flight_path_plan(bigint) to admin;
+grant execute on function citydb.archive_flight_path_plan(bigint) to admin;
+grant execute on function citydb.delete_flight_path_plan(bigint) to admin;
+grant execute on function citydb.compute_flight_path_plan(bigint) to admin;
+grant execute on function citydb.get_latest_flight_path_result(bigint) to admin;
+grant execute on function citydb.search_flight_path_results_by_time(timestamp, timestamp, integer, integer) to admin;
+grant execute on function citydb.search_flight_path_results_by_bbox(double precision, double precision, double precision, double precision, timestamp, timestamp, integer, integer) to admin;
 
 comment on schema flight_path is 'Flight path planning, control points, planned route geometry, and iBEST-DB trajectory results.';
 comment on function citydb.create_flight_path_plan(text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb, text)

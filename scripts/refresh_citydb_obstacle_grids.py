@@ -253,7 +253,7 @@ def parse_args() -> argparse.Namespace:
     parser.set_defaults(concurrently=True)
 
     parser.add_argument("--sample-size", type=int, default=DEFAULT_SAMPLE_SIZE, help="Number of sample rows to print.")
-    parser.add_argument("--grant-role", default=None, help="Optional DB role to grant usage/select, e.g. web_anon.")
+    parser.add_argument("--grant-role", default=None, help="Optional DB role to grant usage/select, e.g. admin.")
     parser.add_argument("--skip-pgrst-notify", action="store_true", help="Do not run NOTIFY pgrst, 'reload schema'.")
     return parser.parse_args()
 

@@ -413,7 +413,7 @@
             }).catch(function(error) {
                 console.error('[AirspaceConstraintEditor] Airspace list failed:', error);
                 if ($('zoneList')) $('zoneList').innerHTML = '<div class="feature-error">禁限飞区列表加载失败：' + escapeHtml(error.message) + '</div>';
-                log('禁限飞区列表加载失败；请确认 pgrest.conf 已暴露 airspace schema 且 web_anon 具备表权限。');
+                log('禁限飞区列表加载失败；请确认 pgrest.conf 已暴露 airspace schema 且 admin 具备表权限。');
             }).finally(function() {
                 state.loading = false;
             });

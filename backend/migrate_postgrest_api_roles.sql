@@ -63,6 +63,248 @@ alter default privileges for role postgres in schema citydb, terrain, airspace, 
 alter default privileges for role postgres in schema citydb, terrain, airspace, citydb_grid, flight_path
   grant execute on functions to admin;
 
+-- Flight path authorization compatibility -------------------------------------
+-- Earlier flight-path RPC migrations encoded a two-role planner model inside
+-- `flight_path.*` helper functions (`flight_planner` owns its own plans,
+-- `airspace_admin` sees all plans). This migration intentionally replaces that
+-- model with the single PostgREST business role from ADR-0004: authenticated
+-- JWT requests run as `admin`, and `admin` can manage all flight-path plans.
+-- Keep the actor requirement so anonymous requests still fail inside RPCs even
+-- if a function is accidentally granted later.
+create or replace function flight_path.current_actor_id()
+returns text
+language sql
+stable
+as $$
+  select nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub';
+$$;
+
+create or replace function flight_path.current_actor_role()
+returns text
+language sql
+stable
+as $$
+  select coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role', current_user);
+$$;
+
+create or replace function flight_path.require_planning_actor()
+returns text
+language plpgsql
+stable
+as $$
+declare
+  v_actor text := flight_path.current_actor_id();
+  v_role text := flight_path.current_actor_role();
+begin
+  if v_actor is null or v_actor = '' then
+    raise exception 'flight path planning requires a JWT actor' using errcode = '42501';
+  end if;
+
+  if v_role <> 'admin' then
+    raise exception 'role % cannot manage flight path plans', v_role using errcode = '42501';
+  end if;
+
+  return v_actor;
+end;
+$$;
+
+create or replace function flight_path.assert_plan_access(p_plan_id bigint)
+returns void
+language plpgsql
+stable
+as $$
+begin
+  perform flight_path.require_planning_actor();
+
+  if not exists (select 1 from flight_path.plan where id = p_plan_id) then
+    raise exception 'flight path plan % does not exist', p_plan_id;
+  end if;
+end;
+$$;
+
+create or replace function flight_path.assert_plan_ownership(p_plan_id bigint, p_operation text)
+returns bigint
+language plpgsql
+security definer
+set search_path = flight_path, public, pg_temp
+as $$
+begin
+  perform flight_path.require_planning_actor();
+
+  if not exists (select 1 from flight_path.plan where id = p_plan_id) then
+    raise exception 'flight path plan % does not exist', p_plan_id;
+  end if;
+
+  return p_plan_id;
+end;
+$$;
+
+create or replace function flight_path.list_plans(
+  p_keyword text default null,
+  p_status text default null,
+  p_limit integer default 50,
+  p_offset integer default 0
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = flight_path, public, pg_temp
+as $$
+with actor as (
+  select flight_path.require_planning_actor() as subject
+), filtered as (
+  select p.*
+  from flight_path.plan p, actor a
+  where (p_status is null or p.status = p_status)
+    and p.status <> 'archived'
+    and (
+      p_keyword is null
+      or p.name ilike '%' || p_keyword || '%'
+      or p.description ilike '%' || p_keyword || '%'
+    )
+), counted as (
+  select count(*) as total from filtered
+), items as (
+  select
+    p.id,
+    p.name,
+    p.description,
+    p.status,
+    p.detail_level,
+    p.cruise_height_m,
+    p.height_datum,
+    p.planning_time,
+    p.has_below,
+    p.safety_buffer_m,
+    p.created_by,
+    (select count(*) from flight_path.plan_point pp where pp.plan_id = p.id) as point_count,
+    (select count(*) from flight_path.plan_point pp where pp.plan_id = p.id and pp.point_role = 'waypoint') as waypoint_count,
+    p.last_computed_at,
+    p.created_at,
+    p.updated_at
+  from filtered p
+  order by p.updated_at desc, p.id desc
+  limit greatest(0, least(coalesce(p_limit, 50), 200))
+  offset greatest(0, coalesce(p_offset, 0))
+)
+select jsonb_build_object(
+  'total', (select total from counted),
+  'items', coalesce(jsonb_agg(to_jsonb(items) order by updated_at desc, id desc), '[]'::jsonb)
+)
+from items;
+$$;
+
+create or replace function flight_path.search_results_by_time(
+  p_start_time timestamp,
+  p_end_time timestamp,
+  p_limit integer default 50,
+  p_offset integer default 0
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = flight_path, public, pg_temp
+as $$
+with actor as (
+  select flight_path.require_planning_actor() as subject
+), filtered as (
+  select pr.*
+  from flight_path.plan_result pr
+  join flight_path.plan p on p.id = pr.plan_id
+  cross join actor a
+  where pr.route_traj is not null
+    and pr.result_status = 'success'
+    and pr.route_traj #&# GT_MakeBoxT(p_start_time, p_end_time)
+), counted as (
+  select count(*) as total from filtered
+), items as (
+  select
+    pr.plan_id,
+    pr.id as result_id,
+    pr.result_status,
+    pr.distance_m,
+    pr.duration_s,
+    pr.grid_cell_count,
+    pr.traj_point_count,
+    pr.segment_count,
+    pr.created_at
+  from filtered pr
+  order by pr.created_at desc, pr.id desc
+  limit greatest(0, least(coalesce(p_limit, 50), 200))
+  offset greatest(0, coalesce(p_offset, 0))
+)
+select jsonb_build_object(
+  'total', (select total from counted),
+  'items', coalesce(jsonb_agg(to_jsonb(items) order by created_at desc, result_id desc), '[]'::jsonb)
+)
+from items;
+$$;
+
+create or replace function flight_path.search_results_by_bbox(
+  p_xmin double precision,
+  p_ymin double precision,
+  p_xmax double precision,
+  p_ymax double precision,
+  p_start_time timestamp default '-infinity',
+  p_end_time timestamp default 'infinity',
+  p_limit integer default 50,
+  p_offset integer default 0
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = flight_path, public, pg_temp
+as $$
+with actor as (
+  select flight_path.require_planning_actor() as subject
+), box as (
+  select ST_MakeEnvelope(p_xmin, p_ymin, p_xmax, p_ymax, 4326) as geom
+), filtered as (
+  select pr.*
+  from flight_path.plan_result pr
+  join flight_path.plan p on p.id = pr.plan_id
+  cross join box
+  cross join actor a
+  where pr.route_traj is not null
+    and pr.result_status = 'success'
+    and GT_2DIntersects(pr.route_traj, box.geom, p_start_time, p_end_time)
+), counted as (
+  select count(*) as total from filtered
+), items as (
+  select
+    pr.plan_id,
+    pr.id as result_id,
+    pr.result_status,
+    pr.distance_m,
+    pr.duration_s,
+    pr.grid_cell_count,
+    pr.traj_point_count,
+    pr.segment_count,
+    pr.created_at
+  from filtered pr
+  order by pr.created_at desc, pr.id desc
+  limit greatest(0, least(coalesce(p_limit, 50), 200))
+  offset greatest(0, coalesce(p_offset, 0))
+)
+select jsonb_build_object(
+  'total', (select total from counted),
+  'items', coalesce(jsonb_agg(to_jsonb(items) order by created_at desc, result_id desc), '[]'::jsonb)
+)
+from items;
+$$;
+
+grant execute on function flight_path.current_actor_id() to admin;
+grant execute on function flight_path.current_actor_role() to admin;
+grant execute on function flight_path.require_planning_actor() to admin;
+grant execute on function flight_path.assert_plan_access(bigint) to admin;
+grant execute on function flight_path.assert_plan_ownership(bigint, text) to admin;
+grant execute on function flight_path.list_plans(text, text, integer, integer) to admin;
+grant execute on function flight_path.search_results_by_time(timestamp, timestamp, integer, integer) to admin;
+grant execute on function flight_path.search_results_by_bbox(double precision, double precision, double precision, double precision, timestamp, timestamp, integer, integer) to admin;
+
 -- API views ------------------------------------------------------------------
 -- Simple views over airspace configuration tables are intentionally updatable,
 -- preserving resource-style PostgREST CRUD while keeping PostgREST scoped to api.
@@ -320,8 +562,8 @@ create or replace function api.search_flight_path_results_by_bbox(
   p_ymin double precision,
   p_xmax double precision,
   p_ymax double precision,
-  p_start_time timestamp default null,
-  p_end_time timestamp default null,
+  p_start_time timestamp default '-infinity',
+  p_end_time timestamp default 'infinity',
   p_limit integer default 50,
   p_offset integer default 0
 )
