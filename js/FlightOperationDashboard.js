@@ -134,6 +134,66 @@
         var codes = route && Array.isArray(route.route_grid_codes) ? route.route_grid_codes : [];
         return codes.length ? codes.join('、') : '未提供 GGER 网格码';
     }
+    function parseBboxText(bboxText) {
+        var parts;
+        var minParts;
+        var maxParts;
+        if (!bboxText) return null;
+        parts = String(bboxText).replace(/[()]/g, '').split(',');
+        if (parts.length !== 2) return null;
+        minParts = parts[0].trim().split(/\s+/).map(Number);
+        maxParts = parts[1].trim().split(/\s+/).map(Number);
+        if (minParts.length < 3 || maxParts.length < 3) return null;
+        if (minParts.concat(maxParts).some(function(value) { return !Number.isFinite(value); })) return null;
+        return {
+            minLon: minParts[0], minLat: minParts[1], minHeight: minParts[2],
+            maxLon: maxParts[0], maxLat: maxParts[1], maxHeight: maxParts[2],
+        };
+    }
+
+    function executionRouteGridCells(plan) {
+        var route = activeExecutionRoute(plan);
+        var withBox = route && route.route_grid_with_box;
+        var cells = withBox && Array.isArray(withBox.cells) ? withBox.cells : [];
+        return cells.map(function(cell, index) {
+            var bbox = parseBboxText(cell && cell.bbox);
+            return bbox ? Object.assign({ code: cell.code || '', index: index }, bbox) : null;
+        }).filter(Boolean);
+    }
+
+    function makeEdgeKey(a, b) {
+        var first = a.join(',');
+        var second = b.join(',');
+        return first < second ? first + '|' + second : second + '|' + first;
+    }
+
+    function addBoxEdge(edges, lon1, lat1, h1, lon2, lat2, h2) {
+        var a = [lon1.toFixed(9), lat1.toFixed(9), h1.toFixed(3)];
+        var b = [lon2.toFixed(9), lat2.toFixed(9), h2.toFixed(3)];
+        var key = makeEdgeKey(a, b);
+        if (!edges[key]) edges[key] = { lon1: lon1, lat1: lat1, h1: h1, lon2: lon2, lat2: lat2, h2: h2 };
+    }
+
+    function addBoxEdges(edges, cell) {
+        var west = cell.minLon;
+        var south = cell.minLat;
+        var east = cell.maxLon;
+        var north = cell.maxLat;
+        var bottom = cell.minHeight;
+        var top = cell.maxHeight;
+        addBoxEdge(edges, west, south, bottom, east, south, bottom);
+        addBoxEdge(edges, east, south, bottom, east, north, bottom);
+        addBoxEdge(edges, east, north, bottom, west, north, bottom);
+        addBoxEdge(edges, west, north, bottom, west, south, bottom);
+        addBoxEdge(edges, west, south, top, east, south, top);
+        addBoxEdge(edges, east, south, top, east, north, top);
+        addBoxEdge(edges, east, north, top, west, north, top);
+        addBoxEdge(edges, west, north, top, west, south, top);
+        addBoxEdge(edges, west, south, bottom, west, south, top);
+        addBoxEdge(edges, east, south, bottom, east, south, top);
+        addBoxEdge(edges, east, north, bottom, east, north, top);
+        addBoxEdge(edges, west, north, bottom, west, north, top);
+    }
 
     function renderExecutionRouteDetail(plan) {
         var route = activeExecutionRoute(plan);
@@ -248,6 +308,7 @@
         var rootEl = null;
         var viewer = options.viewer || null;
         var routeEntities = [];
+        var routeGridPrimitive = null;
         var state = {
             data: normalizeDashboardData(options.initialData || fallbackDashboardData()),
             selectedPlanId: null,
@@ -271,6 +332,10 @@
             if (!viewer || !viewer.entities) return;
             routeEntities.forEach(function(entity) { viewer.entities.remove(entity); });
             routeEntities = [];
+            if (routeGridPrimitive && viewer.scene && viewer.scene.primitives) {
+                viewer.scene.primitives.remove(routeGridPrimitive);
+            }
+            routeGridPrimitive = null;
         }
 
         function degreesToCartesian(CesiumRuntime, coordinates) {
@@ -312,6 +377,28 @@
                 }
                 if (entity) routeEntities.push(entity);
             });
+            renderCesiumRouteGrid(plan, CesiumRuntime);
+        }
+
+        function renderCesiumRouteGrid(plan, CesiumRuntime) {
+            var cells = executionRouteGridCells(plan);
+            var edges = {};
+            var primitive;
+            if (!viewer || !viewer.scene || !viewer.scene.primitives || !CesiumRuntime || !cells.length) return;
+            cells.forEach(function(cell) { addBoxEdges(edges, cell); });
+            primitive = new CesiumRuntime.PolylineCollection();
+            Object.keys(edges).forEach(function(key) {
+                var edge = edges[key];
+                primitive.add({
+                    positions: [
+                        CesiumRuntime.Cartesian3.fromDegrees(edge.lon1, edge.lat1, edge.h1),
+                        CesiumRuntime.Cartesian3.fromDegrees(edge.lon2, edge.lat2, edge.h2),
+                    ],
+                    width: 2.2,
+                    material: CesiumRuntime.Color.YELLOW.withAlpha(0.78),
+                });
+            });
+            routeGridPrimitive = viewer.scene.primitives.add(primitive);
         }
 
         function renderRoutePreview(plan, normalized) {
@@ -461,6 +548,8 @@
                 routeGeometryForPreview: routeGeometryForPreview,
                 formatExecutionRouteGridCodes: formatExecutionRouteGridCodes,
                 renderExecutionRouteDetail: renderExecutionRouteDetail,
+                parseBboxText: parseBboxText,
+                executionRouteGridCells: executionRouteGridCells,
             },
         };
         return api;
@@ -475,6 +564,8 @@
             routeGeometryForPreview: routeGeometryForPreview,
             formatExecutionRouteGridCodes: formatExecutionRouteGridCodes,
             renderExecutionRouteDetail: renderExecutionRouteDetail,
+            parseBboxText: parseBboxText,
+            executionRouteGridCells: executionRouteGridCells,
         },
     };
 }));

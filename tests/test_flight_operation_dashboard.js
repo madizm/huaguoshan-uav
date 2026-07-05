@@ -96,6 +96,20 @@ assert.strictEqual(
 assert.match(FlightOperationDashboard._private.renderExecutionRouteDetail(routeFirstPlan), /GGER-001、GGER-002/);
 assert.match(FlightOperationDashboard._private.renderExecutionRouteDetail(routeFirstPlan), /平台未复核可飞/);
 assert.match(FlightOperationDashboard._private.renderExecutionRouteDetail(routeFirstPlan), /forest-platform \/ route-9/);
+const gridCells = FlightOperationDashboard._private.executionRouteGridCells({
+  active_execution_route: {
+    route_grid_with_box: {
+      cells: [
+        { code: 'GZ001', bbox: '(119 34 10,119.1 34.1 20)' },
+        { code: 'bad', bbox: null },
+      ],
+    },
+  },
+});
+assert.strictEqual(gridCells.length, 1);
+assert.strictEqual(gridCells[0].code, 'GZ001');
+assert.strictEqual(gridCells[0].maxHeight, 20);
+
 
 const fallback = FlightOperationDashboard._private.fallbackDashboardData(new Date('2026-07-05T08:00:00+08:00'));
 assert.ok(fallback.summary.planned_sortie_count > 0);

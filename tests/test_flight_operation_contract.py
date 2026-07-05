@@ -108,6 +108,8 @@ class FlightOperationSchemaContractTests(unittest.TestCase):
     def test_dashboard_returns_active_execution_route_contract(self):
         self.assertIn("active_execution_route", self.sql)
         self.assertIn("route_grid_codes", self.sql)
+        self.assertIn("route_grid_with_box", self.sql)
+        self.assertIn("st_withbox(st_asgrids(p_route.route_grid_codes), 'gger')::jsonb", self.sql)
         self.assertIn("platform_validated", self.sql)
         self.assertIn("platform_validation_label", self.sql)
         self.assertIn("未复核可飞", self.sql)

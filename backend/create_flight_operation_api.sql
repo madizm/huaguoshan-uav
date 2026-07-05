@@ -394,6 +394,7 @@ as $$
     'flight_plan_id', p_route.flight_plan_id,
     'source', p_route.source,
     'route_grid_codes', coalesce((select jsonb_agg(ST_AsText(cell, 'GGER') order by ord) from unnest(p_route.route_grid_codes) with ordinality as cells(cell, ord)), '[]'::jsonb),
+    'route_grid_with_box', ST_WithBox(ST_AsGrids(p_route.route_grid_codes), 'GGER')::jsonb,
     'route_geometry', p_route.route_geometry,
     'external_source', p_route.external_source,
     'external_id', p_route.external_id,
