@@ -90,11 +90,8 @@ with approval_plan as (
     flight_plan_id, source, is_active, route_geometry, route_grid_codes,
     external_source, external_id, external_raw_payload, platform_validated, metadata
   )
-  select id, 'third_party', true, route_preview_geometry,
-         array[
-           ST_AsGridcell3D(119.245, 34.642, 150, 19),
-           ST_AsGridcell3D(119.286, 34.646, 150, 19)
-         ]::gridcell[],
+  select id, 'third_party', true, flight_operation.route_geometry_from_geojson(route_preview_geometry),
+         flight_operation.route_geometry_to_gridcells(flight_operation.route_geometry_from_geojson(route_preview_geometry)),
          external_source, external_id, external_raw_payload, false, '{"demo":true}'::jsonb
   from approval_plan
   where not exists (
@@ -121,11 +118,8 @@ with patrol_plan as (
     flight_plan_id, source, is_active, route_geometry, route_grid_codes,
     platform_validated, metadata
   )
-  select id, 'manual', true, route_preview_geometry,
-         array[
-           ST_AsGridcell3D(119.255, 34.635, 120, 19),
-           ST_AsGridcell3D(119.296, 34.661, 120, 19)
-         ]::gridcell[],
+  select id, 'manual', true, flight_operation.route_geometry_from_geojson(route_preview_geometry),
+         flight_operation.route_geometry_to_gridcells(flight_operation.route_geometry_from_geojson(route_preview_geometry)),
          false, '{"demo":true}'::jsonb
   from patrol_plan
   where not exists (
@@ -225,11 +219,8 @@ with demo_routes(plan_key, lon1, lat1, h1, lon2, lat2, h2) as (
     flight_plan_id, source, is_active, route_geometry, route_grid_codes,
     platform_validated, metadata
   )
-  select id, 'manual', true, route_preview_geometry,
-         array[
-           ST_AsGridcell3D(lon1, lat1, h1, 19),
-           ST_AsGridcell3D(lon2, lat2, h2, 19)
-         ]::gridcell[],
+  select id, 'manual', true, flight_operation.route_geometry_from_geojson(route_preview_geometry),
+         flight_operation.route_geometry_to_gridcells(flight_operation.route_geometry_from_geojson(route_preview_geometry)),
          false, '{"demo":true}'::jsonb
   from patrol_plans
   where not exists (
@@ -260,11 +251,8 @@ with approval_routes(external_id, lon1, lat1, h1, lon2, lat2, h2) as (
     flight_plan_id, source, is_active, route_geometry, route_grid_codes,
     external_source, external_id, external_raw_payload, platform_validated, metadata
   )
-  select id, 'third_party', true, route_preview_geometry,
-         array[
-           ST_AsGridcell3D(lon1, lat1, h1, 19),
-           ST_AsGridcell3D(lon2, lat2, h2, 19)
-         ]::gridcell[],
+  select id, 'third_party', true, flight_operation.route_geometry_from_geojson(route_preview_geometry),
+         flight_operation.route_geometry_to_gridcells(flight_operation.route_geometry_from_geojson(route_preview_geometry)),
          external_source, external_id, external_raw_payload, false, '{"demo":true}'::jsonb
   from approval_plans
   where not exists (

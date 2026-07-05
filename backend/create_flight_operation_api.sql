@@ -6,6 +6,7 @@
 
 begin;
 
+create extension if not exists postgis;
 create extension if not exists best_geomgrid cascade;
 
 create schema if not exists flight_operation;
@@ -82,7 +83,7 @@ create table if not exists flight_operation.execution_route (
   flight_plan_id bigint not null references flight_operation.flight_plan(id) on delete restrict,
   source text not null,
   is_active boolean not null default false,
-  route_geometry jsonb,
+  route_geometry geometry,
   route_grid_codes gridcell[] not null,
   external_source text,
   external_id text,
@@ -139,6 +140,26 @@ comment on column flight_operation.execution_route.route_geometry is
 comment on column flight_operation.execution_route.platform_validated is
   'False for third-party and manual execution routes; such routes are displayed as not platform reviewed for obstacle, compliance, or flyability.';
 
+create or replace function flight_operation.route_geometry_from_geojson(p_geojson jsonb)
+returns geometry
+language sql
+immutable
+as $$
+  select case when p_geojson is null then null else ST_SetSRID(ST_GeomFromGeoJSON(p_geojson::text), 4326) end;
+$$;
+
+create or replace function flight_operation.route_geometry_to_gridcells(p_geometry geometry)
+returns gridcell[]
+language sql
+immutable
+as $$
+  select case
+    when p_geometry is null then null
+    when ST_NDims(p_geometry) >= 3 then ST_AsGridCellArray(ST_AsGrids3D(p_geometry, 19, false))
+    else ST_AsGridCellArray(ST_AsGrids(p_geometry, 19, false))
+  end;
+$$;
+
 create or replace function flight_operation.gger_jsonb_to_gridcells(p_codes jsonb)
 returns gridcell[]
 language sql
@@ -167,6 +188,19 @@ begin
   if v_grid_codes_constraint is not null then
     alter table flight_operation.execution_route
       drop constraint flight_operation_execution_route_grid_codes_chk;
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'flight_operation'
+      and table_name = 'execution_route'
+      and column_name = 'route_geometry'
+      and udt_name = 'jsonb'
+  ) then
+    alter table flight_operation.execution_route
+      alter column route_geometry type geometry
+      using flight_operation.route_geometry_from_geojson(route_geometry);
   end if;
 
   if v_route_grid_codes_type = 'jsonb' then
@@ -395,7 +429,7 @@ as $$
     'source', p_route.source,
     'route_grid_codes', coalesce((select jsonb_agg(ST_AsText(cell, 'GGER') order by ord) from unnest(p_route.route_grid_codes) with ordinality as cells(cell, ord)), '[]'::jsonb),
     'route_grid_with_box', ST_WithBox(ST_AsGrids(p_route.route_grid_codes), 'GGER')::jsonb,
-    'route_geometry', p_route.route_geometry,
+    'route_geometry', case when p_route.route_geometry is not null then ST_AsGeoJSON(p_route.route_geometry)::jsonb else null end,
     'external_source', p_route.external_source,
     'external_id', p_route.external_id,
     'external_raw_payload', p_route.external_raw_payload,
@@ -625,6 +659,8 @@ set search_path = flight_operation, public, pg_temp
 as $$
 declare
   v_route flight_operation.execution_route;
+  v_route_geometry geometry;
+  v_route_grid_codes gridcell[];
 begin
   perform flight_operation.require_admin();
 
@@ -637,10 +673,12 @@ begin
   if p_route_geometry is null then
     raise exception 'route_geometry is required for third-party execution routes';
   end if;
-  if p_route_grid_codes is null then
+  v_route_geometry := flight_operation.route_geometry_from_geojson(p_route_geometry);
+  v_route_grid_codes := coalesce(p_route_grid_codes, flight_operation.route_geometry_to_gridcells(v_route_geometry));
+  if v_route_grid_codes is null then
     raise exception 'non-empty GGER route_grid_codes array is required';
   end if;
-  if cardinality(p_route_grid_codes) = 0 or array_position(p_route_grid_codes, null) is not null then
+  if cardinality(v_route_grid_codes) = 0 or array_position(v_route_grid_codes, null) is not null then
     raise exception 'non-empty GGER route_grid_codes array is required';
   end if;
 
@@ -653,7 +691,7 @@ begin
     flight_plan_id, source, is_active, route_geometry, route_grid_codes,
     external_source, external_id, external_raw_payload, platform_validated, metadata
   ) values (
-    p_flight_plan_id, 'third_party', true, p_route_geometry, p_route_grid_codes,
+    p_flight_plan_id, 'third_party', true, v_route_geometry, v_route_grid_codes,
     p_external_source, p_external_id, coalesce(p_external_raw_payload, '{}'::jsonb), false, coalesce(p_metadata, '{}'::jsonb)
   ) returning * into v_route;
 
@@ -682,6 +720,8 @@ set search_path = flight_operation, public, pg_temp
 as $$
 declare
   v_route flight_operation.execution_route;
+  v_route_geometry geometry;
+  v_route_grid_codes gridcell[];
 begin
   perform flight_operation.require_admin();
 
@@ -691,10 +731,12 @@ begin
   if p_route_geometry is null then
     raise exception 'route_geometry is required for manual execution routes';
   end if;
-  if p_route_grid_codes is null then
+  v_route_geometry := flight_operation.route_geometry_from_geojson(p_route_geometry);
+  v_route_grid_codes := coalesce(p_route_grid_codes, flight_operation.route_geometry_to_gridcells(v_route_geometry));
+  if v_route_grid_codes is null then
     raise exception 'non-empty GGER route_grid_codes array is required';
   end if;
-  if cardinality(p_route_grid_codes) = 0 or array_position(p_route_grid_codes, null) is not null then
+  if cardinality(v_route_grid_codes) = 0 or array_position(v_route_grid_codes, null) is not null then
     raise exception 'non-empty GGER route_grid_codes array is required';
   end if;
 
@@ -707,7 +749,7 @@ begin
     flight_plan_id, source, is_active, route_geometry, route_grid_codes,
     external_raw_payload, platform_validated, metadata
   ) values (
-    p_flight_plan_id, 'manual', true, p_route_geometry, p_route_grid_codes,
+    p_flight_plan_id, 'manual', true, v_route_geometry, v_route_grid_codes,
     null, false, coalesce(p_metadata, '{}'::jsonb)
   ) returning * into v_route;
 
@@ -737,7 +779,7 @@ as $$
 declare
   v_result flight_path.plan_result;
   v_route flight_operation.execution_route;
-  v_route_geometry jsonb;
+  v_route_geometry geometry;
   v_route_grid_codes gridcell[];
 begin
   perform flight_operation.require_admin();
@@ -767,10 +809,7 @@ begin
     raise exception 'non-empty GGER route_grid_codes array is required';
   end if;
 
-  v_route_geometry := case
-    when coalesce(v_result.smooth_route_geom, v_result.route_geom) is null then null
-    else ST_AsGeoJSON(coalesce(v_result.smooth_route_geom, v_result.route_geom))::jsonb
-  end;
+  v_route_geometry := coalesce(v_result.smooth_route_geom, v_result.route_geom);
 
   update flight_operation.execution_route
   set is_active = false
@@ -787,7 +826,7 @@ begin
 
   update flight_operation.flight_plan
   set active_execution_route_id = v_route.id,
-      route_preview_geometry = v_route_geometry,
+      route_preview_geometry = case when v_route_geometry is not null then ST_AsGeoJSON(v_route_geometry)::jsonb else null end,
       route_preview_source = 'platform'
   where id = p_flight_plan_id;
 

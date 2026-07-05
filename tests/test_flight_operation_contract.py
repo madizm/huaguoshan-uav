@@ -27,6 +27,7 @@ class FlightOperationSchemaContractTests(unittest.TestCase):
         cls.sql = SQL_PATH.read_text(encoding="utf-8").lower()
 
     def test_core_tables_and_vocabularies_exist(self):
+        self.assertIn("create extension if not exists postgis", self.sql)
         self.assertIn("create extension if not exists best_geomgrid cascade", self.sql)
 
         for table in ["flight_plan", "execution_route", "uav_asset", "flight_sortie"]:
@@ -44,6 +45,7 @@ class FlightOperationSchemaContractTests(unittest.TestCase):
         self.assertIn("flight_operation_plan_active_execution_route_fk", self.sql)
         self.assertIn("flight_operation_execution_route_plan_active_uniq", self.sql)
         self.assertIn("source in ('platform_path_planning_result', 'third_party', 'manual')", self.sql)
+        self.assertIn("route_geometry geometry", self.sql)
         self.assertIn("route_grid_codes gridcell[] not null", self.sql)
         self.assertIn("cardinality(route_grid_codes) > 0", self.sql)
         self.assertIn("platform_path_planning_result_id bigint references flight_path.plan_result(id) on delete restrict", self.sql)
@@ -60,7 +62,10 @@ class FlightOperationSchemaContractTests(unittest.TestCase):
         self.assertIn("create or replace function api.select_platform_path_planning_execution_route", self.sql)
         self.assertIn("drop function if exists api.create_third_party_execution_route(bigint, text, text, jsonb, jsonb, jsonb, jsonb)", self.sql)
         self.assertIn("p_route_grid_codes gridcell[]", self.sql)
-        self.assertIn("cardinality(p_route_grid_codes) = 0", self.sql)
+        self.assertIn("create or replace function flight_operation.route_geometry_to_gridcells", self.sql)
+        self.assertIn("st_asgridcellarray(st_asgrids3d(p_geometry, 19, false))", self.sql)
+        self.assertIn("coalesce(p_route_grid_codes, flight_operation.route_geometry_to_gridcells(v_route_geometry))", self.sql)
+        self.assertIn("cardinality(v_route_grid_codes) = 0", self.sql)
         self.assertIn("p_platform_path_planning_result_id", self.sql)
         self.assertIn("result_status <> 'success'", self.sql)
         self.assertIn("'platform_path_planning_result', true", self.sql)
