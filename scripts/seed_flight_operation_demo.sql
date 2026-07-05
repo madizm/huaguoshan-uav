@@ -53,17 +53,26 @@ with today as (
       and p.metadata ->> 'demo_key' = 'today-patrol'
   )
   returning id
+), patrol_plan as (
+  select id from upsert_patrol
+  union all
+  select p.id
+  from flight_operation.flight_plan p
+  where p.plan_type = 'patrol_task'
+    and p.metadata ->> 'demo_key' = 'today-patrol'
+    and not exists (select 1 from upsert_patrol)
+  order by id
+  limit 1
 )
 insert into flight_operation.flight_sortie (flight_plan_id, uav_asset_id, status, actual_start_at)
 select p.id, a.id, 'in_progress', now() - interval '25 minutes'
-from flight_operation.flight_plan p
+from patrol_plan p
 join flight_operation.uav_asset a on a.asset_code = 'HGS-UAV-001'
-where p.metadata ->> 'demo_key' = 'today-patrol'
-  and not exists (
-    select 1 from flight_operation.flight_sortie s
-    where s.flight_plan_id = p.id
-      and s.uav_asset_id = a.id
-      and s.status = 'in_progress'
-  );
+where not exists (
+  select 1 from flight_operation.flight_sortie s
+  where s.flight_plan_id = p.id
+    and s.uav_asset_id = a.id
+    and s.status = 'in_progress'
+);
 
 commit;
