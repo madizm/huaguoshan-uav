@@ -46,10 +46,30 @@ class DocsPortalContractTests(unittest.TestCase):
         self.assertIn("injectBearerSecurity(postgrestSpec)", self.html)
         self.assertIn("preferredSecurityScheme: 'bearerAuth'", self.html)
         self.assertIn("token: token", self.html)
+    def test_postgrest_server_url_is_rewritten_to_unified_entry_point(self):
+        self.assertIn("entrypointUrl('/postgrest')", self.html)
+        self.assertIn("delete spec.host;", self.html)
+        self.assertIn("delete spec.basePath;", self.html)
+        self.assertIn("delete spec.schemes;", self.html)
+        self.assertNotIn("0.0.0.0:13000", self.html)
 
     def test_anonymous_or_empty_postgrest_view_is_explained(self):
         self.assertIn("匿名用户看到的是空白 OpenAPI 文档", self.html)
         self.assertIn("PostgREST OpenAPI 当前没有暴露业务路径", self.html)
+
+    def test_scalar_documentation_area_uses_full_page_width_and_internal_scroll(self):
+        self.assertIn("width: 100%;", self.html)
+        self.assertIn("max-width: none;", self.html)
+        self.assertIn("#scalarAuthRef,", self.html)
+        self.assertIn("#scalarPgrstRef", self.html)
+        self.assertIn("height: clamp(620px, calc(100vh - 220px), 1100px);", self.html)
+        self.assertIn("overflow: auto;", self.html)
+        self.assertNotIn("max-width: 700px;", self.html)
+        self.assertNotIn("overflow: hidden;", self.html)
+    def test_portal_card_heading_styles_do_not_leak_into_scalar_content(self):
+        self.assertIn(".card > h2", self.html)
+        self.assertIn(".card > p", self.html)
+        self.assertNotIn(".card h2 {", self.html)
 
 
 class NginxDocsRoutingContractTests(unittest.TestCase):

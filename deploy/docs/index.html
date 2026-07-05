@@ -119,11 +119,13 @@
       color: var(--cinnabar);
     }
     main {
-      max-width: 700px;
+      width: 100%;
+      max-width: none;
       margin: 0 auto;
-      padding: 32px 24px 80px;
+      padding: 32px clamp(16px, 3vw, 48px) 80px;
     }
     .card {
+      width: 100%;
       margin-bottom: 24px;
       border: 1px solid rgba(215, 168, 70, 0.18);
       border-radius: 18px;
@@ -131,7 +133,16 @@
       background: rgba(16, 32, 27, 0.4);
       backdrop-filter: blur(8px);
     }
-    .card h2 {
+    #scalarAuthRef,
+    #scalarPgrstRef {
+      width: 100%;
+      height: clamp(620px, calc(100vh - 220px), 1100px);
+      overflow: auto;
+      border-radius: 14px;
+      background: #fff;
+    }
+
+    .card > h2 {
       font-size: 18px;
       color: var(--paper-strong);
       margin-bottom: 10px;
@@ -139,13 +150,14 @@
       align-items: center;
       gap: 10px;
     }
-    .card p {
+    .card > p {
       font-size: 14px;
       color: rgba(244, 236, 216, 0.68);
       line-height: 1.7;
       margin-bottom: 14px;
     }
-    .card code {
+    .card > p code,
+    .note code {
       background: rgba(215, 168, 70, 0.12);
       padding: 2px 8px;
       border-radius: 6px;
@@ -323,7 +335,14 @@
         statusEl.className = 'portal-status' + (isError ? ' error' : '');
       }
 
+      function entrypointUrl(path) {
+        return window.location.origin + path;
+      }
+
       function injectServers(spec, url) {
+        delete spec.host;
+        delete spec.basePath;
+        delete spec.schemes;
         spec.servers = [{ url: url }];
         return spec;
       }
@@ -353,7 +372,7 @@
           .then(function (authSpec) {
             authContainer.innerHTML = '';
             Scalar.createApiReference(authContainer, {
-              spec: { content: injectServers(authSpec, '/') }
+              spec: { content: injectServers(authSpec, entrypointUrl('')) }
             });
           })
           .catch(function (error) {
@@ -375,7 +394,7 @@
             return response.json();
           })
           .then(function (postgrestSpec) {
-            postgrestSpec = injectServers(postgrestSpec, '/postgrest');
+            postgrestSpec = injectServers(postgrestSpec, entrypointUrl('/postgrest'));
             if (token) {
               postgrestSpec = injectBearerSecurity(postgrestSpec);
             }
