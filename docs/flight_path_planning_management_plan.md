@@ -1,5 +1,7 @@
 # 飞行路径规划与管理功能实施计划
 
+> 领域边界：`flight_path.plan` 是路径规划方案/路径规划工作区，不是业务飞行计划；`flight_path.plan_result` 是一次路径规划结果，不是实际飞行事实。PostgREST RPC 名称保留 `flight_path_plan` 兼容既有接口，但文档语义必须解释为路径规划方案。业务飞行计划由 `flight_operation.flight_plan` 表达。
+
 ## 1. 目标
 
 新增“飞行路径规划”能力，支持用户在前端或 API 中设置：
@@ -40,7 +42,7 @@ ST_SmoothRouteFromGridsPath(...)
 
 ## 2.1 本期范围
 
-- 支持单条飞行路径方案的起点、终点、途径点管理。
+- 支持单条路径规划方案/工作区的起点、终点、途径点管理。
 - 支持按途径点顺序分段规划：
 
 ```text
@@ -70,8 +72,8 @@ start -> waypoint_1 -> waypoint_2 -> ... -> end
 ```text
 前端 tianditu-3d.html
   ├─ 设置起点 / 终点 / 途径点
-  ├─ 保存路径方案
-  ├─ 查询路径方案列表 / 详情
+  ├─ 保存路径规划方案
+  ├─ 查询路径规划方案列表 / 详情
   └─ 展示规划结果
           ↓ PostgREST RPC / REST
 backend SQL functions
@@ -96,7 +98,7 @@ GT_MakeTrajectory / GT_length / GT_2DIntersects / GT_Compress
 
 设计原则：
 
-1. **输入和结果分离**：用户保存的是路径方案，计算输出保存为结果版本。
+1. **输入和结果分离**：用户保存的是路径规划方案/工作区，计算输出保存为路径规划结果版本。
 2. **途径点有序**：所有控制点通过 `seq` 保持严格顺序。
 3. **高度语义明确**：路径输入高度字段必须标注高程基准，默认沿用项目 terrain / airspace 的统一约束。
 4. **可重复计算**：每次计算记录规划参数、障碍版本和结果摘要，方便追溯。
@@ -122,7 +124,7 @@ create extension if not exists best_geotrack cascade;
 
 说明：当前项目路径规划本身依赖 geomgrids / `ST_FindGridsPath`；轨迹管理能力建议显式安装 `best_geotrack`，因为 `trajectory` 类型和 `GT_*` 函数由该扩展暴露。
 
-## 4.1 路径方案表：`flight_path.plan`
+## 4.1 路径规划方案/工作区表：`flight_path.plan`
 
 ```sql
 create table if not exists flight_path.plan (
@@ -238,7 +240,7 @@ N+1: end
 ST_SetSRID(ST_MakePoint(lon, lat, coalesce(height_m, plan.cruise_height_m, 0)), 4326)
 ```
 
-## 4.3 规划结果表：`flight_path.plan_result`
+## 4.3 路径规划结果表：`flight_path.plan_result`
 
 ```sql
 create table if not exists flight_path.plan_result (
@@ -582,7 +584,7 @@ citydb.get_flight_path_plan(...)
 }
 ```
 
-## 6.5 查询最新路径结果
+## 6.5 查询最新路径规划结果
 
 ```sql
 flight_path.get_latest_result(p_plan_id bigint)
@@ -620,7 +622,7 @@ ST_AsText(ST_AsGrids(grid_path), 'GGER')
 ST_WithBox(ST_AsGrids(grid_path), 'GGER')::jsonb
 ```
 
-前端使用 `route_grid_with_box.cells[].bbox` 绘制每个路径 gridcell 的三维线框，并可通过 `Flight Path Planner` 面板中的“路径网格”按钮显示 / 隐藏。
+前端使用 `route_grid_with_box.cells[].bbox` 绘制每个路径 gridcell 的三维线框，并可通过 “路径规划方案工作区”面板中的“结果网格”按钮显示 / 隐藏。
 
 轨迹对象不直接通过 JSON 返回；如需返回轨迹统计信息，通过 `GT_*` 函数转换为摘要字段：
 
@@ -660,7 +662,7 @@ PostgREST 包装函数：
 citydb.compute_flight_path_plan(...)
 ```
 
-## 6.8 基于 trajectory 的路径结果查询
+## 6.8 基于 trajectory 的路径规划结果查询
 
 结合 iBEST-DB 轨迹索引能力，可补充以下查询 RPC：
 
@@ -842,7 +844,7 @@ public.flight_obstacles(id, grids)
 4. 支持计算并展示路径。
 5. 支持错误提示和失败分段展示。
 
-当前前端实现位置：`frontend/tianditu-3d.html` 的 `Flight Path Planner` 面板。已接入：
+当前前端实现位置：`frontend/tianditu-3d.html` 的 “路径规划方案工作区”面板。已接入：
 
 - `create_flight_path_plan`
 - `update_flight_path_plan`
@@ -886,7 +888,7 @@ public.flight_obstacles(id, grids)
 | P9 | 失败处理 | 失败时保存错误信息，前端可读 |
 | P10 | 前端展示 | 控制点、原始折线、规划路径样式清晰 |
 | P11 | 轨迹统计 | `GT_length`、`GT_leafCount`、`GT_duration` 能返回结果摘要 |
-| P12 | 轨迹查询 | 可按时间范围 / 空间范围查询已规划路径结果 |
+| P12 | 轨迹查询 | 可按时间范围 / 空间范围查询已规划的路径规划结果 |
 
 ---
 
@@ -899,7 +901,7 @@ public.flight_obstacles(id, grids)
 | 点高度基准混用 | 路径高度错误 | 强制保存 `height_datum`，第一版限制为 AMSL |
 | 途径点过多 | 计算慢或失败 | 限制单方案途径点数量，例如 20 个以内 |
 | 障碍视图未按规划时间刷新 | 临时禁飞区判断错误 | 计算前明确刷新策略或记录障碍版本 |
-| 路径结果 geometry 过大 | API 响应慢 | 列表只返回摘要，详情接口再返回 GeoJSON |
+| 路径规划结果 geometry 过大 | API 响应慢 | 列表只返回摘要，详情接口再返回 GeoJSON |
 | 分段中某一段不可达 | 整条路径失败 | 保存失败 segment，前端高亮问题段 |
 | `trajectory` 时间线和点数不一致 | `GT_MakeTrajectory` 构造失败 | 构造前校验 `timeline` 数量、geometry 点数和 `attrs_json.leafcount` 一致 |
 | 轨迹索引维度过多影响性能 | 查询变慢 | 默认使用 `trajgist_ops_2dt`，高频 3D 查询再补充 `trajgist_ops_3dt` |

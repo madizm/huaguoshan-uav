@@ -1,6 +1,6 @@
--- PostgREST RPC: flight path planning, persistence, and iBEST-DB trajectory result management.
+-- PostgREST RPC: path planning schemes/workspaces, control points, and computed path planning results.
 --
--- Main RPC endpoints through this project's default PostgREST schema (`citydb`):
+-- Existing endpoint names keep `flight_path_plan` for compatibility; API docs and comments define these as path planning schemes, not business flight plans.
 --   POST /rpc/create_flight_path_plan
 --   POST /rpc/update_flight_path_plan
 --   POST /rpc/list_flight_path_plans
@@ -1383,11 +1383,11 @@ grant execute on function citydb.get_latest_flight_path_result(bigint) to admin;
 grant execute on function citydb.search_flight_path_results_by_time(timestamp, timestamp, integer, integer) to admin;
 grant execute on function citydb.search_flight_path_results_by_bbox(double precision, double precision, double precision, double precision, timestamp, timestamp, integer, integer) to admin;
 
-comment on schema flight_path is 'Flight path planning, control points, planned route geometry, and iBEST-DB trajectory results.';
+comment on schema flight_path is '技术路径规划工作区：保存路径规划方案、控制点和路径规划结果；不是业务飞行计划。';
 comment on function citydb.create_flight_path_plan(text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb)
-is 'Create a persisted flight path plan with start/end/waypoint JSON control points.';
+is '创建一个路径规划方案/工作区，保存起终点和途径点控制输入；不是业务飞行计划。';
 comment on function citydb.compute_flight_path_plan(bigint)
-is 'Compute a flight path through all control points using ST_FindGridsPath, then store geometry and trajectory results.';
+is '计算路径规划方案并保存一次路径规划结果；该结果不是实际飞行事实。';
 
 notify pgrst, 'reload schema';
 

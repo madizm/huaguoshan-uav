@@ -222,11 +222,11 @@ function toggleFlightPathGrid() {
   syncFlightPathGridButton();
   if (state.flightPath.routeGridVisible) {
     showFlightPathGrid(state.flightPath.latestResult);
-    log(state.flightPath.routeGridCells.length ? '飞行路径网格已显示：' + state.flightPath.routeGridCells.length + ' cells。' : '当前路径结果没有可展示的网格。');
+    log(state.flightPath.routeGridCells.length ? '路径规划结果网格已显示：' + state.flightPath.routeGridCells.length + ' cells。' : '当前路径规划结果没有可展示的网格。');
   } else {
     clearFlightPathGrid();
     removeFlightPathCurrentGridPrimitive();
-    log('飞行路径网格已隐藏。');
+    log('路径规划结果网格已隐藏。');
   }
 }
 
@@ -659,13 +659,13 @@ function setupFlightPathPlayback(autoplay) {
   var samples;
   if (!state.viewer || !CesiumRuntime) return false;
   if (!state.flightPath.latestResult || state.flightPath.latestResult.result_status !== 'success') {
-    log('请先计算或载入一条成功的飞行路径结果。');
+    log('请先计算或载入一条成功的路径规划结果。');
     return false;
   }
   if (playback.entity && playback.sampledPosition) return true;
   samples = buildFlightPathPlaybackSamples(state.flightPath.latestResult);
   if (!samples) {
-    log('当前路径结果没有足够的 GeoJSON 坐标用于回放。');
+    log('当前路径规划结果没有足够的 GeoJSON 坐标用于回放。');
     return false;
   }
   playback.clockStart = samples.start;
@@ -970,16 +970,16 @@ function saveFlightPathPlan() {
   state.flightPath.loading = true;
   if (state.flightPath.currentPlanId != null) {
     payload.p_plan_id = state.flightPath.currentPlanId;
-    log('正在更新飞行路径方案 #' + state.flightPath.currentPlanId + '。');
+    log('正在更新路径规划方案 #' + state.flightPath.currentPlanId + '。');
     return rpc('update_flight_path_plan', payload).then(function () {
-      log('飞行路径方案已更新：#' + state.flightPath.currentPlanId + '。');
+      log('路径规划方案已更新：#' + state.flightPath.currentPlanId + '。');
       return loadFlightPathPlans();
     }).finally(function () { state.flightPath.loading = false; });
   }
-  log('正在保存新的飞行路径方案。');
+  log('正在保存新的路径规划方案。');
   return rpc('create_flight_path_plan', payload).then(function (planId) {
     state.flightPath.currentPlanId = planId;
-    log('飞行路径方案已保存：#' + planId + '。');
+    log('路径规划方案已保存：#' + planId + '。');
     return loadFlightPathPlans();
   }).finally(function () { state.flightPath.loading = false; });
 }
@@ -989,7 +989,7 @@ function renderFlightPathPlanList() {
   var rows = state.flightPath.plans;
   if (!list) return;
   if (!rows.length) {
-    list.innerHTML = '<div class="feature-empty">暂无飞行路径方案。</div>';
+    list.innerHTML = '<div class="feature-empty">暂无路径规划方案。</div>';
     return;
   }
   list.innerHTML = rows.map(function (plan) {
@@ -1010,11 +1010,11 @@ function loadFlightPathPlans() {
   return rpc('list_flight_path_plans', { p_limit: 20, p_offset: 0 }).then(function (data) {
     state.flightPath.plans = data && Array.isArray(data.items) ? data.items : [];
     renderFlightPathPlanList();
-    log('已加载飞行路径方案：' + state.flightPath.plans.length + ' 条。');
+    log('已加载路径规划方案：' + state.flightPath.plans.length + ' 条。');
   }).catch(function (error) {
     console.error('[Tianditu3D] Flight path list failed:', error);
-    if ($('#flightPathPlanList')) $('#flightPathPlanList').innerHTML = '<div class="feature-error">飞行路径方案加载失败：' + escapeHtml(error.message) + '</div>';
-    log('飞行路径方案加载失败：' + error.message);
+    if ($('#flightPathPlanList')) $('#flightPathPlanList').innerHTML = '<div class="feature-error">路径规划方案加载失败：' + escapeHtml(error.message) + '</div>';
+    log('路径规划方案加载失败：' + error.message);
   }).finally(function () { state.flightPath.loading = false; });
 }
 
@@ -1022,7 +1022,7 @@ function loadFlightPathPlan(planId) {
   return rpc('get_flight_path_plan', { p_plan_id: Number(planId) }).then(function (data) {
     var plan = data && data.plan;
     var points = data && Array.isArray(data.points) ? data.points : [];
-    if (!plan) throw new Error('未找到飞行路径方案 #' + planId);
+    if (!plan) throw new Error('未找到路径规划方案 #' + planId);
     state.flightPath.currentPlanId = plan.id;
     $('#flightPathName').value = plan.name || '';
     $('#flightPathHeight').value = plan.cruise_height_m == null ? '120' : plan.cruise_height_m;
@@ -1044,11 +1044,11 @@ function loadFlightPathPlan(planId) {
     }));
     clearFlightPathRoute();
     renderFlightPathDraft();
-    log('已载入飞行路径方案 #' + plan.id + '。');
+    log('已载入路径规划方案 #' + plan.id + '。');
     return loadLatestFlightPathResult(plan.id, false);
   }).catch(function (error) {
     console.error('[Tianditu3D] Flight path load failed:', error);
-    log('飞行路径方案载入失败：' + error.message);
+    log('路径规划方案载入失败：' + error.message);
   });
 }
 
@@ -1060,7 +1060,7 @@ function renderFlightPathResult(result) {
   state.flightPath.latestResult = result || null;
   if (!result) return;
   if (result.result_status !== 'success') {
-    log('路径计算失败：' + (result.error_message || '未知错误'));
+    log('路径规划计算失败：' + (result.error_message || '未知错误'));
     return;
   }
   if (!state.viewer || !CesiumRuntime || !Array.isArray(coords) || coords.length < 2) return;
@@ -1068,7 +1068,7 @@ function renderFlightPathResult(result) {
     return CesiumRuntime.Cartesian3.fromDegrees(Number(coord[0]), Number(coord[1]), Number(coord[2] || flightPathHeight()));
   });
   state.flightPath.routeGlowEntity = state.viewer.entities.add({
-    name: 'Flight path planned route glow',
+    name: 'Path planning result route glow',
     polyline: {
       positions: positions,
       width: 9,
@@ -1077,7 +1077,7 @@ function renderFlightPathResult(result) {
     }
   });
   state.flightPath.routeEntity = state.viewer.entities.add({
-    name: 'Flight path planned route',
+    name: 'Path planning result route',
     polyline: {
       positions: positions,
       width: 4,
@@ -1086,7 +1086,7 @@ function renderFlightPathResult(result) {
     }
   });
   if (state.flightPath.routeGridVisible) showFlightPathGrid(result);
-  log('路径计算成功：' + (result.distance_m || 0).toFixed(1) + 'm，' + (result.grid_cell_count || 0) + ' cells，' + (result.traj_point_count || 0) + ' trajectory points。');
+  log('路径规划计算成功：' + (result.distance_m || 0).toFixed(1) + 'm，' + (result.grid_cell_count || 0) + ' cells，' + (result.traj_point_count || 0) + ' trajectory points。');
 }
 
 function loadLatestFlightPathResult(planId, shouldZoom) {
@@ -1096,7 +1096,7 @@ function loadLatestFlightPathResult(planId, shouldZoom) {
     return result;
   }).catch(function (error) {
     console.error('[Tianditu3D] Flight path result failed:', error);
-    log('飞行路径结果加载失败：' + error.message);
+    log('路径规划结果加载失败：' + error.message);
   });
 }
 
@@ -1111,27 +1111,27 @@ function computeFlightPathPlan(planId) {
     afterSave = Promise.resolve(Number(id));
   }
   return afterSave.then(function (savedId) {
-    log('正在计算飞行路径方案 #' + savedId + '；将自动避开 flight_obstacles。');
+    log('正在计算路径规划方案 #' + savedId + '；将自动避开 flight_obstacles。');
     return rpc('compute_flight_path_plan', { p_plan_id: Number(savedId) }).then(function (resultId) {
-      log('路径计算已完成，结果 #' + resultId + '，正在加载 GeoJSON。');
+      log('路径规划计算已完成，路径规划结果 #' + resultId + '，正在加载 GeoJSON。');
       state.flightPath.currentPlanId = Number(savedId);
       return loadLatestFlightPathResult(savedId, true);
     });
   }).catch(function (error) {
     console.error('[Tianditu3D] Flight path compute failed:', error);
-    log('飞行路径计算失败：' + error.message);
+    log('路径规划计算失败：' + error.message);
   });
 }
 
 function archiveFlightPathPlan(planId) {
-  if (!window.confirm('确认归档飞行路径方案 #' + planId + '？')) return Promise.resolve();
+  if (!window.confirm('确认归档路径规划方案 #' + planId + '？')) return Promise.resolve();
   return rpc('archive_flight_path_plan', { p_plan_id: Number(planId) }).then(function () {
     if (String(state.flightPath.currentPlanId) === String(planId)) clearFlightPathDraft();
-    log('飞行路径方案已归档：#' + planId + '。');
+    log('路径规划方案已归档：#' + planId + '。');
     return loadFlightPathPlans();
   }).catch(function (error) {
     console.error('[Tianditu3D] Flight path archive failed:', error);
-    log('飞行路径方案归档失败：' + error.message);
+    log('路径规划方案归档失败：' + error.message);
   });
 }
 
@@ -1141,16 +1141,16 @@ function zoomFlightPathRoute() {
   if (!entities.length && state.flightPath.rawLineEntity) entities.push(state.flightPath.rawLineEntity);
   if (!entities.length) entities = state.flightPath.pointEntities.slice();
   if (!state.viewer || !entities.length) {
-    log('当前没有可定位的飞行路径。');
+    log('当前没有可定位的路径规划结果。');
     return;
   }
   state.viewer.flyTo(entities, { duration: 1.5 });
-  log('已定位到当前飞行路径。');
+  log('已定位到当前路径规划结果。');
 }
 
 
         function html() {
-            return '    <div class="flight-path-controls" aria-label="飞行路径规划">\n      <h2>Flight Path Planner</h2>\n      <div class="control-grid">\n        <label class="field">方案名称\n          <input id="flightPathName" type="text" value="花果山低空路径" />\n        </label>\n        <label class="field">巡航高度 m\n          <input id="flightPathHeight" type="number" step="1" value="120" />\n        </label>\n        <label class="field">网格层级\n          <input id="flightPathDetailLevel" type="number" min="1" max="32" step="1" value="19" />\n        </label>\n        <label class="field">巡航速度 m/s\n          <input id="flightPathSpeed" type="number" min="0.1" step="0.1" value="10" />\n        </label>\n        <label class="field">规划时间\n          <input id="flightPathPlanningTime" type="datetime-local" />\n        </label>\n        <label class="field">高度基准\n          <select id="flightPathHeightDatum">\n            <option value="AMSL" selected>海拔高度 AMSL</option>\n            <option value="AGL">离地高度 AGL</option>\n            <option value="ELLIPSOID">椭球高 ELLIPSOID</option>\n          </select>\n        </label>\n      </div>\n      <div class="draw-actions" aria-label="路径控制点编辑">\n        <button type="button" data-action="setFlightPathStart">点选起点</button>\n        <button type="button" data-action="addFlightPathWaypoint">点选途径点</button>\n        <button type="button" data-action="setFlightPathEnd">点选终点</button>\n        <button type="button" data-action="undoFlightPathPoint">撤销点</button>\n        <button type="button" data-action="clearFlightPathDraft">清空</button>\n      </div>\n      <div class="admin-actions">\n        <button class="primary" type="button" data-action="saveFlightPathPlan">保存路径</button>\n        <button type="button" data-action="computeFlightPathPlan">计算路径</button>\n        <button type="button" data-action="reloadFlightPathPlans">刷新方案</button>\n        <button type="button" data-action="zoomFlightPathRoute">定位路径</button>\n        <button type="button" data-action="toggleFlightPathGrid" aria-pressed="true">路径网格</button>\n      </div>\n      <div class="playback-actions" aria-label="航迹回放控制">\n        <button class="primary" type="button" data-action="playFlightPathPlayback">播放航迹</button>\n        <button type="button" data-action="pauseFlightPathPlayback">暂停</button>\n        <button type="button" data-action="stopFlightPathPlayback">停止</button>\n        <button type="button" data-action="toggleFlightPathFollow" aria-pressed="false">跟随镜头</button>\n        <div class="speed-actions" aria-label="航迹回放倍速">\n          <button type="button" data-action="setFlightPathPlaybackSpeed" data-speed="1" aria-pressed="true">1x</button>\n          <button type="button" data-action="setFlightPathPlaybackSpeed" data-speed="2" aria-pressed="false">2x</button>\n          <button type="button" data-action="setFlightPathPlaybackSpeed" data-speed="4" aria-pressed="false">4x</button>\n        </div>\n        <div class="mode-actions" aria-label="航迹回放镜头模式">\n          <button type="button" data-action="setFlightPathPlaybackMode" data-mode="chase" aria-pressed="true">追尾</button>\n          <button type="button" data-action="setFlightPathPlaybackMode" data-mode="fpv" aria-pressed="false">FPV</button>\n          <button type="button" data-action="setFlightPathPlaybackMode" data-mode="cinematic" aria-pressed="false">电影</button>\n        </div>\n        <label class="field flight-playback-slider">回放进度\n          <input id="flightPlaybackProgress" type="range" min="0" max="1000" step="1" value="0" />\n        </label>\n      </div>\n      <p class="admin-hint">点击“点选起点 / 途径点 / 终点”后在地图上取点；计算结果会写入 <code>flight_path.plan_result</code>，并生成 iBEST-DB <code>trajectory</code>。</p>\n      <div class="flight-path-point-list" id="flightPathPointList">\n        <div class="feature-empty">尚未设置起点和终点。</div>\n      </div>\n      <div class="flight-path-plan-list" id="flightPathPlanList">\n        <div class="feature-empty">尚未加载飞行路径方案。</div>\n      </div>\n    </div>\n';
+            return '    <div class="flight-path-controls" aria-label="路径规划方案工作区">\n      <h2>路径规划方案工作区</h2>\n      <div class="control-grid">\n        <label class="field">方案名称\n          <input id="flightPathName" type="text" value="花果山低空路径" />\n        </label>\n        <label class="field">巡航高度 m\n          <input id="flightPathHeight" type="number" step="1" value="120" />\n        </label>\n        <label class="field">网格层级\n          <input id="flightPathDetailLevel" type="number" min="1" max="32" step="1" value="19" />\n        </label>\n        <label class="field">巡航速度 m/s\n          <input id="flightPathSpeed" type="number" min="0.1" step="0.1" value="10" />\n        </label>\n        <label class="field">规划时间\n          <input id="flightPathPlanningTime" type="datetime-local" />\n        </label>\n        <label class="field">高度基准\n          <select id="flightPathHeightDatum">\n            <option value="AMSL" selected>海拔高度 AMSL</option>\n            <option value="AGL">离地高度 AGL</option>\n            <option value="ELLIPSOID">椭球高 ELLIPSOID</option>\n          </select>\n        </label>\n      </div>\n      <div class="draw-actions" aria-label="路径控制点编辑">\n        <button type="button" data-action="setFlightPathStart">点选起点</button>\n        <button type="button" data-action="addFlightPathWaypoint">点选途径点</button>\n        <button type="button" data-action="setFlightPathEnd">点选终点</button>\n        <button type="button" data-action="undoFlightPathPoint">撤销点</button>\n        <button type="button" data-action="clearFlightPathDraft">清空</button>\n      </div>\n      <div class="admin-actions">\n        <button class="primary" type="button" data-action="saveFlightPathPlan">保存方案</button>\n        <button type="button" data-action="computeFlightPathPlan">计算方案</button>\n        <button type="button" data-action="reloadFlightPathPlans">刷新方案列表</button>\n        <button type="button" data-action="zoomFlightPathRoute">定位结果</button>\n        <button type="button" data-action="toggleFlightPathGrid" aria-pressed="true">结果网格</button>\n      </div>\n      <div class="playback-actions" aria-label="航迹回放控制">\n        <button class="primary" type="button" data-action="playFlightPathPlayback">播放航迹</button>\n        <button type="button" data-action="pauseFlightPathPlayback">暂停</button>\n        <button type="button" data-action="stopFlightPathPlayback">停止</button>\n        <button type="button" data-action="toggleFlightPathFollow" aria-pressed="false">跟随镜头</button>\n        <div class="speed-actions" aria-label="航迹回放倍速">\n          <button type="button" data-action="setFlightPathPlaybackSpeed" data-speed="1" aria-pressed="true">1x</button>\n          <button type="button" data-action="setFlightPathPlaybackSpeed" data-speed="2" aria-pressed="false">2x</button>\n          <button type="button" data-action="setFlightPathPlaybackSpeed" data-speed="4" aria-pressed="false">4x</button>\n        </div>\n        <div class="mode-actions" aria-label="航迹回放镜头模式">\n          <button type="button" data-action="setFlightPathPlaybackMode" data-mode="chase" aria-pressed="true">追尾</button>\n          <button type="button" data-action="setFlightPathPlaybackMode" data-mode="fpv" aria-pressed="false">FPV</button>\n          <button type="button" data-action="setFlightPathPlaybackMode" data-mode="cinematic" aria-pressed="false">电影</button>\n        </div>\n        <label class="field flight-playback-slider">回放进度\n          <input id="flightPlaybackProgress" type="range" min="0" max="1000" step="1" value="0" />\n        </label>\n      </div>\n      <p class="admin-hint">点击“点选起点 / 途径点 / 终点”后在地图上取点；<code>flight_path.plan</code> 是路径规划方案/技术规划工作区，不是业务飞行计划；路径规划结果会写入 <code>flight_path.plan_result</code>，并生成 iBEST-DB <code>trajectory</code>。</p>\n      <div class="flight-path-point-list" id="flightPathPointList">\n        <div class="feature-empty">尚未设置起点和终点。</div>\n      </div>\n      <div class="flight-path-plan-list" id="flightPathPlanList">\n        <div class="feature-empty">尚未加载路径规划方案。</div>\n      </div>\n    </div>\n';
         }
 
         function handleClick(event) {
@@ -1163,7 +1163,7 @@ function zoomFlightPathRoute() {
             if (action === 'setFlightPathEnd') setFlightPathDrawMode('end');
             if (action === 'undoFlightPathPoint') undoFlightPathPoint();
             if (action === 'clearFlightPathDraft') clearFlightPathDraft();
-            if (action === 'saveFlightPathPlan') saveFlightPathPlan().catch(function(error) { console.error('[FlightPathWorkbench] save failed:', error); renderError('飞行路径方案保存失败：' + error.message); log('飞行路径方案保存失败：' + error.message); });
+            if (action === 'saveFlightPathPlan') saveFlightPathPlan().catch(function(error) { console.error('[FlightPathWorkbench] save failed:', error); renderError('路径规划方案保存失败：' + error.message); log('路径规划方案保存失败：' + error.message); });
             if (action === 'computeFlightPathPlan') computeFlightPathPlan();
             if (action === 'reloadFlightPathPlans') loadFlightPathPlans();
             if (action === 'zoomFlightPathRoute') zoomFlightPathRoute();
