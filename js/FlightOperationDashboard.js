@@ -102,12 +102,46 @@
         return { ok: true, geometryType: geometry.type, items: items, message: null };
     }
 
+    function activeExecutionRoute(plan) {
+        return plan && plan.active_execution_route ? plan.active_execution_route : null;
+    }
+
+    function executionRouteSourceLabel(route) {
+        var source = route && route.source;
+        if (source === 'third_party') return '第三方执行用航线';
+        if (source === 'manual') return '人工录入执行用航线';
+        if (source === 'platform_path_planning_result') return '平台路径规划结果执行用航线';
+        return null;
+    }
+
     function routePreviewSourceLabel(plan) {
+        var routeLabel = executionRouteSourceLabel(activeExecutionRoute(plan));
         var source = plan && plan.route_preview_source;
+        if (routeLabel) return routeLabel;
         if (source === 'third_party') return '第三方航线预览（非平台规划结果）';
         if (source === 'platform') return '平台航线预览';
         if (source === 'manual') return '人工录入航线预览';
         return '无航线预览';
+    }
+
+    function routeGeometryForPreview(plan) {
+        var route = activeExecutionRoute(plan);
+        return route && route.route_geometry ? route.route_geometry : (plan && plan.route_preview_geometry);
+    }
+
+    function formatExecutionRouteGridCodes(plan) {
+        var route = activeExecutionRoute(plan);
+        var codes = route && Array.isArray(route.route_grid_codes) ? route.route_grid_codes : [];
+        return codes.length ? codes.join('、') : '未提供 GGER 网格码';
+    }
+
+    function renderExecutionRouteDetail(plan) {
+        var route = activeExecutionRoute(plan);
+        if (!route) return '<span>执行用航线：未选择</span>';
+        return '<span>执行用航线：' + escapeHtml(executionRouteSourceLabel(route) || '未知来源') + '</span>' +
+            '<span>GGER 网格码：' + escapeHtml(formatExecutionRouteGridCodes(plan)) + '</span>' +
+            (route.platform_validation_label ? '<span>' + escapeHtml(route.platform_validation_label) + '</span>' : '') +
+            (route.external_source ? '<span>来源：' + escapeHtml(route.external_source) + ' / ' + escapeHtml(route.external_id || '--') + '</span>' : '');
     }
 
     function formatDateTime(value) {
@@ -163,6 +197,15 @@
                 planned_sortie_count: 1,
                 route_preview_source: 'third_party',
                 route_preview_geometry: { type: 'LineString', coordinates: [[119.245, 34.642, 150], [119.268, 34.651, 150], [119.286, 34.646, 150]] },
+                active_execution_route: {
+                    source: 'third_party',
+                    route_grid_codes: ['GGER-HGS-001', 'GGER-HGS-002'],
+                    route_geometry: { type: 'LineString', coordinates: [[119.245, 34.642, 150], [119.268, 34.651, 150], [119.286, 34.646, 150]] },
+                    external_source: 'demo-third-party',
+                    external_id: 'HGSD-20260705-001',
+                    platform_validated: false,
+                    platform_validation_label: '平台未复核可飞',
+                },
             }],
             patrol_tasks: [{
                 id: 'demo-patrol-1',
@@ -176,6 +219,13 @@
                 planned_sortie_count: 1,
                 route_preview_source: 'platform',
                 route_preview_geometry: { type: 'Polygon', coordinates: [[[119.255, 34.635, 120], [119.292, 34.637, 120], [119.296, 34.661, 120], [119.252, 34.662, 120], [119.255, 34.635, 120]]] },
+                active_execution_route: {
+                    source: 'manual',
+                    route_grid_codes: ['GGER-HGS-PATROL-A', 'GGER-HGS-PATROL-B'],
+                    route_geometry: { type: 'Polygon', coordinates: [[[119.255, 34.635, 120], [119.292, 34.637, 120], [119.296, 34.661, 120], [119.252, 34.662, 120], [119.255, 34.635, 120]]] },
+                    platform_validated: false,
+                    platform_validation_label: '平台未复核可飞',
+                },
             }],
         };
     }
@@ -294,6 +344,7 @@
                 '<strong>' + escapeHtml(plan.pilot || '未知飞手') + ' · ' + escapeHtml(plan.reporting_unit || '未知单位') + '</strong>' +
                 '<span>' + escapeHtml(formatInterval(plan)) + '</span>' +
                 '<span>审批/报备：' + escapeHtml(plan.approval_status || 'unknown') + ' · ' + escapeHtml(routePreviewSourceLabel(plan)) + '</span>' +
+                '<span>GGER：' + escapeHtml(formatExecutionRouteGridCodes(plan)) + '</span>' +
                 '</button>';
         }
 
@@ -303,6 +354,7 @@
                 '<strong>' + escapeHtml(plan.name || '未命名巡查任务') + '</strong>' +
                 '<span>' + escapeHtml(plan.unit || '未知单位') + ' · ' + escapeHtml(plan.task_type || '未知类型') + ' · ' + escapeHtml(plan.status || 'pending') + '</span>' +
                 '<span>' + escapeHtml(formatInterval(plan)) + '</span>' +
+                '<span>' + escapeHtml(routePreviewSourceLabel(plan)) + ' · GGER：' + escapeHtml(formatExecutionRouteGridCodes(plan)) + '</span>' +
                 '</button>';
         }
 
@@ -311,8 +363,8 @@
             if (!plan) return '<div class="flight-operation-detail">选择列表项查看来源与航线预览。</div>';
             return '<div class="flight-operation-detail">' +
                 '<strong>' + escapeHtml(plan.plan_type === 'approval_reported' ? (plan.pilot || '审批报备飞行') : (plan.name || '巡查任务')) + '</strong>' +
-                '<span>' + escapeHtml(routePreviewSourceLabel(plan)) + '</span>' +
-                (plan.external_source ? '<span>来源：' + escapeHtml(plan.external_source) + ' / ' + escapeHtml(plan.external_id || '--') + '</span>' : '') +
+                renderExecutionRouteDetail(plan) +
+                (!activeExecutionRoute(plan) && plan.external_source ? '<span>来源：' + escapeHtml(plan.external_source) + ' / ' + escapeHtml(plan.external_id || '--') + '</span>' : '') +
                 '<span>' + escapeHtml(state.previewMessage) + '</span>' +
                 '</div>';
         }
@@ -344,7 +396,7 @@
                 render();
                 return null;
             }
-            normalized = normalizeRoutePreviewGeometry(plan.route_preview_geometry);
+            normalized = normalizeRoutePreviewGeometry(routeGeometryForPreview(plan));
             state.previewMessage = normalized.ok ? '已在地图展示航线预览。' : normalized.message;
             renderRoutePreview(plan, normalized);
             render();
@@ -406,6 +458,9 @@
                 normalizeRoutePreviewGeometry: normalizeRoutePreviewGeometry,
                 fallbackDashboardData: fallbackDashboardData,
                 routePreviewSourceLabel: routePreviewSourceLabel,
+                routeGeometryForPreview: routeGeometryForPreview,
+                formatExecutionRouteGridCodes: formatExecutionRouteGridCodes,
+                renderExecutionRouteDetail: renderExecutionRouteDetail,
             },
         };
         return api;
@@ -417,6 +472,9 @@
             normalizeRoutePreviewGeometry: normalizeRoutePreviewGeometry,
             fallbackDashboardData: fallbackDashboardData,
             routePreviewSourceLabel: routePreviewSourceLabel,
+            routeGeometryForPreview: routeGeometryForPreview,
+            formatExecutionRouteGridCodes: formatExecutionRouteGridCodes,
+            renderExecutionRouteDetail: renderExecutionRouteDetail,
         },
     };
 }));

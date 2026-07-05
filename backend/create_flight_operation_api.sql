@@ -72,6 +72,91 @@ create table if not exists flight_operation.flight_plan (
 comment on column flight_operation.flight_plan.planned_sortie_count is
   'Deprecated compatibility field; one flight plan always represents one planned sortie and dashboard statistics never read this value.';
 
+alter table flight_operation.flight_plan
+  add column if not exists active_execution_route_id bigint;
+
+create table if not exists flight_operation.execution_route (
+  id bigserial primary key,
+  flight_plan_id bigint not null references flight_operation.flight_plan(id) on delete restrict,
+  source text not null,
+  is_active boolean not null default false,
+  route_geometry jsonb,
+  route_grid_codes jsonb not null,
+  external_source text,
+  external_id text,
+  external_raw_payload jsonb,
+  platform_path_planning_result_id bigint,
+  platform_validated boolean not null default false,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint flight_operation_execution_route_source_chk
+    check (source in ('platform_path_planning_result', 'third_party', 'manual')),
+  constraint flight_operation_execution_route_grid_codes_chk
+    check (jsonb_typeof(route_grid_codes) = 'array' and jsonb_array_length(route_grid_codes) > 0),
+  constraint flight_operation_execution_route_source_fields_chk
+    check (
+      (
+        source = 'third_party'
+        and external_source is not null
+        and external_id is not null
+        and external_raw_payload is not null
+        and route_geometry is not null
+        and platform_path_planning_result_id is null
+        and platform_validated = false
+      )
+      or
+      (
+        source = 'manual'
+        and external_source is null
+        and external_id is null
+        and external_raw_payload is null
+        and route_geometry is not null
+        and platform_path_planning_result_id is null
+        and platform_validated = false
+      )
+      or
+      (
+        source = 'platform_path_planning_result'
+        and platform_path_planning_result_id is not null
+        and external_source is null
+        and external_id is null
+        and external_raw_payload is null
+      )
+    ),
+  constraint flight_operation_execution_route_id_plan_uniq
+    unique (id, flight_plan_id)
+);
+
+comment on table flight_operation.execution_route is
+  'Execution route selected for a business flight plan; GGER grid codes are the persisted primary business expression and geometry is auxiliary preview/conversion input.';
+comment on column flight_operation.execution_route.route_grid_codes is
+  'Persisted GGER grid codes used for business display, audit, and exchange; regenerate by creating a new execution route record, never by silently overwriting old evidence.';
+comment on column flight_operation.execution_route.route_geometry is
+  'Auxiliary GeoJSON geometry for map preview or grid-code conversion input; not the primary business expression.';
+comment on column flight_operation.execution_route.platform_validated is
+  'False for third-party and manual execution routes; such routes are displayed as not platform reviewed for obstacle, compliance, or flyability.';
+
+create unique index if not exists flight_operation_execution_route_plan_active_uniq
+  on flight_operation.execution_route(flight_plan_id)
+  where is_active;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'flight_operation.flight_plan'::regclass
+      and conname = 'flight_operation_plan_active_execution_route_fk'
+  ) then
+    alter table flight_operation.flight_plan
+      add constraint flight_operation_plan_active_execution_route_fk
+      foreign key (active_execution_route_id, id)
+      references flight_operation.execution_route(id, flight_plan_id)
+      on delete restrict;
+  end if;
+end;
+$$;
+
 create table if not exists flight_operation.uav_asset (
   id bigserial primary key,
   asset_code text not null unique,
@@ -209,6 +294,11 @@ create trigger flight_operation_sortie_touch_updated_at
 before update on flight_operation.flight_sortie
 for each row execute function flight_operation.touch_updated_at();
 
+drop trigger if exists flight_operation_execution_route_touch_updated_at on flight_operation.execution_route;
+create trigger flight_operation_execution_route_touch_updated_at
+before update on flight_operation.execution_route
+for each row execute function flight_operation.touch_updated_at();
+
 create or replace function flight_operation.current_actor_role()
 returns text
 language sql
@@ -240,6 +330,27 @@ as $$
   select
     date_trunc('day', p_now at time zone 'Asia/Shanghai') at time zone 'Asia/Shanghai' as start_at,
     (date_trunc('day', p_now at time zone 'Asia/Shanghai') + interval '1 day') at time zone 'Asia/Shanghai' as end_at;
+$$;
+
+create or replace function flight_operation.execution_route_api_json(p_route flight_operation.execution_route)
+returns jsonb
+language sql
+stable
+as $$
+  select case when p_route.id is null then null else jsonb_build_object(
+    'id', p_route.id,
+    'flight_plan_id', p_route.flight_plan_id,
+    'source', p_route.source,
+    'route_grid_codes', p_route.route_grid_codes,
+    'route_geometry', p_route.route_geometry,
+    'external_source', p_route.external_source,
+    'external_id', p_route.external_id,
+    'external_raw_payload', p_route.external_raw_payload,
+    'platform_path_planning_result_id', p_route.platform_path_planning_result_id,
+    'platform_validated', p_route.platform_validated,
+    'platform_validation_label', case when p_route.platform_validated then '平台已复核' else '平台未复核可飞' end,
+    'created_at', p_route.created_at
+  ) end;
 $$;
 
 create or replace function api.get_today_flight_operation_dashboard(p_now timestamptz default now())
@@ -331,7 +442,12 @@ with auth as (
       'route_preview_source', route_preview_source,
       'external_source', external_source,
       'external_id', external_id,
-      'external_raw_payload', external_raw_payload
+      'external_raw_payload', external_raw_payload,
+      'active_execution_route', (
+        select flight_operation.execution_route_api_json(er)
+        from flight_operation.execution_route er
+        where er.id = today_plans.active_execution_route_id
+      )
     ) order by planned_start_at, id
   ) as items
   from today_plans
@@ -350,7 +466,12 @@ with auth as (
       'planned_end_at', planned_end_at,
       'planned_sortie_count', 1,
       'route_preview_geometry', route_preview_geometry,
-      'route_preview_source', route_preview_source
+      'route_preview_source', route_preview_source,
+      'active_execution_route', (
+        select flight_operation.execution_route_api_json(er)
+        from flight_operation.execution_route er
+        where er.id = today_plans.active_execution_route_id
+      )
     ) order by planned_start_at, id
   ) as items
   from today_plans
@@ -433,6 +554,116 @@ begin
 end;
 $$;
 
+create or replace function api.create_third_party_execution_route(
+  p_flight_plan_id bigint default null,
+  p_external_source text default null,
+  p_external_id text default null,
+  p_external_raw_payload jsonb default '{}'::jsonb,
+  p_route_geometry jsonb default null,
+  p_route_grid_codes jsonb default null,
+  p_metadata jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = flight_operation, public, pg_temp
+as $$
+declare
+  v_route flight_operation.execution_route;
+begin
+  perform flight_operation.require_admin();
+
+  if p_flight_plan_id is null then
+    raise exception 'flight_plan_id is required for execution routes';
+  end if;
+  if p_external_source is null or p_external_id is null then
+    raise exception 'external_source and external_id are required for third-party execution routes';
+  end if;
+  if p_route_geometry is null then
+    raise exception 'route_geometry is required for third-party execution routes';
+  end if;
+  if p_route_grid_codes is null then
+    raise exception 'non-empty GGER route_grid_codes array is required';
+  end if;
+  if jsonb_typeof(p_route_grid_codes) <> 'array' or jsonb_array_length(p_route_grid_codes) = 0 then
+    raise exception 'non-empty GGER route_grid_codes array is required';
+  end if;
+
+  update flight_operation.execution_route
+  set is_active = false
+  where flight_plan_id = p_flight_plan_id
+    and is_active;
+
+  insert into flight_operation.execution_route (
+    flight_plan_id, source, is_active, route_geometry, route_grid_codes,
+    external_source, external_id, external_raw_payload, platform_validated, metadata
+  ) values (
+    p_flight_plan_id, 'third_party', true, p_route_geometry, p_route_grid_codes,
+    p_external_source, p_external_id, coalesce(p_external_raw_payload, '{}'::jsonb), false, coalesce(p_metadata, '{}'::jsonb)
+  ) returning * into v_route;
+
+  update flight_operation.flight_plan
+  set active_execution_route_id = v_route.id,
+      route_preview_geometry = p_route_geometry,
+      route_preview_source = 'third_party'
+  where id = p_flight_plan_id;
+
+  return flight_operation.execution_route_api_json(v_route);
+end;
+$$;
+
+create or replace function api.create_manual_execution_route(
+  p_flight_plan_id bigint default null,
+  p_route_geometry jsonb default null,
+  p_route_grid_codes jsonb default null,
+  p_metadata jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = flight_operation, public, pg_temp
+as $$
+declare
+  v_route flight_operation.execution_route;
+begin
+  perform flight_operation.require_admin();
+
+  if p_flight_plan_id is null then
+    raise exception 'flight_plan_id is required for execution routes';
+  end if;
+  if p_route_geometry is null then
+    raise exception 'route_geometry is required for manual execution routes';
+  end if;
+  if p_route_grid_codes is null then
+    raise exception 'non-empty GGER route_grid_codes array is required';
+  end if;
+  if jsonb_typeof(p_route_grid_codes) <> 'array' or jsonb_array_length(p_route_grid_codes) = 0 then
+    raise exception 'non-empty GGER route_grid_codes array is required';
+  end if;
+
+  update flight_operation.execution_route
+  set is_active = false
+  where flight_plan_id = p_flight_plan_id
+    and is_active;
+
+  insert into flight_operation.execution_route (
+    flight_plan_id, source, is_active, route_geometry, route_grid_codes,
+    external_raw_payload, platform_validated, metadata
+  ) values (
+    p_flight_plan_id, 'manual', true, p_route_geometry, p_route_grid_codes,
+    null, false, coalesce(p_metadata, '{}'::jsonb)
+  ) returning * into v_route;
+
+  update flight_operation.flight_plan
+  set active_execution_route_id = v_route.id,
+      route_preview_geometry = p_route_geometry,
+      route_preview_source = 'manual'
+  where id = p_flight_plan_id;
+
+  return flight_operation.execution_route_api_json(v_route);
+end;
+$$;
+
 revoke all on schema flight_operation from public;
 grant usage on schema flight_operation to admin;
 grant select, insert, update, delete, truncate, references, trigger
@@ -442,8 +673,12 @@ grant execute on all functions in schema flight_operation to admin;
 
 revoke all on function api.get_today_flight_operation_dashboard(timestamptz) from public, anonymous;
 revoke all on function api.import_approval_reported_flight(text, text, text, text, timestamptz, timestamptz, text, jsonb, jsonb, text, integer, jsonb) from public, anonymous;
+revoke all on function api.create_third_party_execution_route(bigint, text, text, jsonb, jsonb, jsonb, jsonb) from public, anonymous;
+revoke all on function api.create_manual_execution_route(bigint, jsonb, jsonb, jsonb) from public, anonymous;
 grant execute on function api.get_today_flight_operation_dashboard(timestamptz) to admin;
 grant execute on function api.import_approval_reported_flight(text, text, text, text, timestamptz, timestamptz, text, jsonb, jsonb, text, integer, jsonb) to admin;
+grant execute on function api.create_third_party_execution_route(bigint, text, text, jsonb, jsonb, jsonb, jsonb) to admin;
+grant execute on function api.create_manual_execution_route(bigint, jsonb, jsonb, jsonb) to admin;
 
 alter default privileges for role postgres in schema flight_operation
   grant select, insert, update, delete, truncate, references, trigger on tables to admin;

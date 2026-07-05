@@ -71,6 +71,32 @@ assert.strictEqual(rendered.normalized.ok, true);
 assert.strictEqual(rendered.normalized.items[0].kind, 'point');
 assert.match(FlightOperationDashboard._private.routePreviewSourceLabel(selected), /第三方航线预览/);
 
+const routeFirstPlan = {
+  route_preview_source: 'platform',
+  route_preview_geometry: { type: 'LineString', coordinates: [[0, 0], [1, 1]] },
+  active_execution_route: {
+    source: 'third_party',
+    route_grid_codes: ['GGER-001', 'GGER-002'],
+    route_geometry: { type: 'Point', coordinates: [119, 34, 100] },
+    external_source: 'forest-platform',
+    external_id: 'route-9',
+    platform_validated: false,
+    platform_validation_label: '平台未复核可飞',
+  },
+};
+assert.match(FlightOperationDashboard._private.routePreviewSourceLabel(routeFirstPlan), /第三方执行用航线/);
+assert.deepStrictEqual(
+  FlightOperationDashboard._private.routeGeometryForPreview(routeFirstPlan),
+  routeFirstPlan.active_execution_route.route_geometry,
+);
+assert.strictEqual(
+  FlightOperationDashboard._private.formatExecutionRouteGridCodes(routeFirstPlan),
+  'GGER-001、GGER-002',
+);
+assert.match(FlightOperationDashboard._private.renderExecutionRouteDetail(routeFirstPlan), /GGER-001、GGER-002/);
+assert.match(FlightOperationDashboard._private.renderExecutionRouteDetail(routeFirstPlan), /平台未复核可飞/);
+assert.match(FlightOperationDashboard._private.renderExecutionRouteDetail(routeFirstPlan), /forest-platform \/ route-9/);
+
 const fallback = FlightOperationDashboard._private.fallbackDashboardData(new Date('2026-07-05T08:00:00+08:00'));
 assert.ok(fallback.summary.planned_sortie_count > 0);
 assert.ok(fallback.approval_reported_flights.length > 0);

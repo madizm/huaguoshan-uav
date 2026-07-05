@@ -75,4 +75,64 @@ where not exists (
     and s.status = 'in_progress'
 );
 
+with approval_plan as (
+  select id,
+         route_preview_geometry,
+         external_source,
+         external_id,
+         external_raw_payload
+  from flight_operation.flight_plan
+  where external_source = 'demo-third-party'
+    and external_id = 'HGSD-TODAY-001'
+  limit 1
+), inserted_route as (
+  insert into flight_operation.execution_route (
+    flight_plan_id, source, is_active, route_geometry, route_grid_codes,
+    external_source, external_id, external_raw_payload, platform_validated, metadata
+  )
+  select id, 'third_party', true, route_preview_geometry,
+         '["GGER-HGS-001","GGER-HGS-002"]'::jsonb,
+         external_source, external_id, external_raw_payload, false, '{"demo":true}'::jsonb
+  from approval_plan
+  where not exists (
+    select 1 from flight_operation.execution_route er
+    where er.flight_plan_id = approval_plan.id
+      and er.is_active
+  )
+  returning id, flight_plan_id
+)
+update flight_operation.flight_plan p
+set active_execution_route_id = r.id
+from inserted_route r
+where p.id = r.flight_plan_id;
+
+with patrol_plan as (
+  select id, route_preview_geometry
+  from flight_operation.flight_plan
+  where plan_type = 'patrol_task'
+    and metadata ->> 'demo_key' = 'today-patrol'
+  order by id
+  limit 1
+), inserted_route as (
+  insert into flight_operation.execution_route (
+    flight_plan_id, source, is_active, route_geometry, route_grid_codes,
+    platform_validated, metadata
+  )
+  select id, 'manual', true, route_preview_geometry,
+         '["GGER-HGS-PATROL-A","GGER-HGS-PATROL-B"]'::jsonb,
+         false, '{"demo":true}'::jsonb
+  from patrol_plan
+  where not exists (
+    select 1 from flight_operation.execution_route er
+    where er.flight_plan_id = patrol_plan.id
+      and er.is_active
+  )
+  returning id, flight_plan_id
+)
+update flight_operation.flight_plan p
+set active_execution_route_id = r.id,
+    route_preview_source = 'manual'
+from inserted_route r
+where p.id = r.flight_plan_id;
+
 commit;
