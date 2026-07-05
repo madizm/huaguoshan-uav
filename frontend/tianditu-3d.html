@@ -131,16 +131,31 @@
       flex-wrap: wrap;
       gap: 10px;
       margin-top: 14px;
+    }
+
     .auth-bar {
+      margin-top: 16px;
+      padding: 14px;
+      border: 1px solid rgba(215, 168, 70, 0.24);
+      border-radius: 16px;
+      background:
+        linear-gradient(135deg, rgba(215, 168, 70, 0.10), rgba(8, 61, 51, 0.22)),
+        rgba(0, 0, 0, 0.16);
+    }
+
+    .auth-bar h2 {
+      margin: 0 0 10px;
+      color: var(--gold);
+      font-size: 12px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+
+    .auth-bar .auth-body {
       display: flex;
       align-items: center;
       flex-wrap: wrap;
       gap: 8px;
-      margin-top: 14px;
-      padding: 12px;
-      border: 1px solid rgba(215, 168, 70, 0.18);
-      border-radius: 14px;
-      background: rgba(0, 0, 0, 0.18);
     }
     .auth-bar input {
       border: 1px solid rgba(244, 236, 216, 0.22);
@@ -155,29 +170,33 @@
       min-width: 0;
       flex: 1 1 100px;
     }
+
     .auth-bar input:focus {
       border-color: var(--gold);
     }
+
     .auth-bar .auth-status {
       font-size: 12px;
       padding: 4px 12px;
       border-radius: 999px;
       border: 1px solid transparent;
+      white-space: nowrap;
     }
+
     .auth-bar .auth-status.anon {
       border-color: rgba(244, 236, 216, 0.28);
       color: rgba(244, 236, 216, 0.55);
     }
+
     .auth-bar .auth-status.logged-in {
       border-color: var(--jade);
       color: var(--jade);
     }
+
     .auth-bar .auth-status.error {
       border-color: var(--cinnabar);
       color: var(--cinnabar);
     }
-    }
-
     button,
     .chip {
       border: 1px solid rgba(255, 247, 223, 0.28);
@@ -851,12 +870,16 @@
       使用 Cesium 1.108 + 天地图 Cesium 扩展加载影像、国界、地形、三维地名、本工程导出的 3D Tiles、DEM 与 GGER 空域网格；默认飞行至连云港花果山景区。
     </p>
     <div class="auth-bar" id="authBar" aria-label="认证登录">
-      <input type="text" id="authUsername" placeholder="管理员用户名" autocomplete="username" />
-      <input type="password" id="authPassword" placeholder="密码" autocomplete="current-password" />
-      <button class="primary" type="button" id="authLoginBtn">登录</button>
-      <button type="button" id="authLogoutBtn" style="display:none">登出</button>
-      <span class="auth-status anon" id="authStatus">未登录</span>
+      <h2>平台认证</h2>
+      <div class="auth-body">
+        <input type="text" id="authUsername" placeholder="管理员用户名" autocomplete="username" />
+        <input type="password" id="authPassword" placeholder="密码" autocomplete="current-password" />
+        <button class="primary" type="button" id="authLoginBtn">登录</button>
+        <button type="button" id="authLogoutBtn" style="display:none">登出</button>
+        <span class="auth-status anon" id="authStatus">未登录</span>
+      </div>
     </div>
+    <div class="actions" aria-label="相机操作">
       <button class="primary" type="button" data-action="huaguoshan">飞到花果山</button>
       <button type="button" data-action="tileset">查看 3D Tiles</button>
       <button type="button" data-action="dem">查看 DEM</button>
@@ -1024,6 +1047,7 @@
       var citydbFeatureGridRpcUrl = postgrestBaseUrl + '/rpc/get_citydb_feature_gger_grids';
       var flightObstaclesRpcUrl = postgrestBaseUrl + '/rpc/list_flight_obstacles_gger';
       var flightObstaclesLodRpcUrl = postgrestBaseUrl + '/rpc/list_flight_obstacles_gger_lod';
+      var airspaceProfile = 'api';
       var postgrestJwtStorageKey = 'postgrest.jwt';
       var airspaceTableByKind = {
         no_fly_zone: 'no_fly_zone',

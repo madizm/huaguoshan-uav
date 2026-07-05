@@ -187,6 +187,20 @@
       margin-top: 10px;
       line-height: 1.6;
     }
+    .portal-status {
+      margin: 12px 0 16px;
+      padding: 10px 14px;
+      border: 1px solid rgba(215, 168, 70, 0.24);
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.18);
+      color: rgba(244, 236, 216, 0.72);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .portal-status.error {
+      border-color: rgba(216, 90, 53, 0.52);
+      color: var(--cinnabar);
+    }
     footer {
       text-align: center;
       padding: 24px;
@@ -233,6 +247,9 @@
         <strong>需要 <code>role=admin</code> JWT</strong> 才能看到完整接口。
         匿名用户看到的是空白 OpenAPI 文档——这是 PostgREST 按角色公开 API 的正常行为，不要误判为 PostgREST 故障。
       </p>
+      <div class="portal-status" id="postgrestOpenApiStatus">
+        PostgREST OpenAPI 当前将按匿名角色加载；粘贴 admin JWT 后会使用该令牌重新请求完整业务 API 文档。
+      </div>
       <div id="scalarPgrstRef"></div>
     </div>
 
@@ -254,10 +271,12 @@
 
       var tokenInput = document.getElementById('tokenInput');
       var authStatus = document.getElementById('authStatus');
-      var storedToken = localStorage.getItem(TOKEN_KEY);
+      function storedToken() {
+        return localStorage.getItem(TOKEN_KEY);
+      }
 
       function updateAuthUI() {
-        var t = localStorage.getItem(TOKEN_KEY);
+        var t = storedToken();
         if (t) {
           tokenInput.value = t;
           authStatus.textContent = '已认证 (admin)';
@@ -288,39 +307,106 @@
 
       // ── Scalar integration ──────────────────────────────────────
 
-      function getAuthHeaders() {
-        var t = localStorage.getItem(TOKEN_KEY);
-        return t ? { 'Authorization': 'Bearer ' + t } : {};
+      function postgrestOpenApiHeaders() {
+        var token = storedToken();
+        var headers = { 'Accept': 'application/openapi+json' };
+        if (token) {
+          headers['Authorization'] = 'Bearer ' + token;
+        }
+        return headers;
+      }
+
+      function setPostgrestStatus(message, isError) {
+        var statusEl = document.getElementById('postgrestOpenApiStatus');
+        if (!statusEl) return;
+        statusEl.textContent = message;
+        statusEl.className = 'portal-status' + (isError ? ' error' : '');
+      }
+
+      function injectServers(spec, url) {
+        spec.servers = [{ url: url }];
+        return spec;
+      }
+
+      function injectBearerSecurity(postgrestSpec) {
+        postgrestSpec.components = postgrestSpec.components || {};
+        postgrestSpec.components.securitySchemes = postgrestSpec.components.securitySchemes || {};
+        postgrestSpec.components.securitySchemes.bearerAuth = {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT'
+        };
+        postgrestSpec.security = [{ bearerAuth: [] }];
+        return postgrestSpec;
+      }
+
+      function renderAuthReference() {
+        var authContainer = document.getElementById('scalarAuthRef');
+        if (!authContainer || typeof Scalar === 'undefined') return Promise.resolve();
+
+        authContainer.innerHTML = '<p class="portal-status">正在加载认证入口服务 OpenAPI…</p>';
+        return fetch('/openapi.json')
+          .then(function (response) {
+            if (!response.ok) throw new Error('认证入口服务 OpenAPI HTTP ' + response.status);
+            return response.json();
+          })
+          .then(function (authSpec) {
+            authContainer.innerHTML = '';
+            Scalar.createApiReference(authContainer, {
+              spec: { content: injectServers(authSpec, '/') }
+            });
+          })
+          .catch(function (error) {
+            authContainer.innerHTML = '<p class="portal-status error">无法加载认证入口服务 OpenAPI：' + error.message + '</p>';
+          });
+      }
+
+      function renderPostgrestReference() {
+        var pgrstContainer = document.getElementById('scalarPgrstRef');
+        if (!pgrstContainer || typeof Scalar === 'undefined') return Promise.resolve();
+
+        var token = storedToken();
+        pgrstContainer.innerHTML = '';
+        setPostgrestStatus(token ? '正在使用已存储 admin JWT 加载 PostgREST 业务 OpenAPI…' : '正在按匿名角色加载 PostgREST OpenAPI；匿名用户不会获得业务 API 权限。', false);
+
+        return fetch('/postgrest/', { headers: postgrestOpenApiHeaders() })
+          .then(function (response) {
+            if (!response.ok) throw new Error('PostgREST OpenAPI HTTP ' + response.status);
+            return response.json();
+          })
+          .then(function (postgrestSpec) {
+            postgrestSpec = injectServers(postgrestSpec, '/postgrest');
+            if (token) {
+              postgrestSpec = injectBearerSecurity(postgrestSpec);
+            }
+
+            var pathCount = postgrestSpec.paths ? Object.keys(postgrestSpec.paths).length : 0;
+            if (pathCount === 0) {
+              setPostgrestStatus('PostgREST OpenAPI 当前没有暴露业务路径。若未粘贴 admin JWT，这是匿名角色的预期结果；不会授予匿名业务访问。', false);
+            } else {
+              setPostgrestStatus('已加载 ' + pathCount + ' 个 PostgREST 业务路径。Scalar Try-It 请求会在令牌存在时携带 Authorization 头。', false);
+            }
+
+            Scalar.createApiReference(pgrstContainer, {
+              spec: { content: postgrestSpec },
+              authentication: token ? {
+                preferredSecurityScheme: 'bearerAuth',
+                http: {
+                  bearer: {
+                    token: token
+                  }
+                }
+              } : undefined
+            });
+          })
+          .catch(function (error) {
+            setPostgrestStatus('无法加载 PostgREST OpenAPI：' + error.message + '。请确认 Nginx /postgrest/ 路由可用；没有 admin JWT 时业务接口仍应保持不可匿名访问。', true);
+          });
       }
 
       function renderScalarInstances() {
-        // Render auth service OpenAPI reference (always anonymous).
-        var authContainer = document.getElementById('scalarAuthRef');
-        if (authContainer && typeof Scalar !== 'undefined') {
-          authContainer.innerHTML = '';
-          Scalar.createApiReference(authContainer, {
-            spec: { url: '/openapi.json' },
-          });
-        }
-
-        // Render PostgREST OpenAPI reference (with token if available).
-        var pgrstContainer = document.getElementById('scalarPgrstRef');
-        if (pgrstContainer && typeof Scalar !== 'undefined') {
-          pgrstContainer.innerHTML = '';
-          var headers = getAuthHeaders();
-          var authHeader = headers['Authorization'] || '';
-          Scalar.createApiReference(pgrstContainer, {
-            spec: { url: '/postgrest/' },
-            authentication: authHeader ? {
-              preferredSecurityScheme: 'bearerAuth',
-              http: {
-                bearer: {
-                  token: authHeader.replace('Bearer ', ''),
-                },
-              },
-            } : undefined,
-          });
-        }
+        renderAuthReference();
+        renderPostgrestReference();
       }
 
       // ── Load Scalar lazily ──────────────────────────────────────
