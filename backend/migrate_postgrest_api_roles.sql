@@ -11,6 +11,7 @@
 begin;
 
 create schema if not exists api;
+create schema if not exists flight_operation;
 comment on schema api is 'Stable PostgREST API facade for the Huaguoshan UAV application.';
 
 -- Roles ----------------------------------------------------------------------
@@ -46,21 +47,21 @@ grant usage on schema api to admin;
 -- `admin` can read/write business data but cannot create/alter/drop schema
 -- objects. public is intentionally excluded from business DML; only extension
 -- function execution and spatial_ref_sys reads are granted where needed.
-grant usage on schema citydb, terrain, airspace, citydb_grid, flight_path to admin;
+grant usage on schema citydb, terrain, airspace, citydb_grid, flight_path, flight_operation to admin;
 grant select, insert, update, delete, truncate, references, trigger
-  on all tables in schema citydb, terrain, airspace, citydb_grid, flight_path to admin;
-grant usage, select, update on all sequences in schema citydb, terrain, airspace, citydb_grid, flight_path to admin;
-grant execute on all functions in schema citydb, terrain, airspace, citydb_grid, flight_path to admin;
+  on all tables in schema citydb, terrain, airspace, citydb_grid, flight_path, flight_operation to admin;
+grant usage, select, update on all sequences in schema citydb, terrain, airspace, citydb_grid, flight_path, flight_operation to admin;
+grant execute on all functions in schema citydb, terrain, airspace, citydb_grid, flight_path, flight_operation to admin;
 
 grant usage on schema public to admin;
 grant execute on all functions in schema public to admin;
 grant select on table public.spatial_ref_sys to admin;
 
-alter default privileges for role postgres in schema citydb, terrain, airspace, citydb_grid, flight_path
+alter default privileges for role postgres in schema citydb, terrain, airspace, citydb_grid, flight_path, flight_operation
   grant select, insert, update, delete, truncate, references, trigger on tables to admin;
-alter default privileges for role postgres in schema citydb, terrain, airspace, citydb_grid, flight_path
+alter default privileges for role postgres in schema citydb, terrain, airspace, citydb_grid, flight_path, flight_operation
   grant usage, select, update on sequences to admin;
-alter default privileges for role postgres in schema citydb, terrain, airspace, citydb_grid, flight_path
+alter default privileges for role postgres in schema citydb, terrain, airspace, citydb_grid, flight_path, flight_operation
   grant execute on functions to admin;
 
 -- Flight path authorization compatibility -------------------------------------

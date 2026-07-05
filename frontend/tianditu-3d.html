@@ -18,6 +18,7 @@
   <script src="../js/AirspaceGridRenderer.js"></script>
   <script src="../js/AirspaceConstraintEditor.js"></script>
   <script src="../js/FlightObstacleSituationLayer.js"></script>
+  <script src="../js/FlightOperationDashboard.js"></script>
   <script src="../js/FlightPathWorkbench.js"></script>
   <script src="../js/GGERAirspaceGrid.js"></script>
   <link rel="stylesheet" cesium="true" href="https://api.tianditu.gov.cn/cdn/demo/sanwei/static/cesium/Widgets/widgets.css" />
@@ -230,6 +231,7 @@
       background: rgba(0, 0, 0, 0.14);
     }
 
+    .flight-operation-dashboard,
     .flight-path-controls,
     .airspace-admin-controls,
     .airspace-controls,
@@ -257,6 +259,7 @@
         rgba(0, 0, 0, 0.18);
     }
 
+    .flight-operation-dashboard h2,
     .flight-path-controls h2,
     .airspace-admin-controls h2,
     .airspace-controls h2,
@@ -274,6 +277,112 @@
 
     .airspace-admin-controls h2 {
       color: #ffb000;
+    }
+
+    .flight-operation-dashboard {
+      border-color: rgba(94, 234, 212, 0.34);
+      background:
+        radial-gradient(circle at top right, rgba(94, 234, 212, 0.14), transparent 48%),
+        linear-gradient(135deg, rgba(8, 61, 51, 0.72), rgba(0, 0, 0, 0.24));
+    }
+
+    .flight-operation-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .flight-operation-heading button {
+      padding: 7px 10px;
+      font-size: 12px;
+    }
+
+    .flight-operation-summary {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .flight-operation-card {
+      padding: 9px;
+      border: 1px solid rgba(94, 234, 212, 0.18);
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.18);
+    }
+
+    .flight-operation-card span,
+    .flight-operation-item span,
+    .flight-operation-detail span,
+    .flight-operation-empty,
+    .flight-operation-hint {
+      color: rgba(255, 247, 223, 0.62);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .flight-operation-card strong {
+      display: block;
+      margin-top: 3px;
+      color: var(--paper-strong);
+      font-size: 18px;
+    }
+
+    .flight-operation-lists {
+      display: grid;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .flight-operation-lists h3 {
+      margin: 0 0 8px;
+      color: rgba(94, 234, 212, 0.92);
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .flight-operation-list {
+      display: grid;
+      gap: 8px;
+      max-height: 150px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .flight-operation-item {
+      display: grid;
+      width: 100%;
+      gap: 5px;
+      padding: 9px;
+      border-radius: 12px;
+      text-align: left;
+      white-space: normal;
+    }
+
+    .flight-operation-item.is-selected {
+      border-color: #5eead4;
+      background: rgba(94, 234, 212, 0.16);
+    }
+
+    .flight-operation-item strong,
+    .flight-operation-detail strong {
+      color: var(--paper-strong);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .flight-operation-detail {
+      display: grid;
+      gap: 5px;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(94, 234, 212, 0.18);
+    }
+
+    .flight-operation-dashboard h2 {
+      color: #5eead4;
     }
 
     .flight-path-controls {
@@ -931,6 +1040,7 @@
         <button type="button" data-action="clearFlightObstacles">清除</button>
       </div>
     </div>
+    <div id="flightOperationDashboard"></div>
     <div id="flightPathWorkbench"></div>
     <div id="airspaceConstraintEditor"></div>
     <div class="airspace-controls" aria-label="GGER 空域网格参数">
@@ -1076,6 +1186,7 @@
         selectedGridBounds: null,
         selectedGridCells: [],
         flightObstacleLayer: null,
+        flightOperationDashboard: null,
         airspaceConstraintEditor: null,
         airspaceConstraintPreviewEntities: [],
         flightPathWorkbench: null
@@ -2367,6 +2478,20 @@
         state.flightPathWorkbench.setViewer(state.viewer);
         state.flightPathWorkbench.mount(container);
       }
+      function bindFlightOperationDashboard() {
+        var container = $('#flightOperationDashboard');
+        if (!container || !window.FlightOperationDashboard) {
+          log('今日飞行运营看板模块未加载。');
+          return;
+        }
+        state.flightOperationDashboard = window.FlightOperationDashboard.create({
+          rpc: postgrestRpc,
+          log: log,
+          getCesium: function () { return window.Cesium; },
+          viewer: state.viewer
+        });
+        state.flightOperationDashboard.mount(container);
+      }
 
       function scheduleTerrainLodRefresh() {
         if (state.flightObstacleLayer) state.flightObstacleLayer.scheduleTerrainLodRefresh();
@@ -2691,6 +2816,7 @@
         bindControls();
         bindAirspaceControls();
         bindAirspaceAdminControls();
+        bindFlightOperationDashboard();
         bindFlightPathControls();
         bindObstacleControls();
         bindTerrainLodCameraRefresh(state.viewer);
