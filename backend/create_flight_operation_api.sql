@@ -6,6 +6,8 @@
 
 begin;
 
+create extension if not exists best_geomgrid cascade;
+
 create schema if not exists flight_operation;
 create schema if not exists api;
 
@@ -81,7 +83,7 @@ create table if not exists flight_operation.execution_route (
   source text not null,
   is_active boolean not null default false,
   route_geometry jsonb,
-  route_grid_codes jsonb not null,
+  route_grid_codes gridcell[] not null,
   external_source text,
   external_id text,
   external_raw_payload jsonb,
@@ -93,7 +95,7 @@ create table if not exists flight_operation.execution_route (
   constraint flight_operation_execution_route_source_chk
     check (source in ('platform_path_planning_result', 'third_party', 'manual')),
   constraint flight_operation_execution_route_grid_codes_chk
-    check (jsonb_typeof(route_grid_codes) = 'array' and jsonb_array_length(route_grid_codes) > 0),
+    check (cardinality(route_grid_codes) > 0 and array_position(route_grid_codes, null) is null),
   constraint flight_operation_execution_route_source_fields_chk
     check (
       (
@@ -136,6 +138,52 @@ comment on column flight_operation.execution_route.route_geometry is
   'Auxiliary GeoJSON geometry for map preview or grid-code conversion input; not the primary business expression.';
 comment on column flight_operation.execution_route.platform_validated is
   'False for third-party and manual execution routes; such routes are displayed as not platform reviewed for obstacle, compliance, or flyability.';
+
+create or replace function flight_operation.gger_jsonb_to_gridcells(p_codes jsonb)
+returns gridcell[]
+language sql
+immutable
+as $$
+  select ST_GridCellsFromTexts(array_agg(value order by ord), 'GGER')
+  from jsonb_array_elements_text(p_codes) with ordinality as codes(value, ord);
+$$;
+
+do $$
+declare
+  v_route_grid_codes_type text;
+  v_grid_codes_constraint text;
+begin
+  select udt_name into v_route_grid_codes_type
+  from information_schema.columns
+  where table_schema = 'flight_operation'
+    and table_name = 'execution_route'
+    and column_name = 'route_grid_codes';
+
+  select conname into v_grid_codes_constraint
+  from pg_constraint
+  where conrelid = 'flight_operation.execution_route'::regclass
+    and conname = 'flight_operation_execution_route_grid_codes_chk';
+
+  if v_grid_codes_constraint is not null then
+    alter table flight_operation.execution_route
+      drop constraint flight_operation_execution_route_grid_codes_chk;
+  end if;
+
+  if v_route_grid_codes_type = 'jsonb' then
+    alter table flight_operation.execution_route
+      alter column route_grid_codes type gridcell[]
+      using flight_operation.gger_jsonb_to_gridcells(route_grid_codes);
+  elsif v_route_grid_codes_type = '_text' then
+    alter table flight_operation.execution_route
+      alter column route_grid_codes type gridcell[]
+      using ST_GridCellsFromTexts(route_grid_codes, 'GGER');
+  end if;
+
+  alter table flight_operation.execution_route
+    add constraint flight_operation_execution_route_grid_codes_chk
+    check (cardinality(route_grid_codes) > 0 and array_position(route_grid_codes, null) is null);
+end;
+$$;
 
 create index if not exists flight_operation_execution_route_platform_result_idx
   on flight_operation.execution_route(platform_path_planning_result_id)
@@ -345,7 +393,7 @@ as $$
     'id', p_route.id,
     'flight_plan_id', p_route.flight_plan_id,
     'source', p_route.source,
-    'route_grid_codes', p_route.route_grid_codes,
+    'route_grid_codes', coalesce((select jsonb_agg(ST_AsText(cell, 'GGER') order by ord) from unnest(p_route.route_grid_codes) with ordinality as cells(cell, ord)), '[]'::jsonb),
     'route_geometry', p_route.route_geometry,
     'external_source', p_route.external_source,
     'external_id', p_route.external_id,
@@ -558,13 +606,15 @@ begin
 end;
 $$;
 
+drop function if exists api.create_third_party_execution_route(bigint, text, text, jsonb, jsonb, jsonb, jsonb);
+drop function if exists api.create_third_party_execution_route(bigint, text, text, jsonb, jsonb, text[], jsonb);
 create or replace function api.create_third_party_execution_route(
   p_flight_plan_id bigint default null,
   p_external_source text default null,
   p_external_id text default null,
   p_external_raw_payload jsonb default '{}'::jsonb,
   p_route_geometry jsonb default null,
-  p_route_grid_codes jsonb default null,
+  p_route_grid_codes gridcell[] default null,
   p_metadata jsonb default '{}'::jsonb
 )
 returns jsonb
@@ -589,7 +639,7 @@ begin
   if p_route_grid_codes is null then
     raise exception 'non-empty GGER route_grid_codes array is required';
   end if;
-  if jsonb_typeof(p_route_grid_codes) <> 'array' or jsonb_array_length(p_route_grid_codes) = 0 then
+  if cardinality(p_route_grid_codes) = 0 or array_position(p_route_grid_codes, null) is not null then
     raise exception 'non-empty GGER route_grid_codes array is required';
   end if;
 
@@ -616,10 +666,12 @@ begin
 end;
 $$;
 
+drop function if exists api.create_manual_execution_route(bigint, jsonb, jsonb, jsonb);
+drop function if exists api.create_manual_execution_route(bigint, jsonb, text[], jsonb);
 create or replace function api.create_manual_execution_route(
   p_flight_plan_id bigint default null,
   p_route_geometry jsonb default null,
-  p_route_grid_codes jsonb default null,
+  p_route_grid_codes gridcell[] default null,
   p_metadata jsonb default '{}'::jsonb
 )
 returns jsonb
@@ -641,7 +693,7 @@ begin
   if p_route_grid_codes is null then
     raise exception 'non-empty GGER route_grid_codes array is required';
   end if;
-  if jsonb_typeof(p_route_grid_codes) <> 'array' or jsonb_array_length(p_route_grid_codes) = 0 then
+  if cardinality(p_route_grid_codes) = 0 or array_position(p_route_grid_codes, null) is not null then
     raise exception 'non-empty GGER route_grid_codes array is required';
   end if;
 
@@ -668,10 +720,12 @@ begin
 end;
 $$;
 
+drop function if exists api.select_platform_path_planning_execution_route(bigint, bigint, jsonb, jsonb);
+drop function if exists api.select_platform_path_planning_execution_route(bigint, bigint, text[], jsonb);
 create or replace function api.select_platform_path_planning_execution_route(
   p_flight_plan_id bigint default null,
   p_platform_path_planning_result_id bigint default null,
-  p_route_grid_codes jsonb default null,
+  p_route_grid_codes gridcell[] default null,
   p_metadata jsonb default '{}'::jsonb
 )
 returns jsonb
@@ -683,6 +737,7 @@ declare
   v_result flight_path.plan_result;
   v_route flight_operation.execution_route;
   v_route_geometry jsonb;
+  v_route_grid_codes gridcell[];
 begin
   perform flight_operation.require_admin();
 
@@ -692,13 +747,6 @@ begin
   if p_platform_path_planning_result_id is null then
     raise exception 'platform_path_planning_result_id is required for platform path planning execution routes';
   end if;
-  if p_route_grid_codes is null then
-    raise exception 'non-empty GGER route_grid_codes array is required';
-  end if;
-  if jsonb_typeof(p_route_grid_codes) <> 'array' or jsonb_array_length(p_route_grid_codes) = 0 then
-    raise exception 'non-empty GGER route_grid_codes array is required';
-  end if;
-
   select * into v_result
   from flight_path.plan_result
   where id = p_platform_path_planning_result_id;
@@ -708,6 +756,14 @@ begin
   end if;
   if v_result.result_status <> 'success' then
     raise exception 'platform path planning result % is not successful', p_platform_path_planning_result_id;
+  end if;
+
+  v_route_grid_codes := coalesce(p_route_grid_codes, v_result.grid_path);
+  if v_route_grid_codes is null then
+    raise exception 'non-empty GGER route_grid_codes array is required';
+  end if;
+  if cardinality(v_route_grid_codes) = 0 or array_position(v_route_grid_codes, null) is not null then
+    raise exception 'non-empty GGER route_grid_codes array is required';
   end if;
 
   v_route_geometry := case
@@ -724,7 +780,7 @@ begin
     flight_plan_id, source, is_active, route_geometry, route_grid_codes,
     platform_path_planning_result_id, platform_validated, metadata
   ) values (
-    p_flight_plan_id, 'platform_path_planning_result', true, v_route_geometry, p_route_grid_codes,
+    p_flight_plan_id, 'platform_path_planning_result', true, v_route_geometry, v_route_grid_codes,
     p_platform_path_planning_result_id, true, coalesce(p_metadata, '{}'::jsonb)
   ) returning * into v_route;
 
@@ -747,14 +803,14 @@ grant execute on all functions in schema flight_operation to admin;
 
 revoke all on function api.get_today_flight_operation_dashboard(timestamptz) from public, anonymous;
 revoke all on function api.import_approval_reported_flight(text, text, text, text, timestamptz, timestamptz, text, jsonb, jsonb, text, integer, jsonb) from public, anonymous;
-revoke all on function api.create_third_party_execution_route(bigint, text, text, jsonb, jsonb, jsonb, jsonb) from public, anonymous;
-revoke all on function api.create_manual_execution_route(bigint, jsonb, jsonb, jsonb) from public, anonymous;
-revoke all on function api.select_platform_path_planning_execution_route(bigint, bigint, jsonb, jsonb) from public, anonymous;
+revoke all on function api.create_third_party_execution_route(bigint, text, text, jsonb, jsonb, gridcell[], jsonb) from public, anonymous;
+revoke all on function api.create_manual_execution_route(bigint, jsonb, gridcell[], jsonb) from public, anonymous;
+revoke all on function api.select_platform_path_planning_execution_route(bigint, bigint, gridcell[], jsonb) from public, anonymous;
 grant execute on function api.get_today_flight_operation_dashboard(timestamptz) to admin;
 grant execute on function api.import_approval_reported_flight(text, text, text, text, timestamptz, timestamptz, text, jsonb, jsonb, text, integer, jsonb) to admin;
-grant execute on function api.create_third_party_execution_route(bigint, text, text, jsonb, jsonb, jsonb, jsonb) to admin;
-grant execute on function api.create_manual_execution_route(bigint, jsonb, jsonb, jsonb) to admin;
-grant execute on function api.select_platform_path_planning_execution_route(bigint, bigint, jsonb, jsonb) to admin;
+grant execute on function api.create_third_party_execution_route(bigint, text, text, jsonb, jsonb, gridcell[], jsonb) to admin;
+grant execute on function api.create_manual_execution_route(bigint, jsonb, gridcell[], jsonb) to admin;
+grant execute on function api.select_platform_path_planning_execution_route(bigint, bigint, gridcell[], jsonb) to admin;
 
 alter default privileges for role postgres in schema flight_operation
   grant select, insert, update, delete, truncate, references, trigger on tables to admin;

@@ -27,6 +27,8 @@ class FlightOperationSchemaContractTests(unittest.TestCase):
         cls.sql = SQL_PATH.read_text(encoding="utf-8").lower()
 
     def test_core_tables_and_vocabularies_exist(self):
+        self.assertIn("create extension if not exists best_geomgrid cascade", self.sql)
+
         for table in ["flight_plan", "execution_route", "uav_asset", "flight_sortie"]:
             self.assertIn(f"create table if not exists flight_operation.{table}", self.sql)
 
@@ -42,8 +44,8 @@ class FlightOperationSchemaContractTests(unittest.TestCase):
         self.assertIn("flight_operation_plan_active_execution_route_fk", self.sql)
         self.assertIn("flight_operation_execution_route_plan_active_uniq", self.sql)
         self.assertIn("source in ('platform_path_planning_result', 'third_party', 'manual')", self.sql)
-        self.assertIn("route_grid_codes jsonb not null", self.sql)
-        self.assertIn("jsonb_array_length(route_grid_codes) > 0", self.sql)
+        self.assertIn("route_grid_codes gridcell[] not null", self.sql)
+        self.assertIn("cardinality(route_grid_codes) > 0", self.sql)
         self.assertIn("platform_path_planning_result_id bigint references flight_path.plan_result(id) on delete restrict", self.sql)
         self.assertIn("platform_validated boolean not null default false", self.sql)
         self.assertIn("external_source is not null", self.sql)
@@ -56,8 +58,9 @@ class FlightOperationSchemaContractTests(unittest.TestCase):
         self.assertIn("create or replace function api.create_third_party_execution_route", self.sql)
         self.assertIn("create or replace function api.create_manual_execution_route", self.sql)
         self.assertIn("create or replace function api.select_platform_path_planning_execution_route", self.sql)
-        self.assertIn("p_route_grid_codes jsonb", self.sql)
-        self.assertIn("if jsonb_typeof(p_route_grid_codes) <> 'array' or jsonb_array_length(p_route_grid_codes) = 0 then", self.sql)
+        self.assertIn("drop function if exists api.create_third_party_execution_route(bigint, text, text, jsonb, jsonb, jsonb, jsonb)", self.sql)
+        self.assertIn("p_route_grid_codes gridcell[]", self.sql)
+        self.assertIn("cardinality(p_route_grid_codes) = 0", self.sql)
         self.assertIn("p_platform_path_planning_result_id", self.sql)
         self.assertIn("result_status <> 'success'", self.sql)
         self.assertIn("'platform_path_planning_result', true", self.sql)

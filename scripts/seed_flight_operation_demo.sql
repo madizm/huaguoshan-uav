@@ -91,7 +91,10 @@ with approval_plan as (
     external_source, external_id, external_raw_payload, platform_validated, metadata
   )
   select id, 'third_party', true, route_preview_geometry,
-         '["GGER-HGS-001","GGER-HGS-002"]'::jsonb,
+         array[
+           ST_AsGridcell3D(119.245, 34.642, 150, 19),
+           ST_AsGridcell3D(119.286, 34.646, 150, 19)
+         ]::gridcell[],
          external_source, external_id, external_raw_payload, false, '{"demo":true}'::jsonb
   from approval_plan
   where not exists (
@@ -119,7 +122,10 @@ with patrol_plan as (
     platform_validated, metadata
   )
   select id, 'manual', true, route_preview_geometry,
-         '["GGER-HGS-PATROL-A","GGER-HGS-PATROL-B"]'::jsonb,
+         array[
+           ST_AsGridcell3D(119.255, 34.635, 120, 19),
+           ST_AsGridcell3D(119.296, 34.661, 120, 19)
+         ]::gridcell[],
          false, '{"demo":true}'::jsonb
   from patrol_plan
   where not exists (
