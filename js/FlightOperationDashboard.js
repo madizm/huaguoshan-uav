@@ -387,6 +387,9 @@
             if (!viewer || !viewer.scene || !viewer.scene.primitives || !CesiumRuntime || !cells.length) return;
             cells.forEach(function(cell) { addBoxEdges(edges, cell); });
             primitive = new CesiumRuntime.PolylineCollection();
+            var material = CesiumRuntime.Material.fromType(CesiumRuntime.Material.ColorType || 'Color', {
+                color: CesiumRuntime.Color.YELLOW.withAlpha(0.78),
+            });
             Object.keys(edges).forEach(function(key) {
                 var edge = edges[key];
                 primitive.add({
@@ -395,7 +398,7 @@
                         CesiumRuntime.Cartesian3.fromDegrees(edge.lon2, edge.lat2, edge.h2),
                     ],
                     width: 2.2,
-                    material: CesiumRuntime.Color.YELLOW.withAlpha(0.78),
+                    material: material,
                 });
             });
             routeGridPrimitive = viewer.scene.primitives.add(primitive);
