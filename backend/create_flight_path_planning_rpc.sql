@@ -71,8 +71,8 @@ create table if not exists flight_path.plan_result (
   obstacle_table text not null default 'flight_obstacles',
   obstacle_field text not null default 'grids',
   grid_path gridcell[],
-  route_geom geometry,
-  smooth_route_geom geometry,
+  route_geom geometry(Geometry, 4326),
+  smooth_route_geom geometry(Geometry, 4326),
   route_traj trajectory,
   smooth_route_traj trajectory,
   segment_count integer not null default 0,
@@ -90,6 +90,32 @@ alter table flight_path.plan_result
   alter column obstacle_field set default 'grids',
   alter column route_geom type geometry using route_geom::geometry,
   alter column smooth_route_geom type geometry using smooth_route_geom::geometry;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'flight_path.plan_result'::regclass
+      and conname = 'flight_path_plan_result_route_geom_srid_chk'
+  ) then
+    alter table flight_path.plan_result
+      add constraint flight_path_plan_result_route_geom_srid_chk
+      check (route_geom is null or ST_SRID(route_geom) = 4326);
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'flight_path.plan_result'::regclass
+      and conname = 'flight_path_plan_result_smooth_route_geom_srid_chk'
+  ) then
+    alter table flight_path.plan_result
+      add constraint flight_path_plan_result_smooth_route_geom_srid_chk
+      check (smooth_route_geom is null or ST_SRID(smooth_route_geom) = 4326);
+  end if;
+end;
+$$;
 
 do $$
 declare

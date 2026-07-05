@@ -83,7 +83,7 @@ create table if not exists flight_operation.execution_route (
   flight_plan_id bigint not null references flight_operation.flight_plan(id) on delete restrict,
   source text not null,
   is_active boolean not null default false,
-  route_geometry geometry,
+  route_geometry geometry(Geometry, 4326),
   route_grid_codes gridcell[] not null,
   external_source text,
   external_id text,
@@ -201,6 +201,17 @@ begin
     alter table flight_operation.execution_route
       alter column route_geometry type geometry
       using flight_operation.route_geometry_from_geojson(route_geometry);
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'flight_operation.execution_route'::regclass
+      and conname = 'flight_operation_execution_route_route_geometry_srid_chk'
+  ) then
+    alter table flight_operation.execution_route
+      add constraint flight_operation_execution_route_route_geometry_srid_chk
+      check (route_geometry is null or ST_SRID(route_geometry) = 4326);
   end if;
 
   if v_route_grid_codes_type = 'jsonb' then
