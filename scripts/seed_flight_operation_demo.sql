@@ -18,13 +18,13 @@ with today as (
 ), upsert_approval as (
   insert into flight_operation.flight_plan (
     plan_type, plan_source, status, pilot, reporting_unit, approval_status,
-    planned_start_at, planned_end_at, planned_sortie_count,
+    planned_start_at, planned_end_at,
     route_preview_geometry, route_preview_source,
     external_source, external_id, external_raw_payload
   )
   select
     'approval_reported', 'third_party', 'pending', '张三', '花果山通航服务队', 'approved',
-    start_at + interval '9 hours', start_at + interval '10 hours 30 minutes', 1,
+    start_at + interval '9 hours', start_at + interval '10 hours 30 minutes',
     '{"type":"LineString","coordinates":[[119.245,34.642,150],[119.268,34.651,150],[119.286,34.646,150]]}'::jsonb,
     'third_party', 'demo-third-party', 'HGSD-TODAY-001', '{"demo":true}'::jsonb
   from today
@@ -38,12 +38,12 @@ with today as (
 ), upsert_patrol as (
   insert into flight_operation.flight_plan (
     plan_type, plan_source, status, name, unit, patrol_task_type,
-    planned_start_at, planned_end_at, planned_sortie_count,
+    planned_start_at, planned_end_at,
     route_preview_geometry, route_preview_source, metadata
   )
   select
     'patrol_task', 'platform', 'in_progress', '花果山北坡林火巡查', '连云港低空巡查队', '林火巡查',
-    start_at + interval '13 hours 30 minutes', start_at + interval '18 hours', 3,
+    start_at + interval '13 hours 30 minutes', start_at + interval '18 hours',
     '{"type":"Polygon","coordinates":[[[119.255,34.635,120],[119.292,34.637,120],[119.296,34.661,120],[119.252,34.662,120],[119.255,34.635,120]]]}'::jsonb,
     'platform', '{"demo_key":"today-patrol"}'::jsonb
   from today

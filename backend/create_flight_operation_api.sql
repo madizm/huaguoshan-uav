@@ -45,8 +45,6 @@ create table if not exists flight_operation.flight_plan (
     check (route_preview_source is null or route_preview_source in ('third_party', 'platform', 'manual')),
   constraint flight_operation_plan_interval_chk
     check (planned_start_at < planned_end_at),
-  constraint flight_operation_plan_sortie_count_chk
-    check (planned_sortie_count is null or planned_sortie_count > 0),
   constraint flight_operation_plan_external_identity_uniq
     unique (external_source, external_id),
   constraint flight_operation_plan_type_fields_chk
@@ -71,6 +69,9 @@ create table if not exists flight_operation.flight_plan (
     )
 );
 
+comment on column flight_operation.flight_plan.planned_sortie_count is
+  'Deprecated compatibility field; one flight plan always represents one planned sortie and dashboard statistics never read this value.';
+
 create table if not exists flight_operation.uav_asset (
   id bigserial primary key,
   asset_code text not null unique,
@@ -85,7 +86,7 @@ create table if not exists flight_operation.uav_asset (
 
 create table if not exists flight_operation.flight_sortie (
   id bigserial primary key,
-  flight_plan_id bigint references flight_operation.flight_plan(id) on delete set null,
+  flight_plan_id bigint not null references flight_operation.flight_plan(id) on delete restrict,
   uav_asset_id bigint references flight_operation.uav_asset(id) on delete set null,
   status text not null default 'scheduled',
   scheduled_start_at timestamptz,
@@ -105,8 +106,67 @@ create table if not exists flight_operation.flight_sortie (
       or (status = 'in_progress' and actual_start_at is not null and actual_end_at is null)
       or (status = 'completed' and actual_start_at is not null and actual_end_at is not null and actual_start_at <= actual_end_at)
       or (status = 'aborted' and actual_start_at is not null and (actual_end_at is null or actual_start_at <= actual_end_at))
-    )
+    ),
+  constraint flight_operation_sortie_plan_one_to_one_uniq
+    unique (flight_plan_id)
 );
+do $$
+declare
+  v_plan_fk_name text;
+begin
+  if exists (
+    select 1 from flight_operation.flight_sortie where flight_plan_id is null
+  ) then
+    raise exception 'cannot enforce one-plan-one-sortie: flight_sortie.flight_plan_id contains nulls';
+  end if;
+
+  if exists (
+    select 1
+    from flight_operation.flight_sortie
+    group by flight_plan_id
+    having count(*) > 1
+  ) then
+    raise exception 'cannot enforce one-plan-one-sortie: duplicate flight_sortie rows exist for a flight plan';
+  end if;
+
+  select c.conname into v_plan_fk_name
+  from pg_constraint c
+  join pg_attribute a
+    on a.attrelid = c.conrelid
+   and a.attnum = any(c.conkey)
+  where c.conrelid = 'flight_operation.flight_sortie'::regclass
+    and c.contype = 'f'
+    and a.attname = 'flight_plan_id'
+  limit 1;
+
+  if v_plan_fk_name is not null then
+    execute format('alter table flight_operation.flight_sortie drop constraint %I', v_plan_fk_name);
+  end if;
+
+  alter table flight_operation.flight_sortie
+    alter column flight_plan_id set not null;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'flight_operation.flight_sortie'::regclass
+      and conname = 'flight_operation_sortie_plan_fk'
+  ) then
+    alter table flight_operation.flight_sortie
+      add constraint flight_operation_sortie_plan_fk
+      foreign key (flight_plan_id) references flight_operation.flight_plan(id) on delete restrict;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'flight_operation.flight_sortie'::regclass
+      and conname = 'flight_operation_sortie_plan_one_to_one_uniq'
+  ) then
+    alter table flight_operation.flight_sortie
+      add constraint flight_operation_sortie_plan_one_to_one_uniq unique (flight_plan_id);
+  end if;
+end;
+$$;
+
 
 create index if not exists flight_operation_plan_today_window_idx
   on flight_operation.flight_plan (planned_start_at, planned_end_at);
@@ -115,8 +175,6 @@ create index if not exists flight_operation_plan_type_status_idx
 create index if not exists flight_operation_plan_approval_status_idx
   on flight_operation.flight_plan (approval_status)
   where plan_type = 'approval_reported';
-create index if not exists flight_operation_sortie_plan_idx
-  on flight_operation.flight_sortie (flight_plan_id);
 create index if not exists flight_operation_sortie_uav_status_idx
   on flight_operation.flight_sortie (uav_asset_id, status);
 create index if not exists flight_operation_sortie_actual_start_idx
@@ -196,7 +254,7 @@ with auth as (
 ), w as (
   select * from flight_operation.today_window(p_now)
 ), today_plans as (
-  select p.*, coalesce(planned_sortie_count, 1) as normalized_planned_sortie_count
+  select p.*
   from flight_operation.flight_plan p, w, auth
   where planned_start_at < w.end_at
     and planned_end_at > w.start_at
@@ -208,11 +266,7 @@ with auth as (
 ), statistic_sorties as (
   select s.*
   from flight_operation.flight_sortie s
-  left join flight_operation.flight_plan p on p.id = s.flight_plan_id
-  cross join auth
-  where p.id is null
-     or p.plan_type <> 'approval_reported'
-     or p.approval_status not in ('rejected', 'revoked')
+  join actionable_plans p on p.id = s.flight_plan_id
 ), cumulative_actual as (
   select count(*)::integer as value
   from statistic_sorties s, w
@@ -226,14 +280,14 @@ with auth as (
     and actual_end_at >= w.start_at
     and actual_end_at < w.end_at
 ), planned as (
-  select coalesce(sum(normalized_planned_sortie_count), 0)::integer as value
+  select count(*)::integer as value
   from actionable_plans
 ), pending_plan_side as (
-  select coalesce(sum(normalized_planned_sortie_count), 0)::integer as value
+  select count(*)::integer as value
   from actionable_plans
   where status not in ('completed', 'cancelled')
 ), patrol as (
-  select coalesce(sum(normalized_planned_sortie_count), 0)::integer as value
+  select count(*)::integer as value
   from actionable_plans
   where plan_type = 'patrol_task'
 ), aircraft_on_mission as (
@@ -256,7 +310,7 @@ with auth as (
     (select value from planned) as planned_sortie_count,
     (select value from completed_actual) as completed_actual_sortie_count,
     (select value from cumulative_actual) as cumulative_actual_sortie_count,
-    greatest((select value from pending_plan_side) - (select value from completed_actual), 0)::integer as pending_planned_sortie_count,
+    (select value from pending_plan_side) as pending_planned_sortie_count,
     (select value from patrol) as patrol_count,
     (select value from aircraft_on_mission) as aircraft_on_mission_count,
     (select value from idle_aircraft) as idle_aircraft_count
@@ -271,7 +325,7 @@ with auth as (
       'reporting_unit', reporting_unit,
       'planned_start_at', planned_start_at,
       'planned_end_at', planned_end_at,
-      'planned_sortie_count', normalized_planned_sortie_count,
+      'planned_sortie_count', 1,
       'approval_status', approval_status,
       'route_preview_geometry', route_preview_geometry,
       'route_preview_source', route_preview_source,
@@ -294,7 +348,7 @@ with auth as (
       'task_type', patrol_task_type,
       'planned_start_at', planned_start_at,
       'planned_end_at', planned_end_at,
-      'planned_sortie_count', normalized_planned_sortie_count,
+      'planned_sortie_count', 1,
       'route_preview_geometry', route_preview_geometry,
       'route_preview_source', route_preview_source
     ) order by planned_start_at, id
@@ -356,7 +410,7 @@ begin
   ) values (
     'approval_reported', 'third_party', coalesce(p_status, 'pending'),
     p_pilot, p_reporting_unit, coalesce(p_approval_status, 'unknown'),
-    p_planned_start_at, p_planned_end_at, p_planned_sortie_count,
+    p_planned_start_at, p_planned_end_at, null,
     p_route_preview_geometry, case when p_route_preview_geometry is null then null else 'third_party' end,
     p_external_source, p_external_id, coalesce(p_external_raw_payload, '{}'::jsonb), coalesce(p_metadata, '{}'::jsonb)
   )
@@ -367,7 +421,7 @@ begin
       approval_status = excluded.approval_status,
       planned_start_at = excluded.planned_start_at,
       planned_end_at = excluded.planned_end_at,
-      planned_sortie_count = excluded.planned_sortie_count,
+      planned_sortie_count = null,
       route_preview_geometry = excluded.route_preview_geometry,
       route_preview_source = excluded.route_preview_source,
       external_raw_payload = excluded.external_raw_payload,

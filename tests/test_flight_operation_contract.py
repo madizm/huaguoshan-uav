@@ -40,30 +40,39 @@ class FlightOperationSchemaContractTests(unittest.TestCase):
     def test_constraints_and_indexes_cover_prd_slice(self):
         for name in [
             "flight_operation_plan_interval_chk",
-            "flight_operation_plan_sortie_count_chk",
             "flight_operation_plan_type_fields_chk",
             "flight_operation_sortie_timestamps_chk",
+            "flight_operation_sortie_plan_one_to_one_uniq",
             "flight_operation_plan_external_identity_uniq",
             "flight_operation_plan_today_window_idx",
             "flight_operation_plan_type_status_idx",
-            "flight_operation_sortie_plan_idx",
             "flight_operation_sortie_uav_status_idx",
             "flight_operation_sortie_actual_start_idx",
             "flight_operation_sortie_actual_end_idx",
         ]:
             self.assertIn(name, self.sql)
 
+        self.assertIn("flight_plan_id bigint not null references flight_operation.flight_plan(id) on delete restrict", self.sql)
+
     def test_today_dashboard_rpc_encodes_business_window_and_statistics(self):
         self.assertIn("create or replace function api.get_today_flight_operation_dashboard", self.sql)
         self.assertIn("asia/shanghai", self.sql)
         self.assertIn("planned_start_at < w.end_at", self.sql)
         self.assertIn("planned_end_at > w.start_at", self.sql)
-        self.assertIn("coalesce(planned_sortie_count, 1)", self.sql)
         self.assertIn("approval_status not in ('rejected', 'revoked')", self.sql)
         self.assertIn("actual_start_at >= w.start_at", self.sql)
         self.assertIn("actual_end_at >= w.start_at", self.sql)
         self.assertIn("nullif((select planned_sortie_count from summary), 0)", self.sql)
         self.assertIn("count(distinct uav_asset_id)", self.sql)
+
+    def test_today_dashboard_uses_one_plan_one_sortie_statistics(self):
+        self.assertIn("count(*)::integer as value\n  from actionable_plans", self.sql)
+        self.assertIn("where plan_type = 'patrol_task'", self.sql)
+        self.assertIn("status not in ('completed', 'cancelled')", self.sql)
+        self.assertIn("join actionable_plans p on p.id = s.flight_plan_id", self.sql)
+        self.assertNotIn("sum(normalized_planned_sortie_count)", self.sql)
+        self.assertNotIn("coalesce(planned_sortie_count, 1)", self.sql)
+        self.assertNotIn("normalized_planned_sortie_count", self.sql)
 
     def test_import_rpc_preserves_third_party_provenance(self):
         self.assertIn("create or replace function api.import_approval_reported_flight", self.sql)
