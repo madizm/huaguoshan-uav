@@ -668,6 +668,135 @@ as $$
   );
 $$;
 
+-- OpenAPI descriptions -------------------------------------------------------
+-- PostgREST copies PostgreSQL object comments into /openapi.json. Keep these
+-- comments short so API callers can understand each endpoint without reading
+-- implementation schemas.
+comment on schema api is '花果山无人机应用的稳定 HTTP API 门面；仅暴露可调用的视图和 RPC。';
+
+comment on view api.no_fly_zone is '长期禁飞区 CRUD 资源。用于维护持续生效的禁飞空域。';
+comment on column api.no_fly_zone.id is '禁飞区主键。';
+comment on column api.no_fly_zone.name is '禁飞区名称，便于前端展示和检索。';
+comment on column api.no_fly_zone.geom is '禁飞区水平范围，WGS84 MultiPolygon。';
+comment on column api.no_fly_zone.min_height is '禁飞区下限高度，单位米，基准见 height_datum。';
+comment on column api.no_fly_zone.max_height is '禁飞区上限高度，单位米；为空表示不设上限。';
+comment on column api.no_fly_zone.safety_buffer_m is '水平安全缓冲距离，单位米。';
+comment on column api.no_fly_zone.enabled is '是否启用；false 表示暂不参与障碍计算。';
+comment on column api.no_fly_zone.created_at is '记录创建时间。';
+comment on column api.no_fly_zone.updated_at is '记录最后更新时间。';
+comment on column api.no_fly_zone.height_datum is '高度基准：AMSL、AGL 或 ELLIPSOID。';
+comment on column api.no_fly_zone.intake_evidence is '数据来源、审批材料或导入证据，JSON 格式。';
+
+comment on view api.temp_control_zone is '临时管制区 CRUD 资源。用于维护限定时间内生效的禁飞或管制空域。';
+comment on column api.temp_control_zone.id is '临时管制区主键。';
+comment on column api.temp_control_zone.name is '临时管制区名称，便于前端展示和检索。';
+comment on column api.temp_control_zone.geom is '临时管制区水平范围，WGS84 MultiPolygon。';
+comment on column api.temp_control_zone.min_height is '管制区下限高度，单位米，基准见 height_datum。';
+comment on column api.temp_control_zone.max_height is '管制区上限高度，单位米；为空表示不设上限。';
+comment on column api.temp_control_zone.safety_buffer_m is '水平安全缓冲距离，单位米。';
+comment on column api.temp_control_zone.valid_from is '管制开始时间。';
+comment on column api.temp_control_zone.valid_to is '管制结束时间。';
+comment on column api.temp_control_zone.status is '状态：planned、active 或 cancelled。';
+comment on column api.temp_control_zone.created_at is '记录创建时间。';
+comment on column api.temp_control_zone.updated_at is '记录最后更新时间。';
+comment on column api.temp_control_zone.height_datum is '高度基准：AMSL、AGL 或 ELLIPSOID。';
+comment on column api.temp_control_zone.intake_evidence is '数据来源、审批材料或导入证据，JSON 格式。';
+
+comment on view api.flight_obstacles is '统一飞行障碍网格视图，汇总建筑、地形、禁飞区和临时管制区。';
+comment on column api.flight_obstacles.source_kind is '障碍来源类型：building、terrain、no_fly_zone 或 temp_control。';
+comment on column api.flight_obstacles.source_id is '来源对象在对应业务表或数据集中的唯一标识。';
+comment on column api.flight_obstacles.source_name is '来源对象名称或展示标签。';
+comment on column api.flight_obstacles.dimension is '网格维度，通常为 3 表示三维障碍。';
+comment on column api.flight_obstacles.detail_level is 'GGER 网格精度等级，数值越大网格越细。';
+comment on column api.flight_obstacles.is_agg is '是否为聚合网格。';
+comment on column api.flight_obstacles.grids is '障碍占用的原生 gridcell 集合，用于路径规划。';
+comment on column api.flight_obstacles.valid_from is '障碍生效开始时间；长期障碍为空。';
+comment on column api.flight_obstacles.valid_to is '障碍生效结束时间；长期障碍为空。';
+comment on column api.flight_obstacles.priority is '障碍优先级，数值越大越优先。';
+comment on column api.flight_obstacles.generated_at is '障碍网格生成或刷新时间。';
+
+comment on view api.flight_obstacles_codes_view is '统一飞行障碍的可读 GGER 编码视图，供前端展示和调试。';
+comment on column api.flight_obstacles_codes_view.source_kind is '障碍来源类型。';
+comment on column api.flight_obstacles_codes_view.source_id is '来源对象唯一标识。';
+comment on column api.flight_obstacles_codes_view.source_name is '来源对象名称或展示标签。';
+comment on column api.flight_obstacles_codes_view.dimension is '网格维度。';
+comment on column api.flight_obstacles_codes_view.detail_level is 'GGER 网格精度等级。';
+comment on column api.flight_obstacles_codes_view.cell_count is '障碍包含的网格单元数量。';
+comment on column api.flight_obstacles_codes_view.gger_grids is 'GGER 文本编码数组，不包含 BGC 编码。';
+comment on column api.flight_obstacles_codes_view.valid_from is '障碍生效开始时间；长期障碍为空。';
+comment on column api.flight_obstacles_codes_view.valid_to is '障碍生效结束时间；长期障碍为空。';
+comment on column api.flight_obstacles_codes_view.priority is '障碍优先级，数值越大越优先。';
+comment on column api.flight_obstacles_codes_view.generated_at is '障碍网格生成或刷新时间。';
+
+comment on view api.flight_path_plans is '飞行路径规划方案列表。通过 RPC 创建、更新、计算或归档。';
+comment on column api.flight_path_plans.id is '规划方案主键。';
+comment on column api.flight_path_plans.name is '规划方案名称。';
+comment on column api.flight_path_plans.description is '规划方案说明。';
+comment on column api.flight_path_plans.status is '状态：draft、planned、computed、failed 或 archived。';
+comment on column api.flight_path_plans.detail_level is '路径规划使用的 GGER 网格精度等级。';
+comment on column api.flight_path_plans.cruise_height_m is '默认巡航高度，单位米，基准见 height_datum。';
+comment on column api.flight_path_plans.height_datum is '高度基准：AMSL、AGL 或 ELLIPSOID。';
+comment on column api.flight_path_plans.planning_time is '用于匹配临时障碍和轨迹搜索的计划飞行时间。';
+comment on column api.flight_path_plans.has_below is '规划时是否考虑当前位置下方空间。';
+comment on column api.flight_path_plans.safety_buffer_m is '规划安全缓冲距离，单位米。';
+comment on column api.flight_path_plans.metadata is '调用方自定义扩展信息，JSON 格式。';
+comment on column api.flight_path_plans.created_by is '创建人标识，来自 JWT 用户信息。';
+comment on column api.flight_path_plans.created_at is '记录创建时间。';
+comment on column api.flight_path_plans.updated_at is '记录最后更新时间。';
+comment on column api.flight_path_plans.last_computed_at is '最近一次路径计算完成时间。';
+
+comment on view api.flight_path_plan_points is '飞行路径规划控制点。包含起点、终点和航路点。';
+comment on column api.flight_path_plan_points.id is '控制点主键。';
+comment on column api.flight_path_plan_points.plan_id is '所属规划方案 ID。';
+comment on column api.flight_path_plan_points.point_role is '控制点角色：start、end 或 waypoint。';
+comment on column api.flight_path_plan_points.seq is '控制点顺序号，从小到大参与路径规划。';
+comment on column api.flight_path_plan_points.name is '控制点名称。';
+comment on column api.flight_path_plan_points.lon is '经度，WGS84。';
+comment on column api.flight_path_plan_points.lat is '纬度，WGS84。';
+comment on column api.flight_path_plan_points.height_m is '控制点高度，单位米，基准见 height_datum。';
+comment on column api.flight_path_plan_points.height_datum is '高度基准：AMSL、AGL 或 ELLIPSOID。';
+comment on column api.flight_path_plan_points.geom is '三维点几何，WGS84 PointZ。';
+comment on column api.flight_path_plan_points.metadata is '调用方自定义扩展信息，JSON 格式。';
+comment on column api.flight_path_plan_points.created_at is '记录创建时间。';
+comment on column api.flight_path_plan_points.updated_at is '记录最后更新时间。';
+
+comment on view api.flight_path_plan_results is '飞行路径规划计算结果。包含路线几何、轨迹和统计指标。';
+comment on column api.flight_path_plan_results.id is '计算结果主键。';
+comment on column api.flight_path_plan_results.plan_id is '所属规划方案 ID。';
+comment on column api.flight_path_plan_results.result_status is '计算状态，success 表示可使用结果。';
+comment on column api.flight_path_plan_results.detail_level is '计算使用的 GGER 网格精度等级。';
+comment on column api.flight_path_plan_results.planning_time is '本次计算使用的计划飞行时间。';
+comment on column api.flight_path_plan_results.obstacle_table is '参与计算的障碍表或视图名称。';
+comment on column api.flight_path_plan_results.obstacle_field is '参与计算的障碍网格字段名。';
+comment on column api.flight_path_plan_results.grid_path is '规划得到的 gridcell 路径。';
+comment on column api.flight_path_plan_results.route_geom is '原始路线几何。';
+comment on column api.flight_path_plan_results.smooth_route_geom is '平滑后的路线几何。';
+comment on column api.flight_path_plan_results.route_traj is '原始时空轨迹。';
+comment on column api.flight_path_plan_results.smooth_route_traj is '平滑后的时空轨迹。';
+comment on column api.flight_path_plan_results.segment_count is '路线分段数量。';
+comment on column api.flight_path_plan_results.grid_cell_count is '路径经过的网格单元数量。';
+comment on column api.flight_path_plan_results.traj_point_count is '轨迹点数量。';
+comment on column api.flight_path_plan_results.distance_m is '路线总长度，单位米。';
+comment on column api.flight_path_plan_results.duration_s is '预计飞行时长，单位秒。';
+comment on column api.flight_path_plan_results.error_message is '计算失败时的错误信息。';
+comment on column api.flight_path_plan_results.params is '本次计算参数快照，JSON 格式。';
+comment on column api.flight_path_plan_results.created_at is '结果创建时间。';
+
+comment on function api.get_citydb_feature_properties(text) is '按 3DCityDB feature identifier 查询建筑或地物属性，返回 JSON。参数：p_feature_identifier。';
+comment on function api.get_citydb_feature_gger_grids(text) is '按 3DCityDB feature identifier 查询对应飞行障碍 GGER 网格，返回 JSON。参数：p_feature_identifier。';
+comment on function api.list_flight_obstacles_gger(text, integer, boolean) is '按来源类型分页列出飞行障碍 GGER 编码。参数：p_source_kind 可为空，p_limit 最大 1000，p_include_boxes 控制是否返回包围盒。';
+comment on function api.list_flight_obstacles_gger_lod(text, integer, double precision, double precision, double precision, double precision, double precision, double precision, integer, boolean) is '按来源、LOD 和空间范围列出飞行障碍 GGER 编码，适合前端按视野加载。参数包含 bbox、中心点、p_limit 和 p_include_boxes。';
+comment on function api.create_flight_path_plan(text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb) is '创建飞行路径规划方案并写入控制点，返回 plan_id。p_points 为控制点数组。';
+comment on function api.update_flight_path_plan(bigint, text, text, integer, double precision, text, timestamptz, jsonb, boolean, double precision, jsonb) is '更新飞行路径规划方案；传 null 的可选参数保持原值不变。p_points 非 null 时替换全部控制点。';
+comment on function api.list_flight_path_plans(text, text, integer, integer) is '分页查询飞行路径规划方案。参数：p_keyword 名称或说明关键字，p_status 状态过滤，p_limit/p_offset 分页。';
+comment on function api.get_flight_path_plan(bigint) is '查询单个飞行路径规划方案详情，包含控制点和最新结果。参数：p_plan_id。';
+comment on function api.archive_flight_path_plan(bigint) is '归档飞行路径规划方案，使其不再出现在默认列表中。参数：p_plan_id。';
+comment on function api.delete_flight_path_plan(bigint) is '删除飞行路径规划方案及其控制点和计算结果。参数：p_plan_id。';
+comment on function api.compute_flight_path_plan(bigint) is '执行飞行路径规划计算并保存结果，返回 result_id。参数：p_plan_id。';
+comment on function api.get_latest_flight_path_result(bigint) is '查询规划方案最新一次计算结果。参数：p_plan_id。';
+comment on function api.search_flight_path_results_by_time(timestamp, timestamp, integer, integer) is '按轨迹时间范围分页查询成功的路径计算结果。参数：p_start_time、p_end_time、p_limit、p_offset。';
+comment on function api.search_flight_path_results_by_bbox(double precision, double precision, double precision, double precision, timestamp, timestamp, integer, integer) is '按 WGS84 bbox 和可选时间范围分页查询成功的路径计算结果。参数：p_xmin、p_ymin、p_xmax、p_ymax、p_start_time、p_end_time、p_limit、p_offset。';
+
 revoke all on all tables in schema api from public;
 revoke all on all functions in schema api from public;
 revoke all on all tables in schema api from anonymous;
