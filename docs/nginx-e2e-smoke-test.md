@@ -25,7 +25,7 @@ uv run tests/test_nginx_e2e_smoke.py \
 - `NGINX_HOST`: 统一 Nginx 入口的 base URL，例如 `http://127.0.0.1:20000`。
 - `SMOKE_TEST_USERNAME`: 用于 `/auth/login` 的测试/管理员账号，默认 `admin`。
 - `SMOKE_TEST_PASSWORD`: 对应密码。未提供时脚本会交互式提示输入。
-- `SMOKE_TEST_BUSINESS_ENDPOINTS`: 逗号分隔的受保护 PostgREST 业务端点名，默认 `no_fly_zone,temp_control_zone,flight_path_plans`。端点必须在 `api` schema 中对 `admin` 角色可见，且匿名角色应被拒绝。
+- `SMOKE_TEST_BUSINESS_ENDPOINTS`: 逗号分隔的受保护 PostgREST 业务端点名，默认 `no_fly_zone,temp_control_zone`。端点必须在 `api` schema 中对 `admin` 角色可见，且匿名角色应被拒绝。
 
 ## 检查内容
 

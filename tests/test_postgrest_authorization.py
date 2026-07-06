@@ -48,6 +48,18 @@ class PostgrestAuthorizationMigrationTests(unittest.TestCase):
             self.assertNotIn("created_by =", function_sql)
             self.assertNotIn("airspace_admin", function_sql)
 
+    def test_flight_path_internal_tables_are_not_exposed_as_postgrest_views(self):
+        for view_name in [
+            "flight_path_plans",
+            "flight_path_plan_points",
+            "flight_path_plan_results",
+        ]:
+            self.assertNotIn(f"create or replace view api.{view_name}", self.sql)
+            self.assertNotIn(f"grant select on api.{view_name}", self.sql)
+        self.assertIn("drop view if exists api.flight_path_plan_results;", self.sql)
+        self.assertIn("drop view if exists api.flight_path_plan_points;", self.sql)
+        self.assertIn("drop view if exists api.flight_path_plans;", self.sql)
+
 
 class FlightPathCreatedByAuditTests(unittest.TestCase):
     @classmethod

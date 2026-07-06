@@ -32,7 +32,7 @@ import argparse
 import os
 from typing import Any
 
-DEFAULT_BUSINESS_ENDPOINTS = "no_fly_zone,temp_control_zone,flight_path_plans"
+DEFAULT_BUSINESS_ENDPOINTS = "no_fly_zone,temp_control_zone"
 
 
 def env(name: str, default: str = "") -> str:
