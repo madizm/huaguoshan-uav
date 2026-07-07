@@ -608,11 +608,46 @@ comment on column api.flight_activity_route_previews.route_grid_with_box is '带
 -- -----------------------------------------------------------------------------
 -- API facade: one stats RPC for dashboard cards
 -- -----------------------------------------------------------------------------
+drop function if exists api.get_flight_plan_stats(timestamptz, timestamptz);
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_type t
+    join pg_namespace n on n.oid = t.typnamespace
+    where n.nspname = 'api'
+      and t.typname = 'flight_plan_stats_result'
+  ) then
+    create type api.flight_plan_stats_result as (
+      approved_reported_flight_count bigint,
+      total_flight_count bigint,
+      pending_flight_count bigint,
+      inspection_task_count bigint,
+      aircraft_in_task_count bigint,
+      aircraft_idle_count bigint,
+      start_at timestamptz,
+      end_at timestamptz
+    );
+  end if;
+end;
+$$;
+
+comment on type api.flight_plan_stats_result is '飞行计划大屏统计 RPC 的结构化返回值。';
+comment on column api.flight_plan_stats_result.approved_reported_flight_count is '统计时间窗口内，外部状态为 approved 的报备飞行数量。';
+comment on column api.flight_plan_stats_result.total_flight_count is '统计时间窗口内，未取消、未中止、非 unknown，且报备飞行未被外部拒绝/取消/过期的飞行活动总数。';
+comment on column api.flight_plan_stats_result.pending_flight_count is '统计时间窗口内，状态为 planned 或 ready 的待执行飞行活动数量。';
+comment on column api.flight_plan_stats_result.inspection_task_count is '统计时间窗口内，未取消、未中止、非 unknown 的巡查任务数量。';
+comment on column api.flight_plan_stats_result.aircraft_in_task_count is '当前处于 executing 飞行活动中的去重无人机资产数量。';
+comment on column api.flight_plan_stats_result.aircraft_idle_count is '资产状态为空闲，且当前未关联 executing 活动的无人机资产数量。';
+comment on column api.flight_plan_stats_result.start_at is '统计窗口开始时间。';
+comment on column api.flight_plan_stats_result.end_at is '统计窗口结束时间。';
+
 create or replace function api.get_flight_plan_stats(
   p_start_at timestamptz,
   p_end_at timestamptz
 )
-returns jsonb
+returns api.flight_plan_stats_result
 language sql
 stable
 set search_path = api, flight_plan, public, pg_temp
@@ -648,31 +683,41 @@ with bounds as (
         and fa.activity_status = 'executing'
     )
 )
-select jsonb_build_object(
-  'approved_reported_flight_count', coalesce(count(*) filter (
+select
+  coalesce(count(*) filter (
     where activity_type = 'reported_flight'
       and filing_status = 'approved'
-  ), 0),
-  'total_flight_count', coalesce((select count(*) from eligible_activity), 0),
-  'pending_flight_count', coalesce((
+  ), 0)::bigint as approved_reported_flight_count,
+  coalesce((select count(*) from eligible_activity), 0)::bigint as total_flight_count,
+  coalesce((
     select count(*)
     from eligible_activity
     where activity_status in ('planned', 'ready')
-  ), 0),
-  'inspection_task_count', coalesce((
+  ), 0)::bigint as pending_flight_count,
+  coalesce((
     select count(*)
     from eligible_activity
     where activity_type = 'inspection_task'
-  ), 0),
-  'aircraft_in_task_count', (select value from aircraft_in_task),
-  'aircraft_idle_count', (select value from aircraft_idle),
-  'start_at', p_start_at,
-  'end_at', p_end_at
-)
+  ), 0)::bigint as inspection_task_count,
+  (select value from aircraft_in_task)::bigint as aircraft_in_task_count,
+  (select value from aircraft_idle)::bigint as aircraft_idle_count,
+  p_start_at as start_at,
+  p_end_at as end_at
 from activity;
 $$;
 
-comment on function api.get_flight_plan_stats(timestamptz, timestamptz) is '按明确时间窗口返回飞行计划大屏统计指标。参数：p_start_at、p_end_at；统计采用时间区间重叠口径。';
+comment on function api.get_flight_plan_stats(timestamptz, timestamptz) is
+'按明确时间窗口返回飞行计划大屏统计指标。参数：p_start_at、p_end_at；统计采用时间区间重叠口径。
+
+返回 JSON 对象字段：
+- approved_reported_flight_count：统计时间窗口内，外部状态为 approved 的报备飞行数量。
+- total_flight_count：统计时间窗口内，未取消、未中止、非 unknown，且报备飞行未被外部拒绝/取消/过期的飞行活动总数。
+- pending_flight_count：统计时间窗口内，状态为 planned 或 ready 的待执行飞行活动数量。
+- inspection_task_count：统计时间窗口内，未取消、未中止、非 unknown 的巡查任务数量。
+- aircraft_in_task_count：当前处于 executing 飞行活动中的去重无人机资产数量。
+- aircraft_idle_count：资产状态为空闲，且当前未关联 executing 活动的无人机资产数量。
+- start_at：统计窗口开始时间。
+- end_at：统计窗口结束时间。';
 
 -- -----------------------------------------------------------------------------
 -- Grants
