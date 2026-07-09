@@ -5,6 +5,111 @@
 
 ---
 
+函数速查表
+
+### GridCell函数
+
+| 类别 | 函数名 | 功能 |
+|------|--------|------|
+| 构造 | ST_AsGridcell | 经纬度构造2D网格 |
+| 构造 | ST_AsGridcell3D | 经纬度高程构造3D网格 |
+| 构造 | ST_GridCellFromText | 文本编码构造网格 |
+| 构造 | ST_GridCellsFromTexts | 文本编码数组构造网格数组 |
+| 输出 | ST_AsText | 转换为文本编码 |
+| 输出 | ST_AsGeometry | 转换为Geometry |
+| 输出 | ST_AsBox/ST_AsBox3D | 转换为Box |
+| 属性 | ST_Center | 获取中心点 |
+| 属性 | ST_Level | 获取层级 |
+| 属性 | ST_Is3D | 判断是否3D |
+| 属性 | ST_Force2D/ST_Force3D | 强制转换为2D/3D |
+| 属性 | ST_GetSidesLength | 获取边长 |
+| 属性 | ST_GetArea | 获取面积 |
+| 属性 | ST_GetVolume | 获取体积 |
+| 属性 | ST_DistanceSpheroid | 球面距离 |
+| 属性 | ST_Angle | 方位角 |
+| 属性 | ST_Direction | 定性方向 |
+| 属性 | ST_GetNeibers | 获取4/8邻域网格 |
+| 属性 | ST_GetNeibers3D | 获取6/18/26邻域网格 |
+| 属性 | ST_GetNeiber | 获取指定方向相邻网格 |
+| 属性 | ST_GetNeiber3D | 获取指定方向3D相邻网格 |
+| 属性 | ST_GetCellFromAngle | 获取指定方位角的邻域网格 |
+| 关系 | ST_GetParent | 获取父网格 |
+| 关系 | ST_GetAncestor | 获取祖先网格 |
+| 关系 | ST_GetDescendant | 获取后代网格 |
+| 关系 | ST_AncestorOf | 判断祖先关系 |
+| 关系 | ST_DescendantOf | 判断后代关系 |
+| 关系 | ST_FamilyOf | 判断亲属关系 |
+| 关系 | ST_GetNextBrother | 获取下一个兄弟网格 |
+| 空间 | ST_Equals | 相等判断 |
+| 空间 | ST_Intersects | 相交判断 |
+| 空间 | ST_Contains | 包含判断 |
+| 空间 | ST_WithIn | 被包含判断 |
+| 分析 | ST_VisibilityAnalysis | 可视性分析 |
+
+### GeomGrids函数
+
+| 类别 | 函数名 | 功能 |
+|------|--------|------|
+| 构造 | ST_AsGrids | Geometry构造网格集 |
+| 构造 | ST_AsGrids3D | 3D Geometry构造网格集 |
+| 构造 | ST_AsGrids(gridcell[]) | gridcell数组构造网格集 |
+| 构造 | ST_AsGrids(gridcell) | 单个gridcell构造网格集 |
+| 输出 | ST_AsText | 转换为文本 |
+| 输出 | ST_AsGeometry | 转换为Geometry |
+| 输出 | ST_AsGridCellArray | 转换为gridcell数组 |
+| 输出 | ST_WithBox | 输出网格码及BBox信息 |
+| 属性 | ST_Is3D | 判断是否3D |
+| 属性 | ST_DetailLevel | 获取最大层级 |
+| 属性 | ST_nCells | 获取网格数量 |
+| 属性 | ST_GetArea | 获取面积 |
+| 属性 | ST_Centroid | 获取重心 |
+| 属性 | ST_DistanceSpheroid | 球面距离 |
+| 属性 | ST_Angle | 方位角 |
+| 属性 | ST_Direction | 定性方向 |
+| 空间 | ST_Intersects | 相交判断 |
+| 空间 | ST_Equals | 相等判断 |
+| 空间 | ST_Contains | 包含判断 |
+| 空间 | ST_WithIn | 被包含判断 |
+| 空间 | ST_Adjacent | 相邻判断 |
+| 分析 | ST_Intersection | 交集运算 |
+| 分析 | ST_Union | 并集运算 |
+
+### 编码转换函数
+
+| 函数名 | 功能 |
+|--------|------|
+| ST_asBGC | 生成BGC 2D编码 |
+| ST_asBGC3D | 生成BGC 3D编码 |
+| ST_BGC2Box | BGC 2D编码转Box |
+| ST_BGC3D2Box | BGC 3D编码转Box3D |
+| ST_asRSLC | 生成RSLC 2D编码 |
+| ST_asRSLC3D | 生成RSLC 3D编码 |
+| ST_RSLC2Box | RSLC 2D编码转Box |
+| ST_RSLC3D2Box | RSLC 3D编码转Box3D |
+
+### 路径规划函数
+
+| 函数名 | 功能 |
+|--------|------|
+| ST_FindGridsPath | A-Star路径规划 |
+| ST_FindAllGridsPath | 返回遍历的所有网格 |
+| ST_RouteFromGridsPath | 网格数组转路径Geometry |
+| ST_RouteFromGridsPath(带起点终点) | 带起点终点的路径转换 |
+| ST_SmoothRouteFromGridsPath | 平滑路径 |
+
+### 辅助函数
+
+| 函数名 | 功能 |
+|--------|------|
+| ST_ExturdeGeometry | 二维geometry拉伸成三维多面体 |
+| ST_Grids23dtiles | GeomGrids导出为3DTiles模型 |
+| ST_CreateTableFromGeom | 根据geometry创建网格表 |
+| ST_Geom2Shpfile | 导出网格数据到Shapefile |
+| ST_DrawGrids | 二维网格绘制函数 |
+| ST_DrawGrids3D | 三维网格绘制函数 |
+
+---
+
 ## 目录
 
 1. [概述](#概述)
