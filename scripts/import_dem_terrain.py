@@ -8,12 +8,14 @@
 #   "shapely>=2.0",
 # ]
 # ///
-"""Import open DEM terrain data for Huaguoshan into PostGIS and 3DCityDB.
+"""Import open DEM terrain data into PostGIS and 3DCityDB.
 
-Default source is the public Copernicus DEM GLO-30 COG tile covering the project
-area. This is open DEM/DSM-derived elevation data, not LiDAR, photogrammetry, or
-an authoritative 3D city model. The imported raster is intended for approximate
-terrain elevation, building base-z adjustment, and coarse UAV planning inputs.
+Default source is the public Copernicus DEM GLO-30 COG tile covering the original
+Huaguoshan project area. For larger areas, pass ``--area-geojson`` and a local
+mosaic/VRT through ``--source-file``. This is open DEM/DSM-derived elevation data,
+not LiDAR, photogrammetry, or an authoritative 3D city model. The imported raster
+is intended for approximate terrain elevation, building base-z adjustment, and
+coarse UAV planning inputs.
 """
 
 from __future__ import annotations
@@ -31,8 +33,10 @@ from typing import Any, Sequence
 import psycopg
 import requests
 from pyproj import Transformer
-from shapely.geometry import Polygon, shape
+from shapely.geometry import mapping, shape
+from shapely.geometry.base import BaseGeometry
 from shapely.ops import transform as shapely_transform
+from shapely.ops import unary_union
 
 
 DEFAULT_DSN = "postgresql://postgres:postgres@10.1.109.151:5432/huaguoshan_projd"
@@ -64,6 +68,8 @@ class DemPaths:
     source_tif: Path
     clipped_tif: Path
     metadata_json: Path
+    cutline_geojson: Path
+    tile_dir: Path
 
 
 @dataclass
@@ -84,7 +90,7 @@ def run(command: Sequence[str]) -> None:
 
 
 def ensure_gdal_tools() -> None:
-    missing = [tool for tool in ("gdalwarp", "gdalinfo") if shutil.which(tool) is None]
+    missing = [tool for tool in ("gdalwarp", "gdalinfo", "gdal_translate") if shutil.which(tool) is None]
     if missing:
         raise RuntimeError(f"Missing required GDAL tools: {', '.join(missing)}")
 
@@ -105,36 +111,90 @@ def download(url: str, path: Path, force: bool = False) -> None:
     temp.replace(path)
 
 
-def buffered_projected_bounds(buffer_m: float, target_srid: int) -> tuple[float, float, float, float]:
-    area = shape(AREA_GEOJSON)
-    if not isinstance(area, Polygon):
-        raise RuntimeError("AREA_GEOJSON must be a Polygon")
+def load_area_geometry(area_geojson: Path | None) -> BaseGeometry:
+    if area_geojson is None:
+        return shape(AREA_GEOJSON)
+
+    payload = json.loads(area_geojson.read_text(encoding="utf-8"))
+    payload_type = payload.get("type")
+    if payload_type == "FeatureCollection":
+        geometries = [shape(feature["geometry"]) for feature in payload.get("features", []) if feature.get("geometry")]
+        if not geometries:
+            raise RuntimeError(f"Area GeoJSON has no geometries: {area_geojson}")
+        area = unary_union(geometries)
+    elif payload_type == "Feature":
+        area = shape(payload["geometry"])
+    else:
+        area = shape(payload)
+
+    if area.is_empty:
+        raise RuntimeError(f"Area GeoJSON is empty: {area_geojson}")
+    return area
+
+
+def buffered_projected_area(area: BaseGeometry, buffer_m: float, target_srid: int) -> BaseGeometry:
     transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{target_srid}", always_xy=True)
     projected = shapely_transform(transformer.transform, area)
-    buffered = projected.buffer(buffer_m)
-    return buffered.bounds
+    if projected.is_empty:
+        raise RuntimeError("Projected area geometry is empty")
+    return projected.buffer(buffer_m) if buffer_m else projected
 
 
-def prepare_dem(paths: DemPaths, source_url: str, target_srid: int, resolution_m: float, buffer_m: float, force_download: bool, force_process: bool) -> DemStats:
+def write_cutline_geojson(area_projected: BaseGeometry, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": {},
+            "geometry": mapping(area_projected),
+        }],
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def prepare_dem(
+    paths: DemPaths,
+    area: BaseGeometry,
+    source_url: str,
+    source_file: Path | None,
+    target_srid: int,
+    resolution_m: float,
+    buffer_m: float,
+    force_download: bool,
+    force_process: bool,
+) -> DemStats:
     ensure_gdal_tools()
-    download(source_url, paths.source_tif, force_download)
+    if source_file is None:
+        download(source_url, paths.source_tif, force_download)
+        source_path = paths.source_tif
+    else:
+        source_path = source_file
+        if not source_path.exists():
+            raise FileNotFoundError(f"DEM source file not found: {source_path}")
+        print(f"Using local DEM source: {source_path}", file=sys.stderr)
 
-    minx, miny, maxx, maxy = buffered_projected_bounds(buffer_m, target_srid)
+    buffered_area = buffered_projected_area(area, buffer_m, target_srid)
+    minx, miny, maxx, maxy = buffered_area.bounds
     if force_process or not paths.clipped_tif.exists():
         paths.clipped_tif.parent.mkdir(parents=True, exist_ok=True)
+        write_cutline_geojson(buffered_area, paths.cutline_geojson)
         run([
             "gdalwarp",
             "-overwrite",
             "-t_srs", f"EPSG:{target_srid}",
             "-te_srs", f"EPSG:{target_srid}",
             "-te", f"{minx:.3f}", f"{miny:.3f}", f"{maxx:.3f}", f"{maxy:.3f}",
+            "-cutline", str(paths.cutline_geojson),
+            "-cutline_srs", f"EPSG:{target_srid}",
+            "-crop_to_cutline",
             "-tr", str(resolution_m), str(resolution_m),
             "-tap",
             "-r", "bilinear",
             "-dstnodata", "-9999",
             "-co", "TILED=YES",
             "-co", "COMPRESS=DEFLATE",
-            str(paths.source_tif),
+            str(source_path),
             str(paths.clipped_tif),
         ])
     else:
@@ -143,12 +203,15 @@ def prepare_dem(paths: DemPaths, source_url: str, target_srid: int, resolution_m
     return read_gdal_stats(paths.clipped_tif, paths.metadata_json)
 
 
-def read_gdal_stats(tif: Path, metadata_json: Path) -> DemStats:
-    metadata_json.parent.mkdir(parents=True, exist_ok=True)
+def read_gdal_stats(tif: Path, metadata_json: Path | None = None) -> DemStats:
+    if metadata_json is not None:
+        metadata_json.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(["gdalinfo", "-json", "-stats", str(tif)], check=True, text=True, capture_output=True)
-    metadata_json.write_text(result.stdout, encoding="utf-8")
+    if metadata_json is not None:
+        metadata_json.write_text(result.stdout, encoding="utf-8")
     metadata = json.loads(result.stdout)
     band = metadata["bands"][0]
+    nodata = parse_float(band.get("noDataValue"))
     stats = band.get("metadata", {}).get("", {})
     corner = metadata["cornerCoordinates"]
     upper_left = corner["upperLeft"]
@@ -161,7 +224,7 @@ def read_gdal_stats(tif: Path, metadata_json: Path) -> DemStats:
         mean_elevation=parse_float(stats.get("STATISTICS_MEAN")),
         bounds_projected=(float(upper_left[0]), float(lower_right[1]), float(lower_right[0]), float(upper_left[1])),
         geo_transform=tuple(float(value) for value in metadata["geoTransform"]),
-        nodata=float(band.get("noDataValue", -9999.0)),
+        nodata=-9999.0 if nodata is None else nodata,
     )
 
 
@@ -175,7 +238,7 @@ def parse_float(value: Any) -> float | None:
 
 
 def read_raster_values_xyz(tif: Path, width: int, height: int) -> list[list[float]]:
-    """Read a small clipped DEM through GDAL XYZ output as a row-major 2D array."""
+    """Read one DEM tile through GDAL XYZ output as a row-major 2D array."""
     result = subprocess.run(["gdal_translate", "-q", "-of", "XYZ", str(tif), "/vsistdout/"], check=True, text=True, capture_output=True)
     values: list[float] = []
     for line in result.stdout.splitlines():
@@ -305,12 +368,14 @@ def create_terrain_schema(conn: psycopg.Connection[Any], target_srid: int) -> No
     conn.commit()
 
 
-def import_raster(
+def estimate_tile_count(stats: DemStats, tile_size: int) -> int:
+    return ((stats.width + tile_size - 1) // tile_size) * ((stats.height + tile_size - 1) // tile_size)
+
+
+def upsert_dem_dataset(
     conn: psycopg.Connection[Any],
-    tif: Path,
     stats: DemStats,
     dataset_key: str,
-    tile_id: str,
     source_name: str,
     source_url: str,
     source_license: str,
@@ -318,96 +383,200 @@ def import_raster(
     vertical_datum: str,
     resolution_m: float,
     processing_info: str,
+    target_srid: int,
 ) -> int:
-    values = read_raster_values_xyz(tif, stats.width, stats.height)
-    origin_x, scale_x, skew_x, origin_y, skew_y, scale_y = stats.geo_transform
+    target_srid = int(target_srid)
+    minx, miny, maxx, maxy = stats.bounds_projected
     with conn.cursor() as cur:
         cur.execute(
-            """
-            with src as (
-              select ST_SetValues(
-                ST_AddBand(
-                  ST_MakeEmptyRaster(%s, %s, %s, %s, %s, %s, %s, %s, 32650),
-                  '32BF'::text,
-                  %s,
-                  %s
-                ),
-                1,
-                1,
-                1,
-                %s::double precision[][]
-              ) as rast
-            ), stats as (
-              select (ST_SummaryStats(rast, 1, true)).* from src
-            ), ds as (
-              insert into terrain.dem_dataset (
-                dataset_key, source_name, source_url, license, version,
-                horizontal_srid, vertical_datum, resolution_m, processing_info,
-                extent, updated_at
-              )
-              select
-                %s, %s, %s, %s, %s,
-                ST_SRID(rast), %s, %s, %s,
-                ST_Force3DZ(ST_ConvexHull(rast)::geometry, coalesce(stats.min, 0))::geometry(PolygonZ, 32650),
-                now()
-              from src, stats
-              on conflict (dataset_key) do update set
-                source_name = excluded.source_name,
-                source_url = excluded.source_url,
-                license = excluded.license,
-                version = excluded.version,
-                horizontal_srid = excluded.horizontal_srid,
-                vertical_datum = excluded.vertical_datum,
-                resolution_m = excluded.resolution_m,
-                processing_info = excluded.processing_info,
-                extent = excluded.extent,
-                updated_at = now()
-              returning id
+            f"""
+            insert into terrain.dem_dataset (
+              dataset_key, source_name, source_url, license, version,
+              horizontal_srid, vertical_datum, resolution_m, processing_info,
+              extent, updated_at
+            ) values (
+              %s, %s, %s, %s, %s,
+              %s, %s, %s, %s,
+              ST_Force3DZ(ST_MakeEnvelope(%s, %s, %s, %s, {target_srid}), coalesce(%s, 0))::geometry(PolygonZ, {target_srid}),
+              now()
             )
-            insert into terrain.dem_tile (
-              dataset_id, tile_id, rast, extent,
-              min_elevation, max_elevation, mean_elevation, updated_at
-            )
-            select
-              ds.id, %s, src.rast,
-              ST_ConvexHull(src.rast)::geometry(Polygon, 32650),
-              stats.min, stats.max, stats.mean, now()
-            from src, stats, ds
-            on conflict (dataset_id, tile_id) do update set
-              rast = excluded.rast,
+            on conflict (dataset_key) do update set
+              source_name = excluded.source_name,
+              source_url = excluded.source_url,
+              license = excluded.license,
+              version = excluded.version,
+              horizontal_srid = excluded.horizontal_srid,
+              vertical_datum = excluded.vertical_datum,
+              resolution_m = excluded.resolution_m,
+              processing_info = excluded.processing_info,
               extent = excluded.extent,
-              min_elevation = excluded.min_elevation,
-              max_elevation = excluded.max_elevation,
-              mean_elevation = excluded.mean_elevation,
               updated_at = now()
-            returning dataset_id
+            returning id
             """,
             (
-                stats.width,
-                stats.height,
-                origin_x,
-                origin_y,
-                scale_x,
-                scale_y,
-                skew_x,
-                skew_y,
-                stats.nodata,
-                stats.nodata,
-                values,
                 dataset_key,
                 source_name,
                 source_url,
                 source_license,
                 source_version,
+                target_srid,
                 vertical_datum,
                 resolution_m,
                 processing_info,
-                tile_id,
+                minx,
+                miny,
+                maxx,
+                maxy,
+                stats.min_elevation,
             ),
         )
         dataset_id = int(cur.fetchone()[0])
-    conn.commit()
+        cur.execute("delete from terrain.dem_tile where dataset_id = %s", (dataset_id,))
     return dataset_id
+
+
+def make_tile_file(source_tif: Path, tile_tif: Path, xoff: int, yoff: int, width: int, height: int, force: bool) -> None:
+    if tile_tif.exists() and not force:
+        return
+    tile_tif.parent.mkdir(parents=True, exist_ok=True)
+    run([
+        "gdal_translate",
+        "-q",
+        "-srcwin", str(xoff), str(yoff), str(width), str(height),
+        "-of", "GTiff",
+        "-co", "TILED=YES",
+        "-co", "COMPRESS=DEFLATE",
+        str(source_tif),
+        str(tile_tif),
+    ])
+
+
+def insert_dem_tile(
+    cur: psycopg.Cursor[Any],
+    tile_tif: Path,
+    tile_stats: DemStats,
+    dataset_id: int,
+    tile_id: str,
+    target_srid: int,
+) -> None:
+    target_srid = int(target_srid)
+    values = read_raster_values_xyz(tile_tif, tile_stats.width, tile_stats.height)
+    origin_x, scale_x, skew_x, origin_y, skew_y, scale_y = tile_stats.geo_transform
+    cur.execute(
+        f"""
+        with src as (
+          select ST_SetValues(
+            ST_AddBand(
+              ST_MakeEmptyRaster(%s, %s, %s, %s, %s, %s, %s, %s, {target_srid}),
+              '32BF'::text,
+              %s,
+              %s
+            ),
+            1,
+            1,
+            1,
+            %s::double precision[][]
+          ) as rast
+        ), stats as (
+          select (ST_SummaryStats(rast, 1, true)).* from src
+        )
+        insert into terrain.dem_tile (
+          dataset_id, tile_id, rast, extent,
+          min_elevation, max_elevation, mean_elevation, updated_at
+        )
+        select
+          %s, %s, src.rast,
+          ST_ConvexHull(src.rast)::geometry(Polygon, {target_srid}),
+          stats.min, stats.max, stats.mean, now()
+        from src, stats
+        on conflict (dataset_id, tile_id) do update set
+          rast = excluded.rast,
+          extent = excluded.extent,
+          min_elevation = excluded.min_elevation,
+          max_elevation = excluded.max_elevation,
+          mean_elevation = excluded.mean_elevation,
+          updated_at = now()
+        """,
+        (
+            tile_stats.width,
+            tile_stats.height,
+            origin_x,
+            origin_y,
+            scale_x,
+            scale_y,
+            skew_x,
+            skew_y,
+            tile_stats.nodata,
+            tile_stats.nodata,
+            values,
+            dataset_id,
+            tile_id,
+        ),
+    )
+
+
+def import_tiled_raster(
+    conn: psycopg.Connection[Any],
+    tif: Path,
+    stats: DemStats,
+    dataset_key: str,
+    tile_id_prefix: str,
+    source_name: str,
+    source_url: str,
+    source_license: str,
+    source_version: str,
+    vertical_datum: str,
+    resolution_m: float,
+    processing_info: str,
+    target_srid: int,
+    tile_size: int,
+    tile_dir: Path,
+    force_process: bool,
+) -> dict[str, int]:
+    if tile_size <= 0:
+        raise ValueError("tile_size must be positive")
+    if force_process and tile_dir.exists():
+        shutil.rmtree(tile_dir)
+
+    dataset_id = upsert_dem_dataset(
+        conn,
+        stats,
+        dataset_key,
+        source_name,
+        source_url,
+        source_license,
+        source_version,
+        vertical_datum,
+        resolution_m,
+        processing_info,
+        target_srid,
+    )
+
+    imported_tiles = 0
+    skipped_nodata_tiles = 0
+    with conn.cursor() as cur:
+        for yoff in range(0, stats.height, tile_size):
+            for xoff in range(0, stats.width, tile_size):
+                width = min(tile_size, stats.width - xoff)
+                height = min(tile_size, stats.height - yoff)
+                row = yoff // tile_size
+                col = xoff // tile_size
+                tile_id = f"{tile_id_prefix}-r{row:04d}-c{col:04d}"
+                tile_tif = tile_dir / f"{tile_id}.tif"
+                make_tile_file(tif, tile_tif, xoff, yoff, width, height, force_process)
+                tile_stats = read_gdal_stats(tile_tif)
+                if tile_stats.min_elevation is None or tile_stats.max_elevation is None:
+                    skipped_nodata_tiles += 1
+                    continue
+                insert_dem_tile(cur, tile_tif, tile_stats, dataset_id, tile_id, target_srid)
+                imported_tiles += 1
+
+    conn.commit()
+    return {
+        "dataset_id": dataset_id,
+        "imported_tile_count": imported_tiles,
+        "skipped_nodata_tile_count": skipped_nodata_tiles,
+    }
 
 
 def cleanup_citydb_feature(cur: psycopg.Cursor[Any], feature_id: int) -> None:
@@ -415,7 +584,7 @@ def cleanup_citydb_feature(cur: psycopg.Cursor[Any], feature_id: int) -> None:
     cur.execute("delete from citydb.geometry_data where feature_id = %s", (feature_id,))
 
 
-def upsert_feature(cur: psycopg.Cursor[Any], objectid: str, objectclass_id: int, identifier: str, lineage: str, envelope_wkt: str) -> int:
+def upsert_feature(cur: psycopg.Cursor[Any], objectid: str, objectclass_id: int, identifier: str, lineage: str, envelope_wkt: str, target_srid: int) -> int:
     cur.execute("select id from citydb.feature where objectid = %s", (objectid,))
     row = cur.fetchone()
     if row:
@@ -427,24 +596,24 @@ def upsert_feature(cur: psycopg.Cursor[Any], objectid: str, objectclass_id: int,
             set objectclass_id = %s,
                 identifier = %s,
                 identifier_codespace = 'terrain',
-                envelope = ST_GeomFromText(%s::text, 32650),
+                envelope = ST_GeomFromText(%s::text, %s),
                 last_modification_date = now(),
                 updating_person = current_user,
                 reason_for_update = 'DEM terrain import refresh',
                 lineage = %s
             where id = %s
             """,
-            (objectclass_id, identifier, envelope_wkt, lineage, feature_id),
+            (objectclass_id, identifier, envelope_wkt, target_srid, lineage, feature_id),
         )
     else:
         cur.execute(
             """
             insert into citydb.feature
               (objectclass_id, objectid, identifier, identifier_codespace, envelope, creation_date, lineage)
-            values (%s, %s, %s, 'terrain', ST_GeomFromText(%s::text, 32650), now(), %s)
+            values (%s, %s, %s, 'terrain', ST_GeomFromText(%s::text, %s), now(), %s)
             returning id
             """,
-            (objectclass_id, objectid, identifier, envelope_wkt, lineage),
+            (objectclass_id, objectid, identifier, envelope_wkt, target_srid, lineage),
         )
         feature_id = int(cur.fetchone()[0])
     return feature_id
@@ -476,7 +645,7 @@ def insert_double_property(cur: psycopg.Cursor[Any], feature_id: int, name: str,
     )
 
 
-def upsert_citydb_relief(conn: psycopg.Connection[Any], dataset_key: str, project_key: str) -> dict[str, int]:
+def upsert_citydb_relief(conn: psycopg.Connection[Any], dataset_key: str, project_key: str, target_srid: int) -> dict[str, int]:
     relief_objectid = f"terrain:relief:{project_key}:{dataset_key}"
     raster_objectid = f"terrain:raster-relief:{project_key}:{dataset_key}"
     lineage = "Open DEM terrain import; raster values stored in terrain.dem_tile and referenced from RasterRelief metadata"
@@ -508,6 +677,7 @@ def upsert_citydb_relief(conn: psycopg.Connection[Any], dataset_key: str, projec
             raster_objectid,
             lineage,
             envelope_wkt,
+            target_srid,
         )
 
         cur.execute(
@@ -558,6 +728,7 @@ def upsert_citydb_relief(conn: psycopg.Connection[Any], dataset_key: str, projec
             relief_objectid,
             lineage,
             envelope_wkt,
+            target_srid,
         )
         cur.execute(
             "insert into citydb.property (feature_id, datatype_id, namespace_id, name, val_int) values (%s, 3, 6, 'lod', 1)",
@@ -575,9 +746,8 @@ def upsert_citydb_relief(conn: psycopg.Connection[Any], dataset_key: str, projec
     return {"relief_feature_id": relief_feature_id, "raster_relief_feature_id": raster_feature_id}
 
 
-def validate(conn: psycopg.Connection[Any], dataset_key: str) -> dict[str, Any]:
-    area = shape(AREA_GEOJSON)
-    transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{TARGET_SRID}", always_xy=True)
+def validate(conn: psycopg.Connection[Any], dataset_key: str, area: BaseGeometry, project_key: str, target_srid: int) -> dict[str, Any]:
+    transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{target_srid}", always_xy=True)
     centroid = shapely_transform(transformer.transform, area).centroid
     with conn.cursor() as cur:
         cur.execute(
@@ -601,7 +771,7 @@ def validate(conn: psycopg.Connection[Any], dataset_key: str) -> dict[str, Any]:
             group by objectclass_id
             order by objectclass_id
             """,
-            (f"terrain:relief:{PROJECT_KEY}:{dataset_key}", f"terrain:raster-relief:{PROJECT_KEY}:{dataset_key}"),
+            (f"terrain:relief:{project_key}:{dataset_key}", f"terrain:raster-relief:{project_key}:{dataset_key}"),
         )
         relief_counts = {str(row[0]): row[1] for row in cur.fetchall()}
     return {
@@ -627,11 +797,17 @@ def json_default(value: Any) -> Any:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    source_url_arg_set = any(arg == "--source-url" or arg.startswith("--source-url=") for arg in raw_argv)
+    source_version_arg_set = any(arg == "--source-version" or arg.startswith("--source-version=") for arg in raw_argv)
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dsn", default=os.getenv("DATABASE_URL", DEFAULT_DSN))
     parser.add_argument("--dataset-key", default=DATASET_KEY)
     parser.add_argument("--project-key", default=PROJECT_KEY)
-    parser.add_argument("--source-url", default=SOURCE_URL)
+    parser.add_argument("--area-geojson", help="EPSG:4326 GeoJSON geometry/feature/feature collection defining the import area.")
+    parser.add_argument("--source-url", default=SOURCE_URL, help="DEM GeoTIFF URL used when --source-file is not provided.")
+    parser.add_argument("--source-file", help="Local DEM source GeoTIFF/VRT mosaic. Skips downloading --source-url.")
     parser.add_argument("--source-name", default=SOURCE_NAME)
     parser.add_argument("--source-license", default=SOURCE_LICENSE)
     parser.add_argument("--source-version", default=SOURCE_VERSION)
@@ -640,26 +816,62 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--resolution-m", type=float, default=RESOLUTION_M)
     parser.add_argument("--buffer-m", type=float, default=1000.0)
     parser.add_argument("--work-dir", default="data/dem")
-    parser.add_argument("--tile-id", default="huaguoshan-dem-32650")
+    parser.add_argument("--tile-id", default="huaguoshan-dem-32650", help="Prefix for generated terrain.dem_tile.tile_id values.")
+    parser.add_argument("--tile-size", type=int, default=256, help="Raster tile width/height in pixels for database import.")
     parser.add_argument("--force-download", action="store_true")
     parser.add_argument("--force-process", action="store_true")
     parser.add_argument("--execute", action="store_true", help="Write to database. Without this flag, only downloads/processes DEM.")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
+
+    if args.tile_size <= 0:
+        parser.error("--tile-size must be positive")
+
+    area_geojson = Path(args.area_geojson) if args.area_geojson else None
+    source_file = Path(args.source_file) if args.source_file else None
+    area = load_area_geometry(area_geojson)
+    source_url = args.source_url
+    source_version = args.source_version
+    if source_file is not None:
+        if not source_url_arg_set:
+            source_url = str(source_file)
+        if not source_version_arg_set:
+            source_version = f"Local GDAL source file/VRT: {source_file.name}"
 
     work_dir = Path(args.work_dir)
+    source_tif_name = args.source_url.rsplit("/", 1)[-1] or "source_dem.tif"
     paths = DemPaths(
         work_dir=work_dir,
-        source_tif=work_dir / "source" / "Copernicus_DSM_COG_10_N34_00_E119_00_DEM.tif",
+        source_tif=work_dir / "source" / source_tif_name,
         clipped_tif=work_dir / f"{args.dataset_key}_epsg{args.target_srid}.tif",
         metadata_json=work_dir / f"{args.dataset_key}_epsg{args.target_srid}_gdalinfo.json",
+        cutline_geojson=work_dir / f"{args.dataset_key}_epsg{args.target_srid}_cutline.geojson",
+        tile_dir=work_dir / "tiles" / args.dataset_key,
     )
 
-    stats = prepare_dem(paths, args.source_url, args.target_srid, args.resolution_m, args.buffer_m, args.force_download, args.force_process)
+    stats = prepare_dem(
+        paths,
+        area,
+        args.source_url,
+        source_file,
+        args.target_srid,
+        args.resolution_m,
+        args.buffer_m,
+        args.force_download,
+        args.force_process,
+    )
+    tile_count_estimate = estimate_tile_count(stats, args.tile_size)
     report: dict[str, Any] = {
         "dataset_key": args.dataset_key,
+        "project_key": args.project_key,
+        "area_geojson": str(area_geojson) if area_geojson else "built-in-huaguoshan-area",
         "source_name": args.source_name,
-        "source_url": args.source_url,
+        "source_url": source_url,
+        "source_file": str(source_file) if source_file else None,
+        "source_version": source_version,
         "clipped_tif": str(paths.clipped_tif),
+        "tile_dir": str(paths.tile_dir),
+        "tile_size": args.tile_size,
+        "estimated_tile_count": tile_count_estimate,
         "width": stats.width,
         "height": stats.height,
         "bounds_projected": stats.bounds_projected,
@@ -672,31 +884,38 @@ def main(argv: Sequence[str] | None = None) -> int:
     }
 
     if args.execute:
+        source_action = f"Used local DEM source {source_file}" if source_file is not None else f"Downloaded source COG from {args.source_url}"
+        area_label = str(area_geojson) if area_geojson else "built-in Huaguoshan area"
         processing_info = (
-            f"Downloaded source COG, clipped to Huaguoshan polygon bbox with {args.buffer_m:g} m buffer, "
-            f"reprojected to EPSG:{args.target_srid}, resolution {args.resolution_m:g} m using GDAL."
+            f"{source_action}; clipped to {area_label} with {args.buffer_m:g} m projected buffer using a GDAL cutline; "
+            f"reprojected to EPSG:{args.target_srid}, resolution {args.resolution_m:g} m; "
+            f"imported as {args.tile_size}x{args.tile_size} pixel PostGIS raster tiles."
         )
         with psycopg.connect(args.dsn, connect_timeout=15) as conn:
             create_terrain_schema(conn, args.target_srid)
-            dataset_id = import_raster(
+            import_result = import_tiled_raster(
                 conn,
                 paths.clipped_tif,
                 stats,
                 args.dataset_key,
                 args.tile_id,
                 args.source_name,
-                args.source_url,
+                source_url,
                 args.source_license,
-                args.source_version,
+                source_version,
                 args.vertical_datum,
                 args.resolution_m,
                 processing_info,
+                args.target_srid,
+                args.tile_size,
+                paths.tile_dir,
+                args.force_process,
             )
-            relief_ids = upsert_citydb_relief(conn, args.dataset_key, args.project_key)
+            relief_ids = upsert_citydb_relief(conn, args.dataset_key, args.project_key, args.target_srid)
             report["database"] = {
-                "dataset_id": dataset_id,
+                **import_result,
                 **relief_ids,
-                "validation": validate(conn, args.dataset_key),
+                "validation": validate(conn, args.dataset_key, area, args.project_key, args.target_srid),
             }
     else:
         report["database"] = None
