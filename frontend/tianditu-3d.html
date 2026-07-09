@@ -883,6 +883,7 @@
       <button class="primary" type="button" data-action="huaguoshan">飞到花果山</button>
       <button type="button" data-action="tileset">查看 3D Tiles</button>
       <button type="button" data-action="dem">查看 DEM</button>
+      <button type="button" data-action="lianyungangDem">查看连云港 DEM</button>
       <button type="button" data-action="china">全国视角</button>
       <button type="button" data-action="tilt">低空斜视</button>
     </div>
@@ -892,6 +893,7 @@
       <button type="button" data-layer="terrain" aria-pressed="true">三维地形</button>
       <button type="button" data-layer="tileset" aria-pressed="true">导出模型</button>
       <button type="button" data-layer="dem" aria-pressed="false">DEM 网格</button>
+      <button type="button" data-layer="lianyungangDem" aria-pressed="false">连云港 DEM</button>
       <button type="button" data-layer="place" aria-pressed="true">三维地名</button>
       <button type="button" data-layer="gger" aria-pressed="false">GGER 网格</button>
       <button type="button" data-layer="airspace" aria-pressed="false">空域柱网</button>
@@ -1042,6 +1044,7 @@
       var subdomains = ['0', '1', '2', '3', '4', '5', '6', '7'];
       var localTilesetUrl = '../exports/citydb-3dtiler/huaguoshan_3dtiles/tileset.json';
       var demTilesetUrl = '../exports/terrain/huaguoshan_dem_3dtiles/tileset.json';
+      var lianyungangDemTilesetUrl = '../exports/terrain/lianyungang_dem_3dtiles/tileset.json';
       var postgrestBaseUrl = '/postgrest';
       var citydbFeatureRpcUrl = postgrestBaseUrl + '/rpc/get_citydb_feature_properties';
       var citydbFeatureGridRpcUrl = postgrestBaseUrl + '/rpc/get_citydb_feature_gger_grids';
@@ -1065,6 +1068,9 @@
         demTileset: null,
         demReady: false,
         demVisible: false,
+        lianyungangDemTileset: null,
+        lianyungangDemReady: false,
+        lianyungangDemVisible: false,
         wtfs: null,
         wtfsVisible: true,
         airspaceGrid: null,
@@ -2449,6 +2455,41 @@
         });
       }
 
+      function addLianyungangDemTileset(viewer) {
+        if (!Cesium.Cesium3DTileset) {
+          log('当前 Cesium 版本不支持 Cesium3DTileset，无法挂载连云港 DEM。');
+          return Promise.resolve(null);
+        }
+
+        var demOptions = {
+          maximumScreenSpaceError: 4,
+          dynamicScreenSpaceError: true,
+          skipLevelOfDetail: false,
+          show: state.lianyungangDemVisible
+        };
+
+        var createTileset = Cesium.Cesium3DTileset.fromUrl
+          ? Cesium.Cesium3DTileset.fromUrl(lianyungangDemTilesetUrl, demOptions)
+          : Promise.resolve(new Cesium.Cesium3DTileset(Object.assign({ url: lianyungangDemTilesetUrl }, demOptions)));
+
+        return createTileset.then(function (tileset) {
+          tileset.show = state.lianyungangDemVisible;
+          state.lianyungangDemTileset = viewer.scene.primitives.add(tileset);
+
+          var ready = tileset.readyPromise || Promise.resolve(tileset);
+          return ready.then(function () {
+            state.lianyungangDemReady = true;
+            state.lianyungangDemTileset.show = state.lianyungangDemVisible;
+            log('连云港 DEM 已挂载：exports/terrain/lianyungang_dem_3dtiles/tileset.json');
+            return tileset;
+          });
+        }).catch(function (error) {
+          console.error('[Tianditu3D] Lianyungang DEM tileset load failed:', error);
+          log('连云港 DEM 挂载失败。请确认 exports/terrain/lianyungang_dem_3dtiles/tileset.json 存在，并从工程根目录启动服务。');
+          return null;
+        });
+      }
+
       function flyToTileset() {
         if (state.buildingsTileset && state.buildingsReady) {
           state.viewer.flyTo(state.buildingsTileset, {
@@ -2505,6 +2546,37 @@
         });
       }
 
+      function flyToLianyungangDem() {
+        state.lianyungangDemVisible = true;
+        var demButton = document.querySelector('[data-layer="lianyungangDem"]');
+        if (demButton) demButton.setAttribute('aria-pressed', 'true');
+        if (state.lianyungangDemTileset) state.lianyungangDemTileset.show = true;
+
+        if (state.lianyungangDemTileset && state.lianyungangDemReady) {
+          state.viewer.flyTo(state.lianyungangDemTileset, {
+            duration: 1.8,
+            offset: new Cesium.HeadingPitchRange(
+              Cesium.Math.toRadians(18),
+              Cesium.Math.toRadians(-42),
+              58000
+            )
+          });
+          log('连云港 DEM 已显示：exports/terrain/lianyungang_dem_3dtiles/tileset.json。');
+          return;
+        }
+
+        log('连云港 DEM 仍在加载，先切换到连云港市视角。');
+        state.viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(119.22, 34.60, 58000),
+          orientation: {
+            heading: Cesium.Math.toRadians(18),
+            pitch: Cesium.Math.toRadians(-42),
+            roll: 0
+          },
+          duration: 1.6
+        });
+      }
+
       function flyToHuaguoshan() {
         state.viewer.camera.flyTo({
           destination: Cesium.Cartesian3.fromDegrees(huaguoshan.lon, huaguoshan.lat, 18500),
@@ -2537,6 +2609,7 @@
             if (action === 'huaguoshan') flyToHuaguoshan();
             if (action === 'tileset') flyToTileset();
             if (action === 'dem') flyToDem();
+            if (action === 'lianyungangDem') flyToLianyungangDem();
             if (action === 'china') {
               state.viewer.camera.flyTo({
                 destination: Cesium.Cartesian3.fromDegrees(103.84, 31.15, 17850000),
@@ -2611,6 +2684,11 @@
               state.demVisible = active;
               if (state.demTileset) state.demTileset.show = active;
               log(active ? 'DEM 网格已显示：用于检查本工程 GeoTIFF 高程面。' : 'DEM 网格已隐藏。');
+            }
+            if (layer === 'lianyungangDem') {
+              state.lianyungangDemVisible = active;
+              if (state.lianyungangDemTileset) state.lianyungangDemTileset.show = active;
+              log(active ? '连云港 DEM 已显示：用于检查连云港市 GeoTIFF 高程面。' : '连云港 DEM 已隐藏。');
             }
             if (layer === 'place' && state.wtfs) {
               state.wtfsVisible = active;
@@ -2688,6 +2766,7 @@
         initFlightObstacleLayer();
         addLocalTileset(state.viewer);
         addDemTileset(state.viewer);
+        addLianyungangDemTileset(state.viewer);
         bindControls();
         bindAirspaceControls();
         bindAirspaceAdminControls();
