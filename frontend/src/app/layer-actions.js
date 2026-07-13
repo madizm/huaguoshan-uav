@@ -114,6 +114,22 @@
     if (layer === 'flightObstacles' && state.flightObstacleLayer) {
       state.flightObstacleLayer.setEnabled(active);
     }
+    if (layer === 'airspaceTiles' && state.airspaceTilesLayer) {
+      state.airspaceTilesLayer.setEnabled(active);
+      log(active ? 'W/G 空域 3D Tiles 已开启。' : 'W/G 空域 3D Tiles 已关闭。');
+    }
+    if (layer === 'suitableFootprint' && state.suitableFootprintLayer) {
+      state.suitableFootprintLayer.setEnabled(active);
+      log(active ? '适飞基底 GeoJSON 已开启。' : '适飞基底 GeoJSON 已关闭。');
+    }
+    if (layer === 'suitableWAirspace' && state.suitableFootprintLayer) {
+      state.suitableFootprintLayer.setLayerEnabled('wAirspace', active);
+      log(active ? 'W 适飞空域已开启：[0,120)m AGL。' : 'W 适飞空域已关闭。');
+    }
+    if (layer === 'suitableGAirspace' && state.suitableFootprintLayer) {
+      state.suitableFootprintLayer.setLayerEnabled('gAirspace', active);
+      log(active ? 'G 适飞空域已开启：[120,300]m AGL。' : 'G 适飞空域已关闭。');
+    }
   }
 
   function bindControls(options) {

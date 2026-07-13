@@ -13,7 +13,9 @@
       var lianyungangBuildingsTilesetUrl = tilesetConfig.lianyungangBuildings || '../exports/citydb-3dtiler/lianyungang_buildings_3dtiles/tileset.json';
       var demTilesetUrl = tilesetConfig.huaguoshanDem || '../exports/terrain/huaguoshan_dem_3dtiles/tileset.json';
       var lianyungangDemTilesetUrl = tilesetConfig.lianyungangDem || '../exports/terrain/lianyungang_dem_3dtiles/tileset.json';
+      var airspaceWgTilesetUrls = tilesetConfig.airspaceWg || {};
       var airspaceProfile = postgrestConfig.airspaceProfile || 'api';
+      var suitableFootprintResource = postgrestConfig.suitableFootprintResource || 'suitable_fly_zone_footprints';
       var postgrestJwtStorageKey = postgrestConfig.jwtStorageKey || 'postgrest.jwt';
       var airspaceTableByKind = postgrestConfig.airspaceTableByKind || {
         no_fly_zone: 'no_fly_zone',
@@ -49,6 +51,8 @@
         wtfs: null,
         wtfsVisible: true,
         airspaceGrid: null,
+        airspaceTilesLayer: null,
+        suitableFootprintLayer: null,
         airspaceEnabled: false,
         featurePropertyCache: {},
         featureGridCache: {},
@@ -275,6 +279,7 @@
           airspaceConstraintEditor: state.airspaceConstraintEditor,
           flightPathWorkbench: state.flightPathWorkbench,
           flightObstacleLayer: state.flightObstacleLayer,
+          airspaceTilesLayer: state.airspaceTilesLayer,
           requestCitydbFeature: requestCitydbFeature,
           requestCitydbGrid: requestCitydbGrid,
           renderFeatureLoading: renderFeatureLoading,
@@ -338,6 +343,29 @@
           log: log
         });
       }
+      function initAirspaceTilesLayer() {
+        state.airspaceTilesLayer = window.HuaguoshanAirspaceTiles.initLayer({
+          getViewer: function () { return state.viewer; },
+          CesiumRuntime: Cesium,
+          urls: airspaceWgTilesetUrls,
+          defaultLevel: 20,
+          log: log,
+          showPanel: function (html) {
+            showFeaturePanel();
+            featurePanel().innerHTML = html;
+          }
+        });
+      }
+      function initSuitableFootprintLayer() {
+        state.suitableFootprintLayer = window.HuaguoshanSuitableFootprint.initLayer({
+          getViewer: function () { return state.viewer; },
+          CesiumRuntime: Cesium,
+          request: postgrestClient.request,
+          profile: airspaceProfile,
+          resourceName: suitableFootprintResource,
+          log: log
+        });
+      }
 
       function initFlightObstacleLayer() {
         state.flightObstacleLayer = window.HuaguoshanFlightObstacles.initLayer({
@@ -365,6 +393,11 @@
       function bindAirspaceControls() {
         window.HuaguoshanAirspaceGridUi.bindControls({
           airspaceGrid: function () { return state.airspaceGrid; }
+        });
+      }
+      function bindAirspaceTilesControls() {
+        window.HuaguoshanAirspaceTiles.bindControls({
+          layer: function () { return state.airspaceTilesLayer; }
         });
       }
 
@@ -517,12 +550,15 @@
         addPlaceNames(state.viewer);
         addHuaguoshanMarker(state.viewer);
         initAirspaceGrid(state.viewer);
+        initAirspaceTilesLayer();
+        initSuitableFootprintLayer();
         initFlightObstacleLayer();
         addLocalTileset(state.viewer);
         addDemTileset(state.viewer);
         addLianyungangDemTileset(state.viewer);
         bindControls();
         bindAirspaceControls();
+        bindAirspaceTilesControls();
         bindAirspaceAdminControls();
         bindFlightPathControls();
         bindObstacleControls();

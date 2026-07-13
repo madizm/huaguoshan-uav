@@ -30,6 +30,8 @@
   <script src="./src/cesium/huaguoshan-tilesets.js"></script>
   <script src="./src/features/airspace-grid/grid-geometry.js"></script>
   <script src="./src/features/airspace-grid/airspace-grid-ui.js"></script>
+  <script src="./src/features/suitable-footprint/suitable-footprint-module.js"></script>
+  <script src="./src/features/airspace-tiles/airspace-tiles-module.js"></script>
   <script src="./src/features/citydb-inspector/citydb-inspector.js"></script>
   <script src="./src/features/hud/hud.js"></script>
   <script src="./src/features/flight-obstacles/flight-obstacle-module.js"></script>
@@ -79,6 +81,10 @@
       <button type="button" data-layer="slice" aria-pressed="false">高度切片</button>
       <button type="button" data-layer="ggerLabels" aria-pressed="false">网格编码</button>
       <button type="button" data-layer="flightObstacles" aria-pressed="false">飞行障碍</button>
+      <button type="button" data-layer="airspaceTiles" aria-pressed="false">W/G Tiles</button>
+      <button type="button" data-layer="suitableFootprint" aria-pressed="false">适飞基底</button>
+      <button type="button" data-layer="suitableWAirspace" aria-pressed="false">W 适飞</button>
+      <button type="button" data-layer="suitableGAirspace" aria-pressed="false">G 适飞</button>
     </div>
     <div class="obstacle-controls" aria-label="飞行障碍过滤">
       <h2>Flight Obstacles</h2>
@@ -114,6 +120,30 @@
     </div>
     <div id="flightPathWorkbench"></div>
     <div id="airspaceConstraintEditor"></div>
+    <div class="airspace-controls" aria-label="W/G 空域 3D Tiles 参数">
+      <h2>W/G Airspace Tiles（离线体素）</h2>
+      <div class="control-grid">
+        <label class="field">Layer
+          <select id="airspaceTilesMode">
+            <option value="candidateW">W 候选</option>
+            <option value="candidateG">G 候选</option>
+            <option value="suitableW">W 适飞</option>
+            <option value="suitableG">G 适飞</option>
+          </select>
+        </label>
+        <label class="field">Level
+          <select id="airspaceTilesLevel">
+            <option value="19">19</option>
+            <option value="20" selected>20</option>
+            <option value="21">21</option>
+            <option value="22">22</option>
+          </select>
+        </label>
+        <label class="field checkbox-field">Mixed
+          <input id="airspaceTilesMixed" type="checkbox" checked />
+        </label>
+      </div>
+    </div>
     <div class="airspace-controls" aria-label="GGER 空域网格参数">
       <h2>GGER Airspace Grid</h2>
       <div class="control-grid">

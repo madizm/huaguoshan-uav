@@ -259,6 +259,10 @@
         if (options.flightObstacleLayer) options.flightObstacleLayer.selectObstacle(options.flightObstacleLayer.obstacleByIndex(picked.id.index));
         return;
       }
+      if (options.airspaceTilesLayer && options.airspaceTilesLayer.isPickedFeature(picked)) {
+        options.airspaceTilesLayer.selectPickedFeature(picked);
+        return;
+      }
       if (!isPickedCitydbFeature(picked, options.buildingsTileset())) return;
 
       metadata = readPickedMetadata(picked);

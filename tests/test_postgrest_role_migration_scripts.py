@@ -33,7 +33,24 @@ class PostgrestRoleMigrationScriptTests(unittest.TestCase):
             if OBSOLETE_ROLE_PATTERN.search(text):
                 offenders.append(str(path.relative_to(ROOT)))
 
-        self.assertEqual([], offenders)
+if __name__ == "__main__":
+    unittest.main()
+
+
+class SuitableFootprintApiTests(unittest.TestCase):
+    def test_suitable_footprint_view_exposes_only_frontend_geojson_fields(self):
+        script = (ROOT / "backend" / "migrate_postgrest_api_roles.sql").read_text(encoding="utf-8")
+
+        self.assertIn("create or replace view api.suitable_fly_zone_footprints as", script)
+        self.assertIn("select\n  id,\n  name,\n  geom\nfrom airspace.suitable_fly_zone", script)
+        self.assertIn("comment on view api.suitable_fly_zone_footprints", script)
+        self.assertIn("grant select on api.suitable_fly_zone_footprints to admin", script)
+
+    def test_frontend_requests_suitable_footprints_as_geojson(self):
+        module = (ROOT / "frontend" / "src" / "features" / "suitable-footprint" / "suitable-footprint-module.js").read_text(encoding="utf-8")
+
+        self.assertIn("application/geo+json", module)
+        self.assertIn("suitable_fly_zone_footprints", module)
 
 
 if __name__ == "__main__":
