@@ -3,6 +3,7 @@
 __pycache__/
 *.pyc
 data/dem/
+data/osm/
 exports/
 .pi/tools/
 .pi/todos/
