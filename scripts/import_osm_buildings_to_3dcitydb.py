@@ -187,7 +187,7 @@ def fetch_overpass(query: str, url: str, retries: int) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001 - report HTTP/JSON errors uniformly
             last_error = exc
             if attempt < retries:
-                sleep_s = min(30, 2 ** attempt)
+                sleep_s = min(50, 6 ** attempt)
                 print(f"Overpass request failed on attempt {attempt}/{retries}: {exc}; retrying in {sleep_s}s", file=sys.stderr)
                 time.sleep(sleep_s)
     raise RuntimeError(f"Overpass request failed after {retries} attempts: {last_error}")
