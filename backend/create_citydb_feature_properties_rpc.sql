@@ -22,10 +22,11 @@ with matched_feature as (
     from citydb.feature f
     where f.objectid = p_feature_identifier
        or f.identifier = p_feature_identifier
-       or (
-            p_feature_identifier ~ '^[0-9]+$'
-            and f.id = p_feature_identifier::bigint
-       )
+       or f.id = case
+            when p_feature_identifier ~ '^[0-9]+$'
+                then p_feature_identifier::bigint
+            else null::bigint
+       end
     order by
         case
             when f.objectid = p_feature_identifier then 1
