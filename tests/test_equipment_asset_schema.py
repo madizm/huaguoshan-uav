@@ -33,6 +33,7 @@ class EquipmentAssetSchemaMigrationTests(unittest.TestCase):
             self.assertIn(f"create table if not exists equipment.{category}_profile", self.sql_lower)
         self.assertIn("create table if not exists equipment.sensor_channel", self.sql_lower)
         self.assertIn("create index if not exists asset_geom_gix", self.sql_lower)
+        self.assertIn("prevent_profile_category_change", self.sql_lower)
 
     def test_models_current_history_observations_capabilities_and_coverage(self):
         for table in [

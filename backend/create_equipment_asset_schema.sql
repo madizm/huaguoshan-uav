@@ -136,6 +136,20 @@ begin
 end;
 $$;
 
+create or replace function equipment.prevent_profile_category_change()
+returns trigger language plpgsql as $$
+begin
+  if new.category_code is distinct from old.category_code then
+    raise exception 'equipment asset category is immutable; recreate the asset to change category';
+  end if;
+  return new;
+end;
+$$;
+comment on function equipment.prevent_profile_category_change() is '禁止修改设备类别，避免分类扩展、能力和应急资源关系失配。返回触发器记录。';
+drop trigger if exists asset_category_immutable on equipment.asset;
+create trigger asset_category_immutable before update of category_code on equipment.asset
+for each row execute function equipment.prevent_profile_category_change();
+
 create table if not exists equipment.asset_status_current (
   asset_id bigint primary key references equipment.asset(id) on delete cascade,
   connectivity_status text not null default 'unknown' check (connectivity_status in ('online', 'offline', 'unknown')),
@@ -413,7 +427,6 @@ comment on column emergency_resource.equipment_resource.metadata is '应急资�
 comment on column emergency_resource.equipment_resource.created_at is '关联创建时间。';
 comment on column emergency_resource.equipment_resource.updated_at is '关联最后更新时间。';
 
--- 先移除依赖旧无人机关系的 API 视图，迁移后以统一模型重建。
 -- 先移除依赖旧无人机关系的 API 视图，迁移后以统一模型重建。
 drop view if exists api.flight_activity_route_previews;
 drop view if exists api.flight_activities;
