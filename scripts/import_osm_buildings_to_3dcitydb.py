@@ -8,11 +8,11 @@
 #   "shapely>=2.0",
 # ]
 # ///
-"""Import OSM building footprints for the Huaguoshan area into 3DCityDB 5.x.
+"""Import OSM building footprints into 3DCityDB 5.x.
 
 Data source: OpenStreetMap via Overpass API. OSM heights are community-maintained
 and may be missing or inaccurate. This importer creates approximate LoD1 solids
-by extruding footprints from z=0 to a derived height.
+by extruding footprints from z=0 or terrain elevation to a derived height.
 """
 
 from __future__ import annotations
@@ -31,9 +31,11 @@ import psycopg
 from psycopg.types.json import Jsonb
 from pyproj import Transformer
 import requests
-from shapely.geometry import MultiPolygon, Point, Polygon, shape
+from shapely.geometry import GeometryCollection, MultiPolygon, Point, Polygon, box, shape
+from shapely.geometry.base import BaseGeometry
 from shapely.geometry.polygon import orient
 from shapely.ops import transform as shapely_transform
+from shapely.ops import unary_union
 from shapely.validation import make_valid
 
 
@@ -109,16 +111,59 @@ class ImportErrorWithReason(Exception):
         self.reason = reason
 
 
-def build_overpass_query(area: Polygon, timeout: int) -> str:
+def load_area_geometry(area_geojson: str | None) -> BaseGeometry:
+    if area_geojson is None:
+        return shape(AREA_GEOJSON)
+
+    with open(area_geojson, "r", encoding="utf-8") as file:
+        payload = json.load(file)
+
+    payload_type = payload.get("type")
+    if payload_type == "FeatureCollection":
+        geometries = [shape(feature["geometry"]) for feature in payload.get("features", []) if feature.get("geometry")]
+        if not geometries:
+            raise RuntimeError(f"Area GeoJSON has no geometries: {area_geojson}")
+        area = unary_union(geometries)
+    elif payload_type == "Feature":
+        area = shape(payload["geometry"])
+    else:
+        area = shape(payload)
+
+    if area.is_empty:
+        raise RuntimeError(f"Area GeoJSON is empty: {area_geojson}")
+    return area
+
+
+def area_polygons(area: BaseGeometry) -> list[Polygon]:
+    if isinstance(area, Polygon):
+        return [area]
+    if isinstance(area, MultiPolygon):
+        return list(area.geoms)
+    if isinstance(area, GeometryCollection):
+        polygons: list[Polygon] = []
+        for geom in area.geoms:
+            polygons.extend(area_polygons(geom))
+        if polygons:
+            return polygons
+    raise RuntimeError("Area GeoJSON must contain Polygon or MultiPolygon geometry")
+
+
+def overpass_poly(poly: Polygon) -> str:
     # Overpass poly order is "lat lon lat lon ...".
-    coords = list(area.exterior.coords)
-    poly = " ".join(f"{lat:.14f} {lon:.14f}" for lon, lat in coords)
-    return f"""[out:json][timeout:{timeout}];
-(
-  way[\"building\"](poly:\"{poly}\");
-  relation[\"building\"](poly:\"{poly}\");
-);
-out body geom;"""
+    coords = list(poly.exterior.coords)
+    return " ".join(f"{lat:.14f} {lon:.14f}" for lon, lat in coords)
+
+
+def build_overpass_query(area: BaseGeometry, timeout: int) -> str:
+    clauses: list[str] = []
+    for poly in area_polygons(area):
+        poly_filter = overpass_poly(poly)
+        clauses.append(f'  way["building"](poly:"{poly_filter}");')
+        clauses.append(f'  relation["building"](poly:"{poly_filter}");')
+    return "[out:json][timeout:{timeout}];\n(\n{clauses}\n);\nout body geom;".format(
+        timeout=timeout,
+        clauses="\n".join(clauses),
+    )
 
 
 def fetch_overpass(query: str, url: str, retries: int) -> dict[str, Any]:
@@ -130,7 +175,7 @@ def fetch_overpass(query: str, url: str, retries: int) -> dict[str, Any]:
                 data=query.encode("utf-8"),
                 headers={
                     "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-                    "User-Agent": "huaguoshan-osm-3dcitydb-import/0.1",
+                    "User-Agent": "osm-3dcitydb-import/0.1",
                 },
                 timeout=120,
             )
@@ -146,6 +191,96 @@ def fetch_overpass(query: str, url: str, retries: int) -> dict[str, Any]:
                 print(f"Overpass request failed on attempt {attempt}/{retries}: {exc}; retrying in {sleep_s}s", file=sys.stderr)
                 time.sleep(sleep_s)
     raise RuntimeError(f"Overpass request failed after {retries} attempts: {last_error}")
+
+
+def area_grid_shards(area: BaseGeometry, grid_size_deg: float) -> list[tuple[int, int, BaseGeometry]]:
+    if grid_size_deg <= 0:
+        return [(0, 0, area)]
+
+    minx, miny, maxx, maxy = area.bounds
+    shards: list[tuple[int, int, BaseGeometry]] = []
+    row = 0
+    y = miny
+    epsilon = 1e-12
+    while y < maxy - epsilon:
+        next_y = min(y + grid_size_deg, maxy)
+        col = 0
+        x = minx
+        while x < maxx - epsilon:
+            next_x = min(x + grid_size_deg, maxx)
+            clipped = area.intersection(box(x, y, next_x, next_y))
+            if not clipped.is_empty:
+                try:
+                    area_polygons(clipped)
+                    shards.append((row, col, clipped))
+                except RuntimeError:
+                    pass
+            x = next_x
+            col += 1
+        y = next_y
+        row += 1
+    return shards
+
+
+def merge_overpass_payloads(payloads: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    merged: dict[tuple[str, int], dict[str, Any]] = {}
+    for payload in payloads:
+        for element in payload.get("elements") or []:
+            element_type = str(element.get("type"))
+            element_id = element.get("id")
+            if element_id is None:
+                continue
+            key = (element_type, int(element_id))
+            # Keep the first complete geometry we saw. Duplicate elements are common
+            # along grid boundaries, and later shards should not inflate counts.
+            merged.setdefault(key, element)
+    return {"elements": list(merged.values())}
+
+
+def fetch_overpass_for_area(
+    area: BaseGeometry,
+    url: str,
+    timeout: int,
+    retries: int,
+    grid_size_deg: float,
+    grid_sleep: float,
+    shard_dir: str | None,
+    refresh_shards: bool,
+) -> dict[str, Any]:
+    shards = area_grid_shards(area, grid_size_deg)
+    if grid_size_deg <= 0:
+        query = build_overpass_query(area, timeout)
+        print("Fetching OSM buildings from Overpass...", file=sys.stderr)
+        return fetch_overpass(query, url, retries)
+
+    if shard_dir:
+        os.makedirs(shard_dir, exist_ok=True)
+
+    payloads: list[dict[str, Any]] = []
+    total = len(shards)
+    for index, (row, col, shard_area) in enumerate(shards, start=1):
+        shard_path = None if shard_dir is None else os.path.join(shard_dir, f"overpass_r{row:04d}_c{col:04d}.json")
+        if shard_path and os.path.exists(shard_path) and not refresh_shards:
+            print(f"Loading Overpass shard {index}/{total} r{row:04d} c{col:04d}: {shard_path}", file=sys.stderr)
+            with open(shard_path, "r", encoding="utf-8") as file:
+                payload = json.load(file)
+        else:
+            print(f"Fetching Overpass shard {index}/{total} r{row:04d} c{col:04d}...", file=sys.stderr)
+            payload = fetch_overpass(build_overpass_query(shard_area, timeout), url, retries)
+            if shard_path:
+                with open(shard_path, "w", encoding="utf-8") as file:
+                    json.dump(payload, file, ensure_ascii=False)
+            if grid_sleep > 0 and index < total:
+                time.sleep(grid_sleep)
+        payloads.append(payload)
+
+    merged = merge_overpass_payloads(payloads)
+    print(
+        f"Merged {sum(len(payload.get('elements') or []) for payload in payloads)} shard elements "
+        f"into {len(merged['elements'])} unique OSM elements",
+        file=sys.stderr,
+    )
+    return merged
 
 
 def parse_height(tags: dict[str, str]) -> tuple[float, str, int | None]:
@@ -316,7 +451,7 @@ def clean_multipolygon(geom: MultiPolygon) -> Polygon | MultiPolygon:
     raise ImportErrorWithReason("invalid_geometry")
 
 
-def parse_buildings(elements: Iterable[dict[str, Any]], area_lonlat: Polygon, transformer: Transformer, limit: int | None, stats: ImportStats) -> list[Building]:
+def parse_buildings(elements: Iterable[dict[str, Any]], area_lonlat: BaseGeometry, transformer: Transformer, limit: int | None, stats: ImportStats) -> list[Building]:
     buildings: list[Building] = []
     seen: set[str] = set()
 
@@ -650,7 +785,7 @@ def import_buildings(buildings: Sequence[Building], dsn: str, target_srid: int, 
         conn.commit()
 
 
-def validate_import(dsn: str) -> dict[str, Any]:
+def validate_import(dsn: str, target_srid: int) -> dict[str, Any]:
     with psycopg.connect(dsn, connect_timeout=15) as conn, conn.cursor() as cur:
         cur.execute(
             """
@@ -672,13 +807,13 @@ def validate_import(dsn: str) -> dict[str, Any]:
               select id from citydb.feature where objectid like 'osm:%%'
             )
             """,
-            (TARGET_SRID,),
+            (target_srid,),
         )
         geometry_count, srid_count, non_empty_count, closed_solid_count = cur.fetchone()
         return {
             "osm_feature_count": feature_count,
             "geometry_count": geometry_count,
-            "geometry_srid_32650_count": srid_count,
+            f"geometry_srid_{target_srid}_count": srid_count,
             "non_empty_geometry_count": non_empty_count,
             "closed_polyhedral_surface_count": closed_solid_count,
         }
@@ -700,14 +835,21 @@ def print_report(stats: ImportStats, validation: dict[str, Any] | None = None) -
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    global BATCH_CODE
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dsn", default=os.getenv("DATABASE_URL", DEFAULT_DSN), help="PostgreSQL DSN")
     parser.add_argument("--overpass-url", default=OVERPASS_URL)
     parser.add_argument("--overpass-timeout", type=int, default=60)
     parser.add_argument("--overpass-retries", type=int, default=3)
+    parser.add_argument("--overpass-grid-size-deg", type=float, default=0.0, help="Split Overpass fetches into lon/lat degree grid shards; 0 disables sharding")
+    parser.add_argument("--overpass-grid-sleep", type=float, default=1.0, help="Seconds to sleep between Overpass grid shard requests")
+    parser.add_argument("--overpass-shard-dir", help="Directory for per-shard Overpass JSON cache files")
+    parser.add_argument("--refresh-overpass-shards", action="store_true", help="Refetch shards even when cached files exist")
+    parser.add_argument("--area-geojson", help="EPSG:4326 GeoJSON geometry/feature/feature collection defining the import area")
     parser.add_argument("--target-srid", type=int, default=TARGET_SRID)
     parser.add_argument("--limit", type=int, help="Limit number of parsed buildings, useful for tests")
     parser.add_argument("--batch-size", type=int, default=500)
+    parser.add_argument("--batch-code", default=BATCH_CODE, help="Value stored in osmImportBatch properties")
     parser.add_argument("--base-z-mode", choices=["zero", "terrain"], default="zero", help="Use z=0 or sample terrain.dem_tile for building base elevation")
     parser.add_argument("--dem-dataset-key", default="copernicus-dem-glo30-huaguoshan", help="terrain.dem_dataset key used when --base-z-mode=terrain")
     parser.add_argument("--terrain-method", choices=["median", "min", "max", "centroid"], default="median", help="Footprint elevation sampling method")
@@ -715,19 +857,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--load-overpass-json", help="Read raw Overpass JSON from this path instead of fetching")
     parser.add_argument("--execute", action="store_true", help="Write to database. Without this flag, only performs a dry run.")
     args = parser.parse_args(argv)
+    if args.overpass_grid_size_deg < 0:
+        parser.error("--overpass-grid-size-deg must be >= 0")
+    if args.overpass_grid_sleep < 0:
+        parser.error("--overpass-grid-sleep must be >= 0")
+    BATCH_CODE = args.batch_code
 
     stats = ImportStats()
-    area_lonlat = shape(AREA_GEOJSON)
-    if not isinstance(area_lonlat, Polygon):
-        raise RuntimeError("AREA_GEOJSON must be a Polygon")
+    area_lonlat = load_area_geometry(args.area_geojson)
+    area_polygons(area_lonlat)
 
     if args.load_overpass_json:
         with open(args.load_overpass_json, "r", encoding="utf-8") as file:
             data = json.load(file)
     else:
-        query = build_overpass_query(area_lonlat, args.overpass_timeout)
-        print("Fetching OSM buildings from Overpass...", file=sys.stderr)
-        data = fetch_overpass(query, args.overpass_url, args.overpass_retries)
+        data = fetch_overpass_for_area(
+            area_lonlat,
+            args.overpass_url,
+            args.overpass_timeout,
+            args.overpass_retries,
+            args.overpass_grid_size_deg,
+            args.overpass_grid_sleep,
+            args.overpass_shard_dir,
+            args.refresh_overpass_shards,
+        )
         if args.save_overpass_json:
             os.makedirs(os.path.dirname(args.save_overpass_json) or ".", exist_ok=True)
             with open(args.save_overpass_json, "w", encoding="utf-8") as file:
@@ -745,7 +898,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.execute:
         import_buildings(buildings, args.dsn, args.target_srid, stats, args.batch_size)
-        validation = validate_import(args.dsn)
+        validation = validate_import(args.dsn, args.target_srid)
     else:
         validation = None
         print("Dry run only. Re-run with --execute to write to 3DCityDB.", file=sys.stderr)

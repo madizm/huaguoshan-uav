@@ -33,6 +33,41 @@
     });
   }
 
+  function addLianyungangBuildings(CesiumRuntime, viewer, state, url, log) {
+    if (unsupported(CesiumRuntime, '当前 Cesium 版本不支持 Cesium3DTileset，无法挂载连云港全市建筑。', log)) return Promise.resolve(null);
+    log('正在加载连云港全市建筑 3D Tiles：' + url);
+    return global.HuaguoshanTilesetLoader.add3DTileset(CesiumRuntime, viewer, url, {
+      tilesetOptions: {
+        maximumScreenSpaceError: 12,
+        dynamicScreenSpaceError: true,
+        skipLevelOfDetail: true,
+        immediatelyLoadDesiredLevelOfDetail: false,
+        cullRequestsWhileMoving: true,
+        show: true
+      },
+      onAdded: function (tileset) { state.lianyungangBuildingsTileset = tileset; }
+    }).then(function (tileset) {
+      state.lianyungangBuildingsReady = true;
+      log('连云港全市建筑已挂载：25,018 栋 OSM LoD1 建筑。');
+      return tileset;
+    }).catch(function (error) {
+      console.error('[Tianditu3D] Lianyungang building tileset load failed:', error);
+      log('连云港全市建筑加载失败。请确认 exports/citydb-3dtiler/lianyungang_buildings_3dtiles/tileset.json 存在，并从工程根目录启动服务。');
+      return null;
+    });
+  }
+
+  function flyToLianyungangBuildings(CesiumRuntime, state, log) {
+    if (!state.lianyungangBuildingsTileset || !state.lianyungangBuildingsReady) return;
+    global.HuaguoshanCamera.flyToTileset(CesiumRuntime, state.viewer, state.lianyungangBuildingsTileset, {
+      duration: 2.2,
+      heading: 18,
+      pitch: -40,
+      range: 72000
+    });
+    log('已定位到连云港全市建筑范围。');
+  }
+
   function addDem(CesiumRuntime, viewer, state, url, log) {
     if (unsupported(CesiumRuntime, '当前 Cesium 版本不支持 Cesium3DTileset，无法挂载 DEM 网格。', log)) return Promise.resolve(null);
     return global.HuaguoshanTilesetLoader.add3DTileset(CesiumRuntime, viewer, url, {
@@ -156,9 +191,11 @@
 
   global.HuaguoshanTilesets = {
     addCitydbBuildings: addCitydbBuildings,
+    addLianyungangBuildings: addLianyungangBuildings,
     addDem: addDem,
     addLianyungangDem: addLianyungangDem,
     flyToTileset: flyToTileset,
+    flyToLianyungangBuildings: flyToLianyungangBuildings,
     flyToDem: flyToDem,
     flyToLianyungangDem: flyToLianyungangDem
   };

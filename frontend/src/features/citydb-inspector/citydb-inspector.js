@@ -210,9 +210,10 @@
   }
 
   function isPickedCitydbFeature(picked, buildingsTileset) {
+    var tilesets = Array.isArray(buildingsTileset) ? buildingsTileset : [buildingsTileset];
+    var pickedTileset = picked && (picked.tileset || (picked.content && picked.content.tileset));
     if (!picked || typeof picked.getProperty !== 'function') return false;
-    if (buildingsTileset && picked.tileset && picked.tileset !== buildingsTileset) return false;
-    if (buildingsTileset && picked.content && picked.content.tileset && picked.content.tileset !== buildingsTileset) return false;
+    if (tilesets.filter(Boolean).length && pickedTileset && tilesets.indexOf(pickedTileset) === -1) return false;
     return true;
   }
 

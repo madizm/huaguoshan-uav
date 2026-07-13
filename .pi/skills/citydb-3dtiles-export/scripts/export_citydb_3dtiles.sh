@@ -143,8 +143,8 @@ SELECT DISTINCT ON (gd.id)
            'MetallicRoughness', ARRAY['${DEFAULT_METALLIC_ROUGHNESS}']
          )
        )::json AS material_data,
-       dh.val_double AS gen_derivedheight,
-       te.val_double AS gen_terrainelevation,
+       dh.val_double::real AS gen_derivedheight,
+       te.val_double::real AS gen_terrainelevation,
        osmurl.val_string AS gen_osmurl
 FROM ${CITYDB_SCHEMA}.geometry_data gd
 JOIN ${CITYDB_SCHEMA}.feature f ON f.id = gd.feature_id

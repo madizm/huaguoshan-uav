@@ -9,6 +9,7 @@
     },
     tilesets: {
       citydb: '../exports/citydb-3dtiler/huaguoshan_3dtiles/tileset.json',
+      lianyungangBuildings: '../exports/citydb-3dtiler/lianyungang_buildings_3dtiles/tileset.json',
       huaguoshanDem: '../exports/terrain/huaguoshan_dem_3dtiles/tileset.json',
       lianyungangDem: '../exports/terrain/lianyungang_dem_3dtiles/tileset.json'
     },

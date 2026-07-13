@@ -10,6 +10,7 @@
       var tdtUrl = tiandituConfig.url || 'https://t{s}.tianditu.gov.cn/';
       var subdomains = tiandituConfig.subdomains || ['0', '1', '2', '3', '4', '5', '6', '7'];
       var localTilesetUrl = tilesetConfig.citydb || '../exports/citydb-3dtiler/huaguoshan_3dtiles/tileset.json';
+      var lianyungangBuildingsTilesetUrl = tilesetConfig.lianyungangBuildings || '../exports/citydb-3dtiler/lianyungang_buildings_3dtiles/tileset.json';
       var demTilesetUrl = tilesetConfig.huaguoshanDem || '../exports/terrain/huaguoshan_dem_3dtiles/tileset.json';
       var lianyungangDemTilesetUrl = tilesetConfig.lianyungangDem || '../exports/terrain/lianyungang_dem_3dtiles/tileset.json';
       var airspaceProfile = postgrestConfig.airspaceProfile || 'api';
@@ -36,6 +37,9 @@
         terrainProvider: null,
         buildingsTileset: null,
         buildingsReady: false,
+        lianyungangBuildingsTileset: null,
+        lianyungangBuildingsReady: false,
+        lianyungangBuildingsLoadPromise: null,
         demTileset: null,
         demReady: false,
         demVisible: false,
@@ -265,7 +269,9 @@
         window.HuaguoshanCitydbInspector.bindFeaturePicking({
           CesiumRuntime: Cesium,
           viewer: viewer,
-          buildingsTileset: function () { return state.buildingsTileset; },
+          buildingsTileset: function () {
+            return [state.buildingsTileset, state.lianyungangBuildingsTileset].filter(Boolean);
+          },
           airspaceConstraintEditor: state.airspaceConstraintEditor,
           flightPathWorkbench: state.flightPathWorkbench,
           flightObstacleLayer: state.flightObstacleLayer,
@@ -423,6 +429,35 @@
         viewer.camera.moveEnd.addEventListener(scheduleTerrainLodRefresh);
       }
 
+      function loadLianyungangBuildings() {
+        var button = $('#loadLianyungangBuildingsBtn');
+        if (state.lianyungangBuildingsReady) {
+          window.HuaguoshanTilesets.flyToLianyungangBuildings(Cesium, state, log);
+          return Promise.resolve(state.lianyungangBuildingsTileset);
+        }
+        if (state.lianyungangBuildingsLoadPromise) return state.lianyungangBuildingsLoadPromise;
+
+        if (button) {
+          button.disabled = true;
+          button.textContent = '正在加载全市建筑…';
+        }
+        state.lianyungangBuildingsLoadPromise = window.HuaguoshanTilesets.addLianyungangBuildings(
+          Cesium, state.viewer, state, lianyungangBuildingsTilesetUrl, log
+        ).then(function (tileset) {
+          if (tileset) {
+            if (button) button.textContent = '查看连云港全市建筑';
+            window.HuaguoshanTilesets.flyToLianyungangBuildings(Cesium, state, log);
+          } else if (button) {
+            button.textContent = '重试加载全市建筑';
+          }
+          return tileset;
+        }).finally(function () {
+          state.lianyungangBuildingsLoadPromise = null;
+          if (button) button.disabled = false;
+        });
+        return state.lianyungangBuildingsLoadPromise;
+      }
+
       function addLocalTileset(viewer) {
         return window.HuaguoshanTilesets.addCitydbBuildings(Cesium, viewer, state, localTilesetUrl, log);
       }
@@ -461,6 +496,7 @@
           clearSelectedGridHighlight: clearSelectedGridHighlight,
           flyToHuaguoshan: flyToHuaguoshan,
           flyToTileset: flyToTileset,
+          loadLianyungangBuildings: loadLianyungangBuildings,
           flyToDem: flyToDem,
           flyToLianyungangDem: flyToLianyungangDem,
           flyToSelectedGridHighlight: flyToSelectedGridHighlight

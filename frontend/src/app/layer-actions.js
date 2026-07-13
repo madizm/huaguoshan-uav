@@ -20,6 +20,7 @@
     if (action === 'tileset') options.flyToTileset();
     if (action === 'dem') options.flyToDem();
     if (action === 'lianyungangDem') options.flyToLianyungangDem();
+    if (action === 'lianyungangBuildings') options.loadLianyungangBuildings();
     if (action === 'china') global.HuaguoshanCamera.flyToChina(options.CesiumRuntime, state.viewer);
     if (action === 'tilt') global.HuaguoshanCamera.flyToTilt(options.CesiumRuntime, state.viewer, options.huaguoshan);
     if (action === 'zoomSelectedGrid') options.flyToSelectedGridHighlight();
