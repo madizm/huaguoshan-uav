@@ -35,6 +35,27 @@ class EmergencyForceSchemaMigrationTests(unittest.TestCase):
         self.assertIn("119.23062143399773", self.sql)
         self.assertIn("34.66401112992460", self.sql)
 
+    def test_materializes_counts_for_every_emergency_resource_category(self):
+        self.assertIn(
+            "create materialized view if not exists emergency_resource.category_statistics as",
+            self.sql_lower,
+        )
+        for category in [
+            "rescue_force",
+            "medical_resource",
+            "expert_force",
+            "shelter",
+            "material_warehouse",
+            "water_point",
+            "landing_site",
+        ]:
+            self.assertIn(f"'{category}'::text as category_code", self.sql_lower)
+        self.assertIn("refresh materialized view emergency_resource.category_statistics", self.sql_lower)
+        self.assertIn("create or replace function emergency_resource.refresh_category_statistics()", self.sql_lower)
+        self.assertIn("create or replace view api.emergency_resource_category_statistics", self.sql_lower)
+        self.assertIn("grant select on api.emergency_resource_category_statistics to admin", self.sql_lower)
+        self.assertIn("grant execute on function api.refresh_emergency_resource_category_statistics() to admin", self.sql_lower)
+
     def test_exposes_only_api_facade_to_postgrest_admin_role(self):
         api_resources = [
             "emergency_rescue_forces",
