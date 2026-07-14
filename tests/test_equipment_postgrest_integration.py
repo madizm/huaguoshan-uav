@@ -66,6 +66,14 @@ class EquipmentPostgrestIntegrationTests(unittest.TestCase):
         )
         self.assertEqual({row["height_datum"] for row in assets}, {"AMSL"})
 
+    def test_online_statistics_are_available_by_category(self):
+        _, rows = self.request(
+            "equipment_online_statistics?select=category_code,total_count,online_count,online_rate"
+        )
+        self.assertEqual(len(rows), 7)
+        self.assertTrue(all(row["total_count"] >= row["online_count"] for row in rows))
+        self.assertTrue(all(0 <= float(row["online_rate"]) <= 100 for row in rows))
+
     def test_reported_flights_never_expose_a_managed_asset_id(self):
         _, rows = self.request("flight_activities?activity_type=eq.reported_flight&select=aircraft_id,aircraft_name")
         self.assertTrue(rows)

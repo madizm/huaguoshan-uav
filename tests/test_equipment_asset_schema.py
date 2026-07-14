@@ -92,6 +92,17 @@ class EquipmentAssetSchemaMigrationTests(unittest.TestCase):
         self.assertIn("revoke all on all tables in schema equipment from anonymous", self.sql_lower)
         self.assertNotIn("counter_uas_control", self.sql_lower)
 
+    def test_exposes_online_statistics_by_category(self):
+        self.assertIn("create or replace view api.equipment_online_statistics as", self.sql_lower)
+        self.assertIn("count(*)::bigint as total_count", self.sql_lower)
+        self.assertIn(
+            "count(*) filter (where s.connectivity_status = 'online')::bigint as online_count",
+            self.sql_lower,
+        )
+        self.assertIn("as online_rate", self.sql_lower)
+        self.assertIn("comment on view api.equipment_online_statistics", self.sql_lower)
+        self.assertIn("grant select on api.equipment_online_statistics to admin", self.sql_lower)
+
     def test_seed_is_idempotent_and_covers_every_category(self):
         for category in [
             "base_station_6g",
