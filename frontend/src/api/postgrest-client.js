@@ -23,7 +23,7 @@
   }
 
   function createPostgrestClient(options) {
-    var baseUrl = (options && options.baseUrl) || '/postgrest';
+    var baseUrl = (options && options.baseUrl) || '../postgrest';
     var storageKey = (options && options.storageKey) || 'postgrest.jwt';
 
     function request(path, requestOptions) {
@@ -66,8 +66,8 @@
   }
 
   function createAuthClient(options) {
-    var loginUrl = (options && options.loginUrl) || '/auth/login';
-    var meUrl = (options && options.meUrl) || '/auth/me';
+    var loginUrl = (options && options.loginUrl) || '../auth/login';
+    var meUrl = (options && options.meUrl) || '../auth/me';
     var storageKey = (options && options.storageKey) || 'postgrest.jwt';
 
     return {

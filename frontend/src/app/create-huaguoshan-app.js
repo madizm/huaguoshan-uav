@@ -22,12 +22,12 @@
         temp_control: 'temp_control_zone'
       };
       var postgrestClient = window.HuaguoshanPostgrest.createPostgrestClient({
-        baseUrl: postgrestConfig.baseUrl || '/postgrest',
+        baseUrl: postgrestConfig.baseUrl || '../postgrest',
         storageKey: postgrestJwtStorageKey
       });
       var authClient = window.HuaguoshanPostgrest.createAuthClient({
-        loginUrl: authConfig.loginUrl || '/auth/login',
-        meUrl: authConfig.meUrl || '/auth/me',
+        loginUrl: authConfig.loginUrl || '../auth/login',
+        meUrl: authConfig.meUrl || '../auth/me',
         storageKey: postgrestJwtStorageKey
       });
       var gridLayerColors = runtimeConfig.gridLayerColors || ['#5eead4', '#f6c85f', '#ff8f5f', '#8bd17c', '#80b7ff', '#c084fc', '#f472b6', '#67e8f9', '#facc15', '#a3e635'];

@@ -28,7 +28,7 @@
       }
     },
     postgrest: {
-      baseUrl: '/postgrest',
+      baseUrl: '../postgrest',
       jwtStorageKey: 'postgrest.jwt',
       airspaceProfile: 'api',
       suitableFootprintResource: 'suitable_fly_zone_footprints',
@@ -38,8 +38,8 @@
       }
     },
     auth: {
-      loginUrl: '/auth/login',
-      meUrl: '/auth/me',
+      loginUrl: '../auth/login',
+      meUrl: '../auth/me',
       checkIntervalSeconds: 300
     },
     huaguoshan: {
