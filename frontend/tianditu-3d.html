@@ -41,6 +41,7 @@
   <script src="./src/features/airspace-constraints/airspace-constraint-module.js"></script>
   <script src="./src/features/flight-path/flight-path-module.js"></script>
   <script src="./src/app/layer-actions.js"></script>
+  <script src="./src/ui/panel-router.js"></script>
 </head>
 <body>
   <main id="cesiumContainer" aria-label="天地图三维地图容器"></main>
@@ -323,6 +324,10 @@
     <header>
       <h2>选择详情</h2>
       <button class="feature-close" id="closeFeaturePanel" type="button" aria-label="关闭选择详情面板" title="关闭详情面板">×</button>
+      <div class="feature-owner-bar">
+        <button class="feature-back" id="featurePanelBack" type="button" style="display:none" aria-label="返回上一个详情来源">‹ 返回</button>
+        <span class="feature-owner" id="featurePanelOwner" style="display:none"></span>
+      </div>
       <p>点击建筑模型查询 CityDB 属性，或开启飞行障碍图层查看多源 GGER 障碍。</p>
     </header>
     <div class="feature-content" id="featureProperties">

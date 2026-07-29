@@ -80,21 +80,32 @@
         maxItems: 5
       });
       var log = statusCenter.log;
+      var panelRouter = window.HuaguoshanPanelRouter.createPanelRouter({
+        panelSelector: '.feature-panel',
+        contentSelector: '#featureProperties',
+        ownerSelector: '#featurePanelOwner',
+        backSelector: '#featurePanelBack'
+      });
 
       function escapeHtml(value) {
         return window.HuaguoshanCitydbInspector.escapeHtml(value);
       }
 
-      function featurePanel() {
-        return window.HuaguoshanCitydbInspector.featurePanel('#featureProperties');
-      }
-
-      function showFeaturePanel() {
-        window.HuaguoshanCitydbInspector.showPanel('.feature-panel');
-      }
-
       function hideFeaturePanel() {
-        window.HuaguoshanCitydbInspector.hidePanel('.feature-panel');
+        panelRouter.close();
+      }
+
+      function panelShow(ownerId, label) {
+        return function (html) {
+          panelRouter.show(ownerId, label, html);
+        };
+      }
+
+      function panelError(ownerId, label) {
+        return function (message) {
+          window.HuaguoshanCitydbInspector.renderFeatureError({ panelSelector: '.feature-panel', contentSelector: '#featureProperties' }, message);
+          panelRouter.capture(ownerId, label);
+        };
       }
 
       function formatPropertyValue(value, uom) {
@@ -199,14 +210,17 @@
 
       function renderFeatureMessage(className, message) {
         window.HuaguoshanCitydbInspector.renderFeatureMessage({ panelSelector: '.feature-panel', contentSelector: '#featureProperties' }, className, message);
+        panelRouter.capture('citydb', '建筑属性');
       }
 
       function renderFeatureLoading(identifier, metadata) {
         window.HuaguoshanCitydbInspector.renderFeatureLoading({ panelSelector: '.feature-panel', contentSelector: '#featureProperties' }, identifier, metadata);
+        panelRouter.capture('citydb', '建筑属性');
       }
 
       function renderFeatureError(message) {
         window.HuaguoshanCitydbInspector.renderFeatureError({ panelSelector: '.feature-panel', contentSelector: '#featureProperties' }, message);
+        panelRouter.capture('citydb', '建筑属性');
       }
 
       function renderGridCard(gridData) {
@@ -215,6 +229,7 @@
 
       function renderFeatureProperties(data, sourceIdentifier, gridData) {
         window.HuaguoshanCitydbInspector.renderFeatureProperties({ panelSelector: '.feature-panel', contentSelector: '#featureProperties' }, data, sourceIdentifier, gridData, extractGridCells);
+        panelRouter.capture('citydb', '建筑属性');
       }
 
       function getPickedPropertyIds(picked) {
@@ -357,10 +372,7 @@
           urls: airspaceWgTilesetUrls,
           defaultLevel: 20,
           log: log,
-          showPanel: function (html) {
-            showFeaturePanel();
-            featurePanel().innerHTML = html;
-          }
+          showPanel: panelShow('airspace-tiles', 'W/G 空域体素')
         });
       }
       function initSuitableFootprintLayer() {
@@ -426,11 +438,8 @@
           getViewer: function () { return state.viewer; },
           huaguoshan: huaguoshan,
           log: log,
-          renderError: renderFeatureError,
-          showPanel: function (html) {
-            showFeaturePanel();
-            featurePanel().innerHTML = html;
-          },
+          renderError: panelError('flight-obstacles', '飞行障碍'),
+          showPanel: panelShow('flight-obstacles', '飞行障碍'),
           rpc: postgrestRpc,
           helpers: {
             extractGridCells: extractGridCells,
@@ -475,7 +484,7 @@
               if (state.flightObstacleLayer.isEnabled()) state.flightObstacleLayer.refresh(true);
             }
           },
-          renderError: renderFeatureError,
+          renderError: panelError('airspace-constraints', '空域约束'),
           zoomToPoints: function (points, message) {
             if (!state.flightObstacleLayer) return;
             state.flightObstacleLayer.zoomToBounds(cellsBounds(points.map(function (point) {
@@ -491,7 +500,7 @@
           containerSelector: '#flightPathWorkbench',
           rpc: postgrestRpc,
           log: log,
-          renderError: renderFeatureError,
+          renderError: panelError('flight-path', '航迹规划'),
           getCesium: function () { return window.Cesium; },
           getViewer: function () { return state.viewer; },
           helpers: {
