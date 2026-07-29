@@ -24,8 +24,9 @@ Do **not** describe the exported data as LiDAR, photogrammetry, authoritative ci
 3. Generate `advice.yml` using `citydb-3dtiler advise`.
 4. Create an export materialized view with explicit schema-qualified tables.
 5. Run `pg2b3dm` against that materialized view.
-6. Validate the generated tileset with `3d-tiles-validator`.
-7. Keep generated tiles under an ignored output directory unless explicitly asked to commit them.
+6. Build `analysis/feature-catalog.json` so the browser can locate GLB geometry by feature identifier.
+7. Validate the generated tileset with `3d-tiles-validator`.
+8. Keep generated tiles under an ignored output directory unless explicitly asked to commit them.
 
 The helper script implements this optimized path:
 
@@ -128,6 +129,7 @@ For the current OSM + DEM implementation:
 ```text
 exports/citydb-3dtiler/huaguoshan_3dtiles/tileset.json
 exports/citydb-3dtiler/huaguoshan_3dtiles/content/0_0_0.glb
+exports/citydb-3dtiler/huaguoshan_3dtiles/analysis/feature-catalog.json
 exports/citydb-3dtiler/huaguoshan_3dtiles/subtrees/0_0_0.subtree
 exports/citydb-3dtiler/huaguoshan_3dtiles/validation-report.json
 ```

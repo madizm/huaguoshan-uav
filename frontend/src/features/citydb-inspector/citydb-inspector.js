@@ -255,6 +255,10 @@
         return;
       }
       picked = viewer.scene.pick(movement.position);
+      if (options.convexHullAnalysis && options.convexHullAnalysis.isActive()) {
+        options.convexHullAnalysis.selectPicked(picked);
+        return;
+      }
       if (picked && picked.id && picked.id.type === 'flightObstacle') {
         if (options.flightObstacleLayer) options.flightObstacleLayer.selectObstacle(options.flightObstacleLayer.obstacleByIndex(picked.id.index));
         return;

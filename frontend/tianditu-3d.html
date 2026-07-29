@@ -33,6 +33,9 @@
   <script src="./src/features/suitable-footprint/suitable-footprint-module.js"></script>
   <script src="./src/features/airspace-tiles/airspace-tiles-module.js"></script>
   <script src="./src/features/citydb-inspector/citydb-inspector.js"></script>
+  <script src="./src/features/convex-hull/glb-feature-geometry.js"></script>
+  <script src="./src/features/convex-hull/convex-hull-kernel.js"></script>
+  <script src="./src/features/convex-hull/convex-hull-module.js"></script>
   <script src="./src/features/hud/hud.js"></script>
   <script src="./src/features/flight-obstacles/flight-obstacle-module.js"></script>
   <script src="./src/features/airspace-constraints/airspace-constraint-module.js"></script>
@@ -68,6 +71,39 @@
       <button type="button" data-action="china">全国视角</button>
       <button type="button" data-action="tilt">低空斜视</button>
     </div>
+    <section class="convex-hull-controls" aria-labelledby="convexHullTitle">
+      <div class="convex-hull-heading">
+        <h2 id="convexHullTitle">3D Envelope</h2>
+        <span>Browser Geometry</span>
+      </div>
+      <div class="convex-hull-actions">
+        <label class="convex-hull-mode">包络
+          <select id="convexHullEnvelopeMode">
+            <option value="shell" selected>模型外壳</option>
+            <option value="convex">凸包</option>
+          </select>
+        </label>
+        <button type="button" id="convexHullFeatureBtn" aria-pressed="false">点击模型</button>
+        <button type="button" id="convexHullClearBtn">清除包络</button>
+      </div>
+      <p class="convex-hull-status" id="convexHullStatus" data-state="idle" aria-live="polite">单体包络分析未开启。</p>
+      <div class="convex-hull-grid-controls" aria-label="iBEST-DB 三维网格参数">
+        <label>Level
+          <input id="convexHullGridLevel" type="number" min="6" max="32" step="1" value="19" />
+        </label>
+        <label class="convex-hull-agg">聚合
+          <input id="convexHullGridAgg" type="checkbox" checked />
+        </label>
+        <button type="button" id="convexHullGridBtn" disabled>生成 GGER 网格</button>
+      </div>
+      <p class="convex-hull-grid-status" id="convexHullGridStatus" data-state="idle" aria-live="polite">等待凸包计算。</p>
+      <details class="convex-hull-wkt" id="convexHullWktDetails" hidden>
+        <summary>查看包络 WKT <span>EPSG:4978</span></summary>
+        <label for="convexHullWkt">POLYHEDRALSURFACE Z</label>
+        <textarea id="convexHullWkt" readonly spellcheck="false" aria-label="包络 WKT"></textarea>
+        <button type="button" id="convexHullCopyWktBtn">复制包络 WKT</button>
+      </details>
+    </section>
     <div class="toggles" aria-label="图层开关">
       <button type="button" data-layer="image" aria-pressed="true">影像底图</button>
       <button type="button" data-layer="boundary" aria-pressed="true">国界叠加</button>

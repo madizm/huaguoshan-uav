@@ -61,7 +61,8 @@
         selectedGridCells: [],
         flightObstacleLayer: null,
         airspaceConstraintEditor: null,
-        flightPathWorkbench: null
+        flightPathWorkbench: null,
+        convexHullAnalysis: null
       };
 
       var $ = function (selector) { return document.querySelector(selector); };
@@ -280,6 +281,7 @@
           flightPathWorkbench: state.flightPathWorkbench,
           flightObstacleLayer: state.flightObstacleLayer,
           airspaceTilesLayer: state.airspaceTilesLayer,
+          convexHullAnalysis: state.convexHullAnalysis,
           requestCitydbFeature: requestCitydbFeature,
           requestCitydbGrid: requestCitydbGrid,
           renderFeatureLoading: renderFeatureLoading,
@@ -364,6 +366,53 @@
           profile: airspaceProfile,
           resourceName: suitableFootprintResource,
           log: log
+        });
+      }
+
+      function featureCatalogUrl(tilesetUrl) {
+        return new URL('analysis/feature-catalog.json', new URL(tilesetUrl, document.baseURI)).href;
+      }
+
+      function initConvexHullAnalysis() {
+        state.convexHullAnalysis = window.HuaguoshanConvexHull.createModule({
+          CesiumRuntime: Cesium,
+          viewer: state.viewer,
+          sources: function () {
+            return [
+              {
+                name: '花果山建筑',
+                tileset: state.buildingsTileset,
+                tilesetUrl: localTilesetUrl,
+                catalogUrl: featureCatalogUrl(localTilesetUrl)
+              },
+              {
+                name: '连云港全市建筑',
+                tileset: state.lianyungangBuildingsTileset,
+                tilesetUrl: lianyungangBuildingsTilesetUrl,
+                catalogUrl: featureCatalogUrl(lianyungangBuildingsTilesetUrl)
+              }
+            ].filter(function (source) { return Boolean(source.tileset); });
+          },
+          readPickedMetadata: readPickedMetadata,
+          getPickedIdentifiers: getPickedIdentifiers,
+          toGeographicPosition: function (x, y, z) {
+            var cartographic = Cesium.Cartographic.fromCartesian(new Cesium.Cartesian3(x, y, z));
+            return [
+              Cesium.Math.toDegrees(cartographic.longitude),
+              Cesium.Math.toDegrees(cartographic.latitude),
+              cartographic.height
+            ];
+          },
+          requestGrid: function (payload) {
+            return postgrestRpc('grid_convex_hull_3d', payload);
+          },
+          renderGrid: function (grid) {
+            showSelectedGridHighlight({ grid: grid });
+          },
+          clearGrid: clearSelectedGridHighlight,
+          setStatus: function (message, status) {
+            if (status === 'error') log(message);
+          }
         });
       }
 
@@ -553,6 +602,7 @@
         initAirspaceTilesLayer();
         initSuitableFootprintLayer();
         initFlightObstacleLayer();
+        initConvexHullAnalysis();
         addLocalTileset(state.viewer);
         addDemTileset(state.viewer);
         addLianyungangDemTileset(state.viewer);

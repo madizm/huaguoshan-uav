@@ -206,6 +206,183 @@
     background: rgba(0, 0, 0, 0.14);
   }
 
+  .convex-hull-controls {
+    margin-top: 16px;
+    padding: 14px;
+    border: 1px solid rgba(246, 200, 95, 0.38);
+    border-radius: 16px;
+    background:
+      linear-gradient(115deg, rgba(246, 200, 95, 0.14), transparent 58%),
+      rgba(0, 0, 0, 0.18);
+  }
+
+  .convex-hull-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .convex-hull-heading h2 {
+    margin: 0;
+    color: #f6c85f;
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+
+  .convex-hull-heading span {
+    color: rgba(255, 247, 223, 0.46);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .convex-hull-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .convex-hull-mode {
+    display: grid;
+    gap: 4px;
+    color: rgba(255, 247, 223, 0.54);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .convex-hull-mode select {
+    min-width: 104px;
+    border: 1px solid rgba(246, 200, 95, 0.32);
+    border-radius: 999px;
+    padding: 8px 28px 8px 11px;
+    color: var(--paper-strong);
+    background: rgba(4, 17, 14, 0.72);
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .convex-hull-actions > button { align-self: end; }
+
+  .convex-hull-actions button[aria-pressed="true"] {
+    border-color: #f6c85f;
+    color: #071713;
+    background: #f6c85f;
+    box-shadow: 0 0 0 4px rgba(246, 200, 95, 0.12);
+  }
+
+  .convex-hull-status {
+    margin: 10px 0 0;
+    padding-left: 10px;
+    border-left: 2px solid rgba(255, 247, 223, 0.24);
+    color: rgba(255, 247, 223, 0.64);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .convex-hull-status[data-state="busy"] { border-color: #f6c85f; color: #ffe9a8; }
+  .convex-hull-status[data-state="success"] { border-color: #5eead4; color: #b8fff2; }
+  .convex-hull-status[data-state="error"] { border-color: #ff725c; color: #ffc0b6; }
+
+  .convex-hull-grid-controls {
+    display: grid;
+    grid-template-columns: 74px 64px minmax(0, 1fr);
+    align-items: end;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .convex-hull-grid-controls label {
+    display: grid;
+    gap: 5px;
+    color: rgba(255, 247, 223, 0.54);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .convex-hull-grid-controls input[type="number"] {
+    width: 100%;
+    border: 1px solid rgba(246, 200, 95, 0.26);
+    border-radius: 10px;
+    padding: 7px 8px;
+    color: var(--paper-strong);
+    background: rgba(4, 17, 14, 0.72);
+    font: inherit;
+  }
+
+  .convex-hull-grid-controls .convex-hull-agg {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 31px;
+  }
+
+  .convex-hull-grid-controls input[type="checkbox"] { accent-color: #f6c85f; }
+  .convex-hull-grid-controls button { padding: 9px 10px; }
+  .convex-hull-grid-controls button:disabled { cursor: not-allowed; opacity: 0.42; }
+
+  .convex-hull-grid-status {
+    margin: 8px 0 0;
+    color: rgba(255, 247, 223, 0.52);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .convex-hull-grid-status[data-state="busy"] { color: #ffe9a8; }
+  .convex-hull-grid-status[data-state="success"] { color: #b8fff2; }
+  .convex-hull-grid-status[data-state="error"] { color: #ffc0b6; }
+
+  .convex-hull-wkt {
+  .convex-hull-wkt {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(246, 200, 95, 0.18);
+  }
+
+  .convex-hull-wkt summary {
+    color: #ffe9a8;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .convex-hull-wkt summary span {
+    margin-left: 6px;
+    color: rgba(255, 247, 223, 0.45);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+  }
+
+  .convex-hull-wkt label {
+    display: block;
+    margin: 10px 0 6px;
+    color: rgba(255, 247, 223, 0.48);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+  }
+
+  .convex-hull-wkt textarea {
+    width: 100%;
+    min-height: 116px;
+    resize: vertical;
+    border: 1px solid rgba(246, 200, 95, 0.26);
+    border-radius: 10px;
+    padding: 9px;
+    color: #b8fff2;
+    background: rgba(4, 17, 14, 0.76);
+    font: 11px/1.45 "SFMono-Regular", Consolas, monospace;
+  }
+
+  .convex-hull-wkt button {
+    margin-top: 8px;
+    padding: 8px 11px;
+    font-size: 11px;
+  }
+
+  .flight-path-controls,
   .flight-path-controls,
   .airspace-admin-controls,
   .airspace-controls,

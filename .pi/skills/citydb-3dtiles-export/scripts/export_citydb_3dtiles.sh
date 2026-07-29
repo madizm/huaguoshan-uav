@@ -192,6 +192,17 @@ run_pg2b3dm() {
     --use_implicit_tiling "$implicit"
 }
 
+build_feature_catalog() {
+  if [[ ! -f "$OUTPUT_DIR/tileset.json" ]]; then
+    echo "No tileset.json found at $OUTPUT_DIR" >&2
+    exit 1
+  fi
+  log "Building frontend feature-to-GLB catalog"
+  python3 scripts/build_3dtiles_feature_catalog.py \
+    --tileset "$OUTPUT_DIR/tileset.json" \
+    --output "$OUTPUT_DIR/analysis/feature-catalog.json"
+}
+
 validate_tileset() {
   if [[ "$RUN_VALIDATION" != "1" ]]; then
     return
@@ -214,5 +225,6 @@ summarize() {
 run_advice
 create_materialized_view
 run_pg2b3dm
+build_feature_catalog
 validate_tileset
 summarize
