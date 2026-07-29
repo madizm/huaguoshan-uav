@@ -1,0 +1,359 @@
+  /* 布局：HUD 外壳与分组折叠、右侧 dock、实时状态栏、响应式断点 */
+
+  .hud {
+    scrollbar-color: rgba(255, 247, 223, 0.46) rgba(0, 0, 0, 0.16);
+    position: fixed;
+    z-index: 10;
+    top: 24px;
+    left: 24px;
+    width: min(430px, calc(100vw - 48px));
+    padding: 22px;
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    background:
+      linear-gradient(135deg, rgba(8, 61, 51, 0.92), rgba(16, 32, 27, 0.72)),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 9px);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(14px) saturate(1.15);
+    max-height: calc(100vh - 48px);
+    overflow: auto;
+  }
+
+  .kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--gold);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .kicker::before {
+    content: "";
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--cinnabar);
+    box-shadow: 0 0 0 6px rgba(216, 90, 53, 0.16);
+  }
+
+  h1 {
+    margin: 12px 0 10px;
+    color: var(--paper-strong);
+    font-family: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
+    font-size: clamp(24px, 3vw, 34px);
+    line-height: 0.95;
+    letter-spacing: -0.05em;
+  }
+
+  .intro {
+    margin: 0 0 18px;
+    color: rgba(255, 247, 223, 0.76);
+    font-size: 15px;
+    line-height: 1.75;
+  }
+
+  .hud-header h1 {
+    margin: 8px 0 6px;
+    font-size: 24px;
+    line-height: 1.2;
+    letter-spacing: 0;
+  }
+
+  .hud-header .intro {
+    margin: 0 0 6px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: rgba(255, 247, 223, 0.62);
+  }
+
+  /* ── HUD 分组折叠 ─────────────────────────────────── */
+
+  .hud-section {
+    margin-top: 10px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.14);
+  }
+
+  .hud-section > summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    color: var(--gold);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+  }
+
+  .hud-section > summary::-webkit-details-marker { display: none; }
+
+  .hud-section > summary::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform 0.18s ease;
+    flex: none;
+  }
+
+  .hud-section[open] > summary::before { transform: rotate(45deg); }
+
+  .hud-section > summary .section-hint {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    color: rgba(255, 247, 223, 0.6);
+  }
+
+  .hud-section > summary .section-hint.auth-status { padding: 2px 8px; }
+
+  .hud-section .auth-bar,
+  .hud-section .obstacle-controls,
+  .hud-section .airspace-controls,
+  .hud-section .flight-path-controls,
+  .hud-section .airspace-admin-controls {
+    margin-top: 4px;
+  }
+
+  /* 注入式工作台自带的英文标题与分组标题重复，隐藏 */
+  .hud-section .flight-path-controls > h2,
+  .hud-section .airspace-admin-controls > h2 { display: none; }
+
+  .hud-section .actions { padding: 0 14px 12px; }
+
+  .hud-section .auth-bar { margin: 4px 10px 12px; }
+
+  .hud-section .obstacle-controls,
+  .hud-section .airspace-controls,
+  .hud-section .flight-path-controls,
+  .hud-section .airspace-admin-controls,
+  .hud-section .convex-hull-controls {
+    margin: 4px 10px 12px;
+  }
+
+  .hud-section #flightPathWorkbench,
+  .hud-section #airspaceConstraintEditor { margin: 0; }
+
+  /* ── 右侧 dock：详情面板在上、实时状态在下 ────────── */
+
+  .right-dock {
+    position: fixed;
+    z-index: 10;
+    top: 24px;
+    right: 24px;
+    bottom: 24px;
+    width: min(420px, calc(100vw - 48px));
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    pointer-events: none;
+  }
+
+  .right-dock > * { pointer-events: auto; }
+
+  .feature-panel {
+    order: 1;
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: 60%;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    border: 1px solid rgba(215, 168, 70, 0.28);
+    border-radius: 22px;
+    background:
+      linear-gradient(145deg, rgba(16, 32, 27, 0.88), rgba(8, 61, 51, 0.72)),
+      radial-gradient(circle at 94% 8%, rgba(215, 168, 70, 0.18), transparent 34%);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(14px) saturate(1.12);
+    overflow: hidden;
+  }
+
+  .feature-panel header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: start;
+    padding: 16px 16px 12px;
+    border-bottom: 1px solid rgba(255, 247, 223, 0.14);
+  }
+
+  .feature-panel[hidden] {
+    display: none;
+  }
+
+  .feature-panel h2 {
+    margin: 0;
+    color: var(--gold);
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .feature-panel p {
+    grid-column: 1 / -1;
+    margin: 7px 0 0;
+    color: rgba(255, 247, 223, 0.62);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .feature-owner-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    min-height: 0;
+  }
+
+  .feature-owner-bar:has(.feature-owner:empty) { display: none; }
+
+  .feature-back {
+    padding: 3px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.2);
+    color: rgba(255, 247, 223, 0.8);
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .feature-back:hover { border-color: var(--gold); color: var(--paper-strong); }
+
+  .feature-owner {
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: rgba(215, 168, 70, 0.16);
+    border: 1px solid rgba(215, 168, 70, 0.35);
+    color: var(--gold);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+
+  .feature-close {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  .readout {
+    order: 2;
+    flex: 1 1 auto;
+    min-height: 140px;
+    overflow: auto;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: var(--panel);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(12px);
+  }
+
+  .readout h2 {
+    margin: 0 0 10px;
+    color: var(--gold);
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .metric {
+    padding: 10px;
+    border: 1px solid rgba(255, 247, 223, 0.12);
+    border-radius: 12px;
+    background: rgba(255, 247, 223, 0.06);
+  }
+
+  .metric span {
+    display: block;
+    color: rgba(255, 247, 223, 0.58);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .metric strong {
+    display: block;
+    margin-top: 5px;
+    color: var(--paper-strong);
+    font-size: 17px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .airspace-readout {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .airspace-readout .wide { grid-column: 1 / -1; }
+
+  .airspace-readout code {
+    display: block;
+    margin-top: 4px;
+    overflow-wrap: anywhere;
+    color: var(--paper-strong);
+    font-family: "DIN Condensed", "Avenir Next Condensed", monospace;
+    font-size: 15px;
+    letter-spacing: 0.03em;
+  }
+
+  .flight-playback-readout {
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 247, 223, 0.12);
+  }
+
+  .flight-playback-readout h2 {
+    color: #5eead4;
+  }
+
+  .flight-playback-readout .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 0;
+  }
+
+  /* ── 响应式断点 ─────────────────────────────────── */
+
+  /* 中等宽度：压缩三栏，避免左 HUD 与右侧详情/状态面板碰撞 */
+  @media (min-width: 721px) and (max-width: 1100px) {
+    .hud { width: min(340px, calc(100vw - 380px)); padding: 16px; }
+    .right-dock { width: 300px; }
+    .readout { padding: 12px; }
+  }
+
+  @media (max-width: 720px) {
+    .hud { top: 12px; left: 12px; width: calc(100vw - 24px); padding: 18px; max-height: 46vh; }
+    .right-dock { top: calc(46vh + 20px); left: 12px; right: 12px; bottom: 12px; width: auto; gap: 10px; }
+    .feature-panel { max-height: 55%; }
+    .readout { min-height: 0; }
+    .control-grid { grid-template-columns: 1fr; }
+    h1 { font-size: 36px; }
+    .intro { font-size: 14px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; }
+  }

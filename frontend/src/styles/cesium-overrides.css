@@ -1,0 +1,5 @@
+  /* Cesium 控件覆写：隐藏自带底栏与时间轴 */
+
+  #cesiumContainer .cesium-viewer-bottom,
+  #cesiumContainer .cesium-viewer-animationContainer,
+  #cesiumContainer .cesium-viewer-timelineContainer { display: none !important; }
