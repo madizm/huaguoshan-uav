@@ -10,6 +10,11 @@
     if (el) el.textContent = value;
   }
 
+  function setAuthStatusClass(statusEl, stateClass) {
+    statusEl.classList.remove('anon', 'logged-in', 'error');
+    statusEl.classList.add('auth-status', stateClass);
+  }
+
   function createStatusLogger(selector) {
     return function log(message) {
       text(selector || '#status', message);
@@ -39,13 +44,15 @@
     if (jwt) {
       if (loginBtn) loginBtn.style.display = 'none';
       if (logoutBtn) logoutBtn.style.display = '';
-      if (statusEl) { statusEl.textContent = '已登录'; statusEl.className = 'auth-status logged-in'; }
-      if (userInput) userInput.value = '';
-      if (passInput) passInput.value = '';
+      if (statusEl) { statusEl.textContent = '已登录'; setAuthStatusClass(statusEl, 'logged-in'); }
+      if (userInput) { userInput.value = ''; userInput.style.display = 'none'; }
+      if (passInput) { passInput.value = ''; passInput.style.display = 'none'; }
     } else {
       if (loginBtn) loginBtn.style.display = '';
       if (logoutBtn) logoutBtn.style.display = 'none';
-      if (statusEl) { statusEl.textContent = '未登录'; statusEl.className = 'auth-status anon'; }
+      if (statusEl) { statusEl.textContent = '未登录'; setAuthStatusClass(statusEl, 'anon'); }
+      if (userInput) userInput.style.display = '';
+      if (passInput) passInput.style.display = '';
     }
   }
 
@@ -101,7 +108,7 @@
           var statusEl;
           log('登录失败：' + error.message);
           statusEl = document.querySelector(statusSelector);
-          if (statusEl) { statusEl.textContent = '登录失败'; statusEl.className = 'auth-status error'; }
+          if (statusEl) { statusEl.textContent = '登录失败'; setAuthStatusClass(statusEl, 'error'); }
         });
       });
     }
@@ -123,6 +130,37 @@
     return checkAuthStatus(authClient, log, selectors);
   }
 
+  function initHudSections(options) {
+    var target = options || {};
+    var storageKey = target.storageKey || 'hud.sections.open';
+    var sections = Array.prototype.slice.call(document.querySelectorAll('details.hud-section[id]'));
+    if (!sections.length) return;
+    function readStored() {
+      try {
+        var raw = window.localStorage.getItem(storageKey);
+        var parsed = raw ? JSON.parse(raw) : null;
+        return Array.isArray(parsed) ? parsed : null;
+      } catch (error) {
+        return null;
+      }
+    }
+    var stored = readStored();
+    if (stored) {
+      sections.forEach(function (section) {
+        section.open = stored.indexOf(section.id) !== -1;
+      });
+    }
+    function persist() {
+      var openIds = sections.filter(function (section) { return section.open; }).map(function (section) { return section.id; });
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(openIds));
+      } catch (error) { /* 忽略隐私模式下的存储失败 */ }
+    }
+    sections.forEach(function (section) {
+      section.addEventListener('toggle', persist);
+    });
+  }
+
   global.HuaguoshanHud = {
     formatNumber: formatNumber,
     createStatusLogger: createStatusLogger,
@@ -131,6 +169,7 @@
     authenticate: authenticate,
     logout: logout,
     checkAuthStatus: checkAuthStatus,
-    initAuth: initAuth
+    initAuth: initAuth,
+    initHudSections: initHudSections
   };
 })(window);

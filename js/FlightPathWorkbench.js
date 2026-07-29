@@ -237,7 +237,7 @@ function resetFlightPathPlaybackUi() {
   if ($('#flightReplayAltitude')) $('#flightReplayAltitude').textContent = '--';
   if ($('#flightReplaySpeed')) $('#flightReplaySpeed').textContent = '--';
   if ($('#flightReplayDistance')) $('#flightReplayDistance').textContent = '--';
-  if ($('#flightReplayMode')) $('#flightReplayMode').textContent = 'Idle';
+  if ($('#flightReplayMode')) $('#flightReplayMode').textContent = '空闲';
   if ($('#flightReplayGrid')) $('#flightReplayGrid').textContent = '--';
 }
 
@@ -452,9 +452,9 @@ function showFlightPathCurrentGridCell(cell) {
 }
 
 function flightPathPlaybackModeLabel(mode) {
-  if (mode === 'fpv') return 'FPV Camera';
-  if (mode === 'cinematic') return 'Cinematic';
-  return 'Chase Camera';
+  if (mode === 'fpv') return 'FPV 镜头';
+  if (mode === 'cinematic') return '电影镜头';
+  return '追尾镜头';
 }
 
 function scaledCartesian(CesiumRuntime, vector, scale) {
@@ -643,13 +643,13 @@ function updateFlightPathPlaybackFrame() {
   if ($('#flightReplayAltitude')) $('#flightReplayAltitude').textContent = cartographic ? cartographic.height.toFixed(1) + 'm' : '--';
   if ($('#flightReplaySpeed')) $('#flightReplaySpeed').textContent = playback.baseSpeed.toFixed(1) + 'm/s ×' + playback.speedMultiplier;
   if ($('#flightReplayDistance')) $('#flightReplayDistance').textContent = formatFlightDistance(distance, playback.totalDistance);
-  if ($('#flightReplayMode')) $('#flightReplayMode').textContent = playback.followEnabled ? flightPathPlaybackModeLabel(playback.mode) : (playback.playing ? 'Free Camera' : 'Paused');
+  if ($('#flightReplayMode')) $('#flightReplayMode').textContent = playback.followEnabled ? flightPathPlaybackModeLabel(playback.mode) : (playback.playing ? '自由镜头' : '已暂停');
   if ($('#flightReplayGrid')) $('#flightReplayGrid').textContent = cell && cell.code ? cell.code : '--';
   updateFlightPathPlaybackCamera(position);
   if (progress >= 1 && playback.playing) {
     state.viewer.clock.shouldAnimate = false;
     playback.playing = false;
-    if ($('#flightReplayMode')) $('#flightReplayMode').textContent = 'Complete';
+    if ($('#flightReplayMode')) $('#flightReplayMode').textContent = '已完成';
   }
 }
 

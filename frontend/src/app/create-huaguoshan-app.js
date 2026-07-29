@@ -630,6 +630,8 @@
         });
       }
 
+      window.HuaguoshanHud.initHudSections({ storageKey: 'hud.sections.open' });
+
       // Call auth init after the main init.
       initAuth();
 

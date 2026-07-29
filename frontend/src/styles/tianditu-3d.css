@@ -89,7 +89,7 @@
     margin: 12px 0 10px;
     color: var(--paper-strong);
     font-family: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
-    font-size: clamp(34px, 5vw, 56px);
+    font-size: clamp(24px, 3vw, 34px);
     line-height: 0.95;
     letter-spacing: -0.05em;
   }
@@ -100,6 +100,125 @@
     font-size: 15px;
     line-height: 1.75;
   }
+
+  .hud-header h1 {
+    margin: 8px 0 6px;
+    font-size: 24px;
+    line-height: 1.2;
+    letter-spacing: 0;
+  }
+
+  .hud-header .intro {
+    margin: 0 0 6px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: rgba(255, 247, 223, 0.62);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* ── HUD 分组折叠 ─────────────────────────────────── */
+
+  .hud-section {
+    margin-top: 10px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.14);
+  }
+
+  .hud-section > summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    color: var(--gold);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+  }
+
+  .hud-section > summary::-webkit-details-marker { display: none; }
+
+  .hud-section > summary::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform 0.18s ease;
+    flex: none;
+  }
+
+  .hud-section[open] > summary::before { transform: rotate(45deg); }
+
+  .hud-section > summary .section-hint {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    color: rgba(255, 247, 223, 0.6);
+  }
+
+  .hud-section > summary .section-hint.auth-status { padding: 2px 8px; }
+
+  .hud-section .auth-bar,
+  .hud-section .obstacle-controls,
+  .hud-section .airspace-controls,
+  .hud-section .flight-path-controls,
+  .hud-section .airspace-admin-controls {
+    margin-top: 4px;
+  }
+
+  /* 注入式工作台自带的英文标题与分组标题重复，隐藏 */
+  .hud-section .flight-path-controls > h2,
+  .hud-section .airspace-admin-controls > h2 { display: none; }
+
+  .toggle-group { margin-top: 10px; }
+
+  .toggle-group > h3 {
+    margin: 0 0 6px;
+    padding: 0 14px;
+    color: rgba(255, 247, 223, 0.55);
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.16em;
+  }
+
+  .toggle-group .toggles {
+    margin-top: 0;
+    padding: 0 14px;
+  }
+
+  .toggle-group:last-child .toggles { padding-bottom: 12px; }
+
+  .hud-section .actions { padding: 0 14px 12px; }
+
+  .hud-section .auth-bar { margin: 4px 10px 12px; }
+
+  .hud-section .obstacle-controls,
+  .hud-section .airspace-controls,
+  .hud-section .flight-path-controls,
+  .hud-section .airspace-admin-controls,
+  .hud-section .convex-hull-controls {
+    margin: 4px 10px 12px;
+  }
+
+  .hud-section #flightPathWorkbench,
+  .hud-section #airspaceConstraintEditor { margin: 0; }
 
   .actions,
   .toggles {
@@ -336,7 +455,6 @@
   .convex-hull-grid-status[data-state="success"] { color: #b8fff2; }
   .convex-hull-grid-status[data-state="error"] { color: #ffc0b6; }
 
-  .convex-hull-wkt {
   .convex-hull-wkt {
     margin-top: 10px;
     padding-top: 10px;
@@ -997,10 +1115,17 @@
 
   .badge svg { color: var(--jade); }
 
+  /* 中等宽度：压缩三栏，避免左 HUD 与右侧详情/状态面板碰撞 */
+  @media (min-width: 721px) and (max-width: 1100px) {
+    .hud { width: min(340px, calc(100vw - 380px)); padding: 16px; }
+    .feature-panel { width: 300px; max-height: 34vh; }
+    .readout { width: 300px; padding: 12px; max-height: calc(66vh - 60px); }
+  }
+
   @media (max-width: 720px) {
-    .hud { top: 12px; left: 12px; width: calc(100vw - 24px); padding: 18px; }
-    .readout { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
-    .feature-panel { top: auto; right: 12px; bottom: 214px; width: calc(100vw - 24px); max-height: 36vh; }
+    .hud { top: 12px; left: 12px; width: calc(100vw - 24px); padding: 18px; max-height: 46vh; }
+    .feature-panel { top: calc(46vh + 20px); right: 12px; bottom: auto; width: calc(100vw - 24px); max-height: 24vh; }
+    .readout { right: 12px; bottom: 12px; width: calc(100vw - 24px); max-height: calc(30vh - 44px); }
     .badge { display: none; }
     .control-grid { grid-template-columns: 1fr; }
     h1 { font-size: 36px; }
