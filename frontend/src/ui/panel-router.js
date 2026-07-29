@@ -104,12 +104,12 @@
       return entry ? entry.ownerId : null;
     }
 
-    if (backButton) {
-      backButton.addEventListener('click', function (event) {
-        event.stopPropagation();
-        back();
-      });
+    function handleBackClick(event) {
+      event.stopPropagation();
+      back();
     }
+
+    if (backButton) backButton.addEventListener('click', handleBackClick);
 
     return {
       show: show,
@@ -119,7 +119,11 @@
       close: close,
       current: current,
       depth: function () { return stack.length; },
-      escapeHtml: escapeHtml
+      escapeHtml: escapeHtml,
+      destroy: function () {
+        if (backButton) backButton.removeEventListener('click', handleBackClick);
+        stack = [];
+      }
     };
   }
 

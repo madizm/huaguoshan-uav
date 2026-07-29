@@ -87,9 +87,7 @@
         backSelector: '#featurePanelBack'
       });
 
-      function escapeHtml(value) {
-        return window.HuaguoshanCitydbInspector.escapeHtml(value);
-      }
+      var gridHelpers = window.HuaguoshanGridGeometry.createGridHelpers(gridLayerColors);
 
       function hideFeaturePanel() {
         panelRouter.close();
@@ -108,42 +106,6 @@
         };
       }
 
-      function formatPropertyValue(value, uom) {
-        return window.HuaguoshanCitydbInspector.formatPropertyValue(value, uom);
-      }
-
-      function parseJsonText(value) {
-        return window.HuaguoshanGridGeometry.parseJsonText(value);
-      }
-
-      function parseBboxText(bboxText) {
-        return window.HuaguoshanGridGeometry.parseBboxText(bboxText);
-      }
-
-      function extractGridCells(gridData) {
-        return window.HuaguoshanGridGeometry.extractGridCells(gridData);
-      }
-
-      function getGridLayerColor(layerIndex) {
-        return window.HuaguoshanGridGeometry.gridLayerColor(gridLayerColors, layerIndex);
-      }
-
-      function gridLayerKey(cell) {
-        return cell.minHeight.toFixed(3) + ':' + cell.maxHeight.toFixed(3);
-      }
-
-      function sortedGridLayers(cells) {
-        return window.HuaguoshanGridGeometry.sortedGridLayers(cells);
-      }
-
-      function gridLayerIndex(cell, layers) {
-        return window.HuaguoshanGridGeometry.gridLayerIndex(cell, layers);
-      }
-
-      function gridLayerMaterial(CesiumRuntime, cache, layerIndex, alpha) {
-        return window.HuaguoshanGridGeometry.gridLayerMaterial(CesiumRuntime, cache, layerIndex, alpha, gridLayerColors);
-      }
-
       function clearSelectedGridHighlight() {
         if (state.selectedGridPrimitive && state.viewer) {
           try {
@@ -157,18 +119,6 @@
         state.selectedGridCells = [];
       }
 
-      function makeEdgeKey(a, b) {
-        return window.HuaguoshanGridGeometry.makeEdgeKey(a, b);
-      }
-
-      function addBoxEdge(edges, lon1, lat1, h1, lon2, lat2, h2, layerIndex) {
-        return window.HuaguoshanGridGeometry.addBoxEdge(edges, lon1, lat1, h1, lon2, lat2, h2, layerIndex);
-      }
-
-      function addBoxEdges(edges, cell, layerIndex) {
-        return window.HuaguoshanGridGeometry.addBoxEdges(edges, cell, layerIndex);
-      }
-
       function showSelectedGridHighlight(gridData) {
         var highlight;
         clearSelectedGridHighlight();
@@ -177,14 +127,6 @@
         state.selectedGridPrimitive = highlight.primitive;
         state.selectedGridBounds = highlight.bounds;
         state.selectedGridCells = highlight.cells;
-      }
-
-      function cellsBounds(cells) {
-        return window.HuaguoshanGridGeometry.cellsBounds(cells);
-      }
-
-      function mergeBounds(boundsList) {
-        return window.HuaguoshanGridGeometry.mergeBounds(boundsList);
       }
 
       function airspaceTable(kind) {
@@ -223,37 +165,9 @@
         panelRouter.capture('citydb', '建筑属性');
       }
 
-      function renderGridCard(gridData) {
-        return window.HuaguoshanCitydbInspector.renderGridCard(gridData, extractGridCells);
-      }
-
       function renderFeatureProperties(data, sourceIdentifier, gridData) {
-        window.HuaguoshanCitydbInspector.renderFeatureProperties({ panelSelector: '.feature-panel', contentSelector: '#featureProperties' }, data, sourceIdentifier, gridData, extractGridCells);
+        window.HuaguoshanCitydbInspector.renderFeatureProperties({ panelSelector: '.feature-panel', contentSelector: '#featureProperties' }, data, sourceIdentifier, gridData, gridHelpers.extractGridCells);
         panelRouter.capture('citydb', '建筑属性');
-      }
-
-      function getPickedPropertyIds(picked) {
-        return window.HuaguoshanCitydbInspector.getPickedPropertyIds(picked);
-      }
-
-      function getPickedProperty(picked, name) {
-        return window.HuaguoshanCitydbInspector.getPickedProperty(picked, name);
-      }
-
-      function readPickedMetadata(picked) {
-        return window.HuaguoshanCitydbInspector.readPickedMetadata(picked);
-      }
-
-      function metadataValue(metadata, names) {
-        return window.HuaguoshanCitydbInspector.metadataValue(metadata, names);
-      }
-
-      function getPickedIdentifiers(metadata) {
-        return window.HuaguoshanCitydbInspector.getPickedIdentifiers(metadata);
-      }
-
-      function isPickedCitydbFeature(picked) {
-        return window.HuaguoshanCitydbInspector.isPickedCitydbFeature(picked, state.buildingsTileset);
       }
 
       function requestCitydbFeature(identifiers, index) {
@@ -355,9 +269,6 @@
         window.HuaguoshanCesiumMap.addHuaguoshanMarker(Cesium, viewer, huaguoshan);
       }
 
-      function formatMeters(value, digits) {
-        return window.HuaguoshanAirspaceGridUi.formatMeters(value, digits);
-      }
 
       function initAirspaceGrid(viewer) {
         state.airspaceGrid = window.HuaguoshanAirspaceGridUi.initGrid({
@@ -410,8 +321,8 @@
               }
             ].filter(function (source) { return Boolean(source.tileset); });
           },
-          readPickedMetadata: readPickedMetadata,
-          getPickedIdentifiers: getPickedIdentifiers,
+          readPickedMetadata: window.HuaguoshanCitydbInspector.readPickedMetadata,
+          getPickedIdentifiers: window.HuaguoshanCitydbInspector.getPickedIdentifiers,
           toGeographicPosition: function (x, y, z) {
             var cartographic = Cesium.Cartographic.fromCartesian(new Cesium.Cartesian3(x, y, z));
             return [
@@ -441,15 +352,7 @@
           renderError: panelError('flight-obstacles', '飞行障碍'),
           showPanel: panelShow('flight-obstacles', '飞行障碍'),
           rpc: postgrestRpc,
-          helpers: {
-            extractGridCells: extractGridCells,
-            cellsBounds: cellsBounds,
-            sortedGridLayers: sortedGridLayers,
-            addBoxEdges: addBoxEdges,
-            gridLayerIndex: gridLayerIndex,
-            gridLayerMaterial: gridLayerMaterial,
-            mergeBounds: mergeBounds
-          }
+          helpers: gridHelpers
         });
       }
 
@@ -487,7 +390,7 @@
           renderError: panelError('airspace-constraints', '空域约束'),
           zoomToPoints: function (points, message) {
             if (!state.flightObstacleLayer) return;
-            state.flightObstacleLayer.zoomToBounds(cellsBounds(points.map(function (point) {
+            state.flightObstacleLayer.zoomToBounds(gridHelpers.cellsBounds(points.map(function (point) {
               return { minLon: point.lon, maxLon: point.lon, minLat: point.lat, maxLat: point.lat, minHeight: 0, maxHeight: 0 };
             })), message);
           }
@@ -503,16 +406,9 @@
           renderError: panelError('flight-path', '航迹规划'),
           getCesium: function () { return window.Cesium; },
           getViewer: function () { return state.viewer; },
-          helpers: {
-            parseBboxText: parseBboxText,
-            extractGridCells: extractGridCells,
-            cellsBounds: cellsBounds,
-            sortedGridLayers: sortedGridLayers,
-            addBoxEdges: addBoxEdges,
-            gridLayerIndex: gridLayerIndex,
-            gridLayerMaterial: gridLayerMaterial,
-            formatMeters: formatMeters
-          }
+          helpers: Object.assign({}, gridHelpers, {
+            formatMeters: window.HuaguoshanAirspaceGridUi.formatMeters
+          })
         });
       }
 
@@ -582,8 +478,10 @@
         window.HuaguoshanCamera.flyToHuaguoshan(Cesium, state.viewer, huaguoshan);
       }
 
+      var layerControlsDestroy = null;
+
       function bindControls() {
-        window.HuaguoshanLayerActions.bindControls({
+        layerControlsDestroy = window.HuaguoshanLayerActions.bindControls({
           state: state,
           CesiumRuntime: Cesium,
           huaguoshan: huaguoshan,
@@ -642,26 +540,78 @@
           log: log,
           selectors: authSelectors,
           onAuthChanged: function (loggedIn) {
-            window.HuaguoshanHud.setAuthRequiredLocked(!loggedIn);
+            appEvents.emit('auth:changed', { loggedIn: loggedIn });
           }
         });
       }
 
-      window.HuaguoshanHud.initHudSections({ storageKey: 'hud.sections.open' });
+      // ── Teardown ────────────────────────────────────────────────
+
+      var disposers = [];
+
+      function destroyApp() {
+        disposers.splice(0).forEach(function (dispose) {
+          try {
+            dispose();
+          } catch (error) {
+            console.warn('[Tianditu3D] disposer failed:', error);
+          }
+        });
+        appEvents.clear();
+        panelRouter.destroy();
+        statusCenter.destroy();
+        if (state.viewer && !state.viewer.isDestroyed()) state.viewer.destroy();
+      }
+
+      // 天地图 GeoTerrainProvider 在部分浏览器会先探测 GetCapabilities，
+      // 探测失败后仍会继续请求地形瓦片；只有这类可恢复的内部 Promise
+      // 噪声才被吞掉，其余未处理 rejection 仍然抛出以便发现真实 bug。
+      function isTiandituTerrainProbeRejection(reason) {
+        if (!reason) return false;
+        var text = String((reason && (reason.message || reason.reason || reason)) || '');
+        return /GetCapabilities|tilemapresource|GeoTerrainProvider/i.test(text);
+      }
+
+      function handleWindowError(event) {
+        log('运行异常：' + event.message, 'error');
+      }
+
+      function handleUnhandledRejection(event) {
+        if (isTiandituTerrainProbeRejection(event.reason)) {
+          console.warn('[Tianditu3D] Cesium provider promise rejected:', event.reason);
+          event.preventDefault();
+          return;
+        }
+        console.error('[Tianditu3D] unhandled rejection:', event.reason);
+        log('未处理的异步异常：' + ((event.reason && event.reason.message) || event.reason || '未知错误'), 'error');
+      }
+
+      var appEvents = window.HuaguoshanAppEvents.createEventBus();
+      appEvents.on('auth:changed', function (event) {
+        window.HuaguoshanHud.setAuthRequiredLocked(!(event && event.loggedIn));
+      });
+
+      disposers.push(window.HuaguoshanHud.initHudSections({ storageKey: 'hud.sections.open' }));
+
+      window.addEventListener('error', handleWindowError);
+      window.addEventListener('unhandledrejection', handleUnhandledRejection);
+      disposers.push(function () {
+        window.removeEventListener('error', handleWindowError);
+        window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      });
+
+      init();
+
+      if (state.viewer) {
+        disposers.push(function () {
+          state.viewer.camera.moveEnd.removeEventListener(scheduleTerrainLodRefresh);
+          state.viewer.scene.postRender.removeEventListener(updateCameraReadout);
+        });
+        if (typeof layerControlsDestroy === 'function') disposers.push(layerControlsDestroy);
+      }
 
       // Call auth init after the main init.
       initAuth();
 
-      window.addEventListener('error', function (event) {
-        log('运行异常：' + event.message);
-      });
-
-      window.addEventListener('unhandledrejection', function (event) {
-        // 天地图 GeoTerrainProvider 在部分浏览器会先探测 GetCapabilities，
-        // 探测失败后仍会继续请求地形瓦片；避免把可恢复的内部 Promise 噪声暴露给用户。
-        console.warn('[Tianditu3D] Cesium provider promise rejected:', event.reason);
-        event.preventDefault();
-      });
-
-      init();
+      window.HuaguoshanApp = { destroy: destroyApp };
     })();

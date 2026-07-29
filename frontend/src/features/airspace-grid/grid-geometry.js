@@ -207,6 +207,24 @@
     };
   }
 
+  // Bind the palette once so feature modules receive plain helper
+  // functions instead of re-passing colors through the app assembly.
+  function createGridHelpers(colors) {
+    return {
+      parseBboxText: parseBboxText,
+      extractGridCells: extractGridCells,
+      cellsBounds: cellsBounds,
+      mergeBounds: mergeBounds,
+      sortedGridLayers: sortedGridLayers,
+      gridLayerIndex: gridLayerIndex,
+      addBoxEdges: addBoxEdges,
+      gridLayerColor: function (layerIndex) { return gridLayerColor(colors, layerIndex); },
+      gridLayerMaterial: function (CesiumRuntime, cache, layerIndex, alpha) {
+        return gridLayerMaterial(CesiumRuntime, cache, layerIndex, alpha, colors);
+      }
+    };
+  }
+
   global.HuaguoshanGridGeometry = {
     parseJsonText: parseJsonText,
     parseBboxText: parseBboxText,
@@ -220,6 +238,7 @@
     addBoxEdges: addBoxEdges,
     cellsBounds: cellsBounds,
     mergeBounds: mergeBounds,
-    createGridHighlight: createGridHighlight
+    createGridHighlight: createGridHighlight,
+    createGridHelpers: createGridHelpers
   };
 })(window);

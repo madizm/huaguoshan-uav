@@ -261,6 +261,12 @@
     sections.forEach(function (section) {
       section.addEventListener('toggle', persist);
     });
+
+    return function destroy() {
+      sections.forEach(function (section) {
+        section.removeEventListener('toggle', persist);
+      });
+    };
   }
 
   global.HuaguoshanHud = {

@@ -134,23 +134,27 @@
 
   function bindControls(options) {
     var closeFeaturePanel = document.querySelector('#closeFeaturePanel');
-    if (closeFeaturePanel) {
-      closeFeaturePanel.addEventListener('click', function (event) {
-        event.stopPropagation();
-        options.hideFeaturePanel();
-        options.clearSelectedGridHighlight();
-        options.log('CityDB 属性面板已关闭；再次点击建筑模型可重新打开。');
-      });
+    function handleCloseClick(event) {
+      event.stopPropagation();
+      options.hideFeaturePanel();
+      options.clearSelectedGridHighlight();
+      options.log('CityDB 属性面板已关闭；再次点击建筑模型可重新打开。');
     }
-
-    document.addEventListener('click', function (event) {
+    function handleDocumentClick(event) {
       var actionButton = event.target.closest('[data-action]');
       var layerButton = event.target.closest('[data-layer]');
       var sourceButton = event.target.closest('[data-obstacle-source]');
       if (actionButton) handleAction(actionButton, options);
       if (sourceButton) handleSourceToggle(sourceButton, options.state);
       if (layerButton) handleLayerToggle(layerButton, options);
-    });
+    }
+    if (closeFeaturePanel) closeFeaturePanel.addEventListener('click', handleCloseClick);
+    document.addEventListener('click', handleDocumentClick);
+
+    return function destroy() {
+      if (closeFeaturePanel) closeFeaturePanel.removeEventListener('click', handleCloseClick);
+      document.removeEventListener('click', handleDocumentClick);
+    };
   }
 
   global.HuaguoshanLayerActions = {
