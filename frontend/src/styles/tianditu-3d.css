@@ -745,13 +745,26 @@
     font-size: 12px;
   }
 
-  .readout {
+  /* 右侧 dock：详情面板在上、实时状态在下，flex 分配高度避免互相遮挡 */
+  .right-dock {
     position: fixed;
     z-index: 10;
+    top: 24px;
     right: 24px;
     bottom: 24px;
-    width: min(360px, calc(100vw - 48px));
-    max-height: calc(100vh - 48px);
+    width: min(420px, calc(100vw - 48px));
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    pointer-events: none;
+  }
+
+  .right-dock > * { pointer-events: auto; }
+
+  .readout {
+    order: 2;
+    flex: 1 1 auto;
+    min-height: 140px;
     overflow: auto;
     padding: 16px;
     border: 1px solid var(--line);
@@ -810,13 +823,45 @@
     line-height: 1.55;
   }
 
+  .status[data-level="error"] { border-left-color: #ff6b5e; color: #ffc0b6; }
+  .status[data-level="success"] { border-left-color: #8bd17c; color: #d8f5c8; }
+
+  .status-history {
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 4px;
+  }
+
+  .status-entry {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    padding: 4px 8px;
+    border-left: 2px solid rgba(255, 247, 223, 0.18);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.14);
+    color: rgba(255, 247, 223, 0.55);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .status-entry time {
+    flex: none;
+    color: rgba(255, 247, 223, 0.38);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .status-entry[data-level="error"] { border-left-color: rgba(255, 107, 94, 0.65); color: rgba(255, 192, 182, 0.8); }
+  .status-entry[data-level="success"] { border-left-color: rgba(139, 209, 124, 0.55); }
+
   .feature-panel {
-    position: fixed;
-    z-index: 10;
-    top: 24px;
-    right: 24px;
-    width: min(420px, calc(100vw - 48px));
-    max-height: calc(100vh - 332px);
+    order: 1;
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: 60%;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
     border: 1px solid rgba(215, 168, 70, 0.28);
@@ -1118,14 +1163,15 @@
   /* 中等宽度：压缩三栏，避免左 HUD 与右侧详情/状态面板碰撞 */
   @media (min-width: 721px) and (max-width: 1100px) {
     .hud { width: min(340px, calc(100vw - 380px)); padding: 16px; }
-    .feature-panel { width: 300px; max-height: 34vh; }
-    .readout { width: 300px; padding: 12px; max-height: calc(66vh - 60px); }
+    .right-dock { width: 300px; }
+    .readout { padding: 12px; }
   }
 
   @media (max-width: 720px) {
     .hud { top: 12px; left: 12px; width: calc(100vw - 24px); padding: 18px; max-height: 46vh; }
-    .feature-panel { top: calc(46vh + 20px); right: 12px; bottom: auto; width: calc(100vw - 24px); max-height: 24vh; }
-    .readout { right: 12px; bottom: 12px; width: calc(100vw - 24px); max-height: calc(30vh - 44px); }
+    .right-dock { top: calc(46vh + 20px); left: 12px; right: 12px; bottom: 12px; width: auto; gap: 10px; }
+    .feature-panel { max-height: 55%; }
+    .readout { min-height: 0; }
     .badge { display: none; }
     .control-grid { grid-template-columns: 1fr; }
     h1 { font-size: 36px; }

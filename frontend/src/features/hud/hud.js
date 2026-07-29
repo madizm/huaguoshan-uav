@@ -22,6 +22,68 @@
     };
   }
 
+  function detectStatusLevel(message) {
+    var textValue = String(message || '');
+    if (/失败|错误|异常|无法|拒绝|过期/.test(textValue)) return 'error';
+    if (/已|成功|完成|就绪/.test(textValue)) return 'success';
+    return 'info';
+  }
+
+  function formatStatusTime(date) {
+    var pad = function (value) { return String(value).padStart(2, '0'); };
+    return pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
+  }
+
+  // 状态中心：当前消息 + 最近历史，避免多模块共用单行状态互相覆盖。
+  // log(message[, level]) — level 为 'info' | 'success' | 'error'，缺省按文本推断。
+  function createStatusCenter(options) {
+    var target = options || {};
+    var currentEl = document.querySelector(target.currentSelector || '#status');
+    var historyEl = document.querySelector(target.historySelector || '#statusHistory');
+    var maxItems = target.maxItems || 5;
+    var entries = [];
+
+    function render() {
+      if (historyEl) {
+        historyEl.innerHTML = entries.map(function (entry) {
+          return '<li class="status-entry" data-level="' + entry.level + '">' +
+            '<time>' + entry.time + '</time>' +
+            '<span>' + escapeStatusHtml(entry.message) + '</span>' +
+          '</li>';
+        }).join('');
+      }
+    }
+
+    function escapeStatusHtml(value) {
+      return String(value).replace(/[&<>"']/g, function (ch) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+      });
+    }
+
+    function log(message, level) {
+      var resolvedLevel = level || detectStatusLevel(message);
+      if (currentEl) {
+        currentEl.textContent = message;
+        currentEl.setAttribute('data-level', resolvedLevel);
+      }
+      entries.unshift({ message: String(message), level: resolvedLevel, time: formatStatusTime(new Date()) });
+      if (entries.length > maxItems) entries.length = maxItems;
+      render();
+      if (resolvedLevel === 'error') console.warn('[Tianditu3D]', message);
+      else console.info('[Tianditu3D]', message);
+    }
+
+    return {
+      log: log,
+      entries: function () { return entries.slice(); },
+      destroy: function () {
+        entries = [];
+        if (historyEl) historyEl.innerHTML = '';
+        if (currentEl) currentEl.textContent = '';
+      }
+    };
+  }
+
   function updateCameraReadout(CesiumRuntime, viewer, selectors) {
     var cartographic;
     var target = selectors || {};
@@ -170,6 +232,7 @@
     logout: logout,
     checkAuthStatus: checkAuthStatus,
     initAuth: initAuth,
-    initHudSections: initHudSections
+    initHudSections: initHudSections,
+    createStatusCenter: createStatusCenter
   };
 })(window);

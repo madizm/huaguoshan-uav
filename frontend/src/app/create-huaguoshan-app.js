@@ -74,7 +74,12 @@
         password: '#authPassword'
       };
 
-      var log = window.HuaguoshanHud.createStatusLogger('#status');
+      var statusCenter = window.HuaguoshanHud.createStatusCenter({
+        currentSelector: '#status',
+        historySelector: '#statusHistory',
+        maxItems: 5
+      });
+      var log = statusCenter.log;
 
       function escapeHtml(value) {
         return window.HuaguoshanCitydbInspector.escapeHtml(value);

@@ -287,6 +287,7 @@
     </details>
   </section>
 
+  <div class="right-dock">
   <aside class="readout" aria-label="运行状态">
     <h2>实时状态</h2>
     <div class="grid">
@@ -294,7 +295,10 @@
       <div class="metric"><span>纬度</span><strong id="lat">--</strong></div>
       <div class="metric"><span>高度</span><strong id="alt">--</strong></div>
     </div>
-    <div class="status" id="status">正在初始化天地图三维服务……</div>
+    <div class="status-center" aria-label="状态消息">
+      <div class="status" id="status" data-level="info" aria-live="polite">正在初始化天地图三维服务……</div>
+      <ul class="status-history" id="statusHistory"></ul>
+    </div>
     <div class="airspace-readout" aria-label="GGER 网格状态">
       <div class="metric"><span>GGER 层级</span><strong id="ggerLevel">--</strong></div>
       <div class="metric"><span>单元数</span><strong id="ggerCells">--</strong></div>
@@ -325,6 +329,7 @@
       <div class="feature-empty">尚未选择建筑模型。</div>
     </div>
   </aside>
+  </div>
 
   <script src="./src/app/create-huaguoshan-app.js"></script>
 </body>
