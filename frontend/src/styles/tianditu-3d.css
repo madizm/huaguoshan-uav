@@ -187,6 +187,15 @@
   .hud-section .flight-path-controls > h2,
   .hud-section .airspace-admin-controls > h2 { display: none; }
 
+  /* 未登录锁定态 */
+  .auth-locked { opacity: 0.55; }
+
+  button.auth-locked { cursor: not-allowed; }
+
+  .auth-required-hint {
+    color: #ffb000;
+  }
+
   .toggle-group { margin-top: 10px; }
 
   .toggle-group > h3 {

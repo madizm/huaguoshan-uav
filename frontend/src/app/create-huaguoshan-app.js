@@ -640,7 +640,10 @@
         window.HuaguoshanHud.initAuth({
           authClient: authClient,
           log: log,
-          selectors: authSelectors
+          selectors: authSelectors,
+          onAuthChanged: function (loggedIn) {
+            window.HuaguoshanHud.setAuthRequiredLocked(!loggedIn);
+          }
         });
       }
 

@@ -148,10 +148,45 @@
     });
   }
 
+  // 未登录时锁定依赖 RPC 的控件（data-requires-auth），登录后恢复。
+  function setAuthRequiredLocked(locked) {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-requires-auth]'), function (el) {
+      el.classList.toggle('auth-locked', locked);
+      if (el.matches('details.hud-section')) {
+        // 只锁定内容区，保留 summary 可展开查看
+        Array.prototype.forEach.call(el.querySelectorAll(':scope > :not(summary)'), function (child) {
+          if (locked) child.setAttribute('inert', '');
+          else child.removeAttribute('inert');
+        });
+        var summary = el.querySelector(':scope > summary');
+      } else if (locked) {
+        el.setAttribute('inert', '');
+      } else {
+        el.removeAttribute('inert');
+      }
+      if (el.matches('details.hud-section')) {
+        if (!summary) return;
+        var hint = summary.querySelector('.auth-required-hint');
+        if (locked && !hint) {
+          hint = document.createElement('span');
+          hint.className = 'section-hint auth-required-hint';
+          hint.textContent = '需登录';
+          summary.appendChild(hint);
+        } else if (!locked && hint) {
+          hint.remove();
+        }
+      }
+    });
+  }
+
   function initAuth(options) {
     var authClient = options.authClient;
     var log = options.log;
     var selectors = options.selectors || {};
+    var onAuthChanged = typeof options.onAuthChanged === 'function' ? options.onAuthChanged : null;
+    function notifyAuthChanged() {
+      if (onAuthChanged) onAuthChanged(Boolean(authClient.token()));
+    }
     var loginBtn = document.querySelector(selectors.loginButton || '#authLoginBtn');
     var logoutBtn = document.querySelector(selectors.logoutButton || '#authLogoutBtn');
     var usernameInput = document.querySelector(selectors.username || '#authUsername');
@@ -166,7 +201,7 @@
           log('请输入用户名和密码');
           return;
         }
-        authenticate(authClient, log, selectors, username, password).catch(function (error) {
+        authenticate(authClient, log, selectors, username, password).then(notifyAuthChanged).catch(function (error) {
           var statusEl;
           log('登录失败：' + error.message);
           statusEl = document.querySelector(statusSelector);
@@ -178,6 +213,7 @@
     if (logoutBtn) {
       logoutBtn.addEventListener('click', function () {
         logout(authClient, log, selectors);
+        notifyAuthChanged();
       });
     }
 
@@ -189,7 +225,11 @@
       });
     }
 
-    return checkAuthStatus(authClient, log, selectors);
+    notifyAuthChanged();
+    return checkAuthStatus(authClient, log, selectors).then(function (user) {
+      notifyAuthChanged();
+      return user;
+    });
   }
 
   function initHudSections(options) {
@@ -233,6 +273,7 @@
     checkAuthStatus: checkAuthStatus,
     initAuth: initAuth,
     initHudSections: initHudSections,
-    createStatusCenter: createStatusCenter
+    createStatusCenter: createStatusCenter,
+    setAuthRequiredLocked: setAuthRequiredLocked
   };
 })(window);

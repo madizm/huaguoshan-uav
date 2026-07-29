@@ -111,15 +111,15 @@
         <h3>适飞空域</h3>
         <div class="toggles">
           <button type="button" data-layer="airspaceTiles" aria-pressed="false">W/G 体素</button>
-          <button type="button" data-layer="suitableFootprint" aria-pressed="false">适飞基底</button>
-          <button type="button" data-layer="suitableWAirspace" aria-pressed="false">W 适飞</button>
-          <button type="button" data-layer="suitableGAirspace" aria-pressed="false">G 适飞</button>
+          <button type="button" data-layer="suitableFootprint" aria-pressed="false" data-requires-auth>适飞基底</button>
+          <button type="button" data-layer="suitableWAirspace" aria-pressed="false" data-requires-auth>W 适飞</button>
+          <button type="button" data-layer="suitableGAirspace" aria-pressed="false" data-requires-auth>G 适飞</button>
         </div>
       </div>
       <div class="toggle-group" aria-label="飞行障碍图层">
         <h3>障碍</h3>
         <div class="toggles">
-          <button type="button" data-layer="flightObstacles" aria-pressed="false">飞行障碍</button>
+          <button type="button" data-layer="flightObstacles" aria-pressed="false" data-requires-auth>飞行障碍</button>
         </div>
       </div>
     </details>
@@ -146,7 +146,7 @@
           <label class="convex-hull-agg">聚合
             <input id="convexHullGridAgg" type="checkbox" checked />
           </label>
-          <button type="button" id="convexHullGridBtn" disabled>生成 GGER 网格</button>
+          <button type="button" id="convexHullGridBtn" disabled data-requires-auth>生成 GGER 网格</button>
         </div>
         <p class="convex-hull-grid-status" id="convexHullGridStatus" data-state="idle" aria-live="polite">等待凸包计算。</p>
         <details class="convex-hull-wkt" id="convexHullWktDetails" hidden>
@@ -158,7 +158,7 @@
       </section>
     </details>
 
-    <details class="hud-section" id="sectionObstacles">
+    <details class="hud-section" id="sectionObstacles" data-requires-auth>
       <summary>飞行障碍</summary>
       <div class="obstacle-controls" aria-label="飞行障碍过滤">
         <div class="control-grid">
@@ -193,12 +193,12 @@
       </div>
     </details>
 
-    <details class="hud-section" id="sectionFlightPath">
+    <details class="hud-section" id="sectionFlightPath" data-requires-auth>
       <summary>航迹规划与回放</summary>
       <div id="flightPathWorkbench"></div>
     </details>
 
-    <details class="hud-section" id="sectionAirspaceConstraint">
+    <details class="hud-section" id="sectionAirspaceConstraint" data-requires-auth>
       <summary>空域约束管理</summary>
       <div id="airspaceConstraintEditor"></div>
     </details>
