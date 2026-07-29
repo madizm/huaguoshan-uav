@@ -340,6 +340,24 @@ export type AppEvent =
 
 这样能先拿到明确收益：配置集中、请求集中、样式脱离 HTML，同时避免一次碰到全部 Cesium 业务逻辑。
 
+## UI 架构重组（2026-07 完成）
+
+- HUD 改为分组折叠结构（`<details class="hud-section">`）：平台认证 / 相机与视角 / 图层开关（按底图、模型与高程、GGER 网格、适飞空域、障碍分组）/ 单体包络分析 / 飞行障碍 / 航迹规划与回放 / 空域约束管理 / W/G 空域体素 / GGER 空域网格；展开状态持久化在 localStorage（`HuaguoshanHud.initHudSections`）。
+- 文案统一为中文，移除 token badge；头部压缩为单行标题。
+- 状态中心（`HuaguoshanHud.createStatusCenter`）：当前消息 + 最近 5 条带时间戳历史，info/success/error 分级，替代原来互相覆盖的单行状态。
+- 详情面板所有权路由（`src/ui/panel-router.js`）：CityDB 属性、飞行障碍、W/G 体素共享面板时按 owner 入栈，头部显示来源标签，可返回上一个来源，关闭清空栈。
+- 认证态驱动可用性：依赖 RPC 的控件标记 `data-requires-auth`，未登录时内容区 `inert` + 半透明 + 分组标题显示"需登录"（`HuaguoshanHud.setAuthRequiredLocked`），通过 `auth:changed` 事件驱动。
+- 右侧 dock（`.right-dock`）：详情面板与实时状态栏改为 flex 列布局，消除长内容互相遮挡；新增 721–1100px 中等宽度断点与移动端三段带状布局。
+- 样式按职责拆分：`theme.css` / `cesium-overrides.css` / `controls.css` / `layout.css` / `panels.css`。
+
+## Seam 落地（2026-07 完成）
+
+- 事件总线 `src/app/app-events.js`（`HuaguoshanAppEvents.createEventBus`）：`on` 返回解绑函数、`emit` 内异常隔离；首个事件 `auth:changed` 已接入认证锁定。
+- `destroy()` 开始落地：`layer-actions.bindControls`、`HuaguoshanHud.initHudSections`、`panel-router` 返回/暴露 disposer；装配层集中收集并通过 `window.HuaguoshanApp.destroy()` 释放全部监听与 Cesium viewer。各 feature module 的统一 `mount(ctx)/destroy()` 接口仍待推进。
+- 装配层瘦身：删除约 20 个纯转发 wrapper；`grid-geometry.js` 新增 `createGridHelpers(colors)`，feature 模块直接获得绑定调色板的 helpers。
+- `unhandledrejection` 兜底收窄为天地图地形探测白名单，其余未处理 rejection 以 error 级别进入状态中心。
+- 修复了原 `tianditu-3d.css` 中 `.convex-hull-wkt` 重复选择器导致的花括号不闭合 bug（该 bug 使实时状态栏、详情面板、响应式媒体查询长期失效）。
+
 ## 已开始落地
 
 - 已将 `frontend/tianditu-3d.html` 的内联样式抽到 `frontend/src/styles/tianditu-3d.css`。
