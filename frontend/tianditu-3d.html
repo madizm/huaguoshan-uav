@@ -21,7 +21,11 @@
   <script src="../js/FlightPathWorkbench.js"></script>
   <script src="../js/GGERAirspaceGrid.js"></script>
   <link rel="stylesheet" cesium="true" href="https://api.tianditu.gov.cn/cdn/demo/sanwei/static/cesium/Widgets/widgets.css" />
-  <link rel="stylesheet" href="./src/styles/tianditu-3d.css" />
+  <link rel="stylesheet" href="./src/styles/theme.css" />
+  <link rel="stylesheet" href="./src/styles/cesium-overrides.css" />
+  <link rel="stylesheet" href="./src/styles/controls.css" />
+  <link rel="stylesheet" href="./src/styles/layout.css" />
+  <link rel="stylesheet" href="./src/styles/panels.css" />
   <script src="./src/config/runtime-config.js"></script>
   <script src="./src/api/postgrest-client.js"></script>
   <script src="./src/cesium/tianditu-map.js"></script>
@@ -40,244 +44,301 @@
   <script src="./src/features/flight-obstacles/flight-obstacle-module.js"></script>
   <script src="./src/features/airspace-constraints/airspace-constraint-module.js"></script>
   <script src="./src/features/flight-path/flight-path-module.js"></script>
+  <script src="./src/app/app-events.js"></script>
   <script src="./src/app/layer-actions.js"></script>
+  <script src="./src/ui/panel-router.js"></script>
 </head>
 <body>
   <main id="cesiumContainer" aria-label="天地图三维地图容器"></main>
   <div class="grain" aria-hidden="true"></div>
 
   <section class="hud" aria-labelledby="page-title">
-    <div class="kicker">Tianditu 3D Base Map Test</div>
-    <h1 id="page-title">天地图三维<br />底图服务</h1>
-    <p class="intro">
-      使用 Cesium 1.108 + 天地图 Cesium 扩展加载影像、国界、地形、三维地名、本工程导出的 3D Tiles、DEM 与 GGER 空域网格；默认飞行至连云港花果山景区。
-    </p>
-    <div class="auth-bar" id="authBar" aria-label="认证登录">
-      <h2>平台认证</h2>
-      <div class="auth-body">
-        <input type="text" id="authUsername" placeholder="管理员用户名" autocomplete="username" />
-        <input type="password" id="authPassword" placeholder="密码" autocomplete="current-password" />
-        <button class="primary" type="button" id="authLoginBtn">登录</button>
-        <button type="button" id="authLogoutBtn" style="display:none">登出</button>
-        <span class="auth-status anon" id="authStatus">未登录</span>
+    <header class="hud-header">
+      <div class="kicker">天地图三维 · 花果山</div>
+      <h1 id="page-title">低空空域三维工作台</h1>
+      <p class="intro">Cesium 1.108 + 天地图扩展：影像 / 国界 / 地形 / 地名 / 3D Tiles / DEM / GGER 空域网格。</p>
+    </header>
+
+    <details class="hud-section" id="sectionAuth" open>
+      <summary>平台认证<span class="section-hint auth-status anon" id="authStatus">未登录</span></summary>
+      <div class="auth-bar" id="authBar" aria-label="认证登录">
+        <div class="auth-body">
+          <input type="text" id="authUsername" placeholder="管理员用户名" autocomplete="username" />
+          <input type="password" id="authPassword" placeholder="密码" autocomplete="current-password" />
+          <button class="primary" type="button" id="authLoginBtn">登录</button>
+          <button type="button" id="authLogoutBtn" style="display:none">登出</button>
+        </div>
       </div>
-    </div>
-    <div class="actions" aria-label="相机操作">
-      <button class="primary" type="button" data-action="huaguoshan">飞到花果山</button>
-      <button type="button" data-action="tileset">查看 3D Tiles</button>
-      <button type="button" data-action="dem">查看 DEM</button>
-      <button type="button" data-action="lianyungangDem">查看连云港 DEM</button>
-      <button type="button" data-action="lianyungangBuildings" id="loadLianyungangBuildingsBtn">加载连云港全市建筑</button>
-      <button type="button" data-action="china">全国视角</button>
-      <button type="button" data-action="tilt">低空斜视</button>
-    </div>
-    <section class="convex-hull-controls" aria-labelledby="convexHullTitle">
-      <div class="convex-hull-heading">
-        <h2 id="convexHullTitle">3D Envelope</h2>
-        <span>Browser Geometry</span>
+    </details>
+
+    <details class="hud-section" id="sectionCamera" open>
+      <summary>相机与视角</summary>
+      <div class="actions" aria-label="相机操作">
+        <button class="primary" type="button" data-action="huaguoshan">飞到花果山</button>
+        <button type="button" data-action="tileset">查看 3D Tiles</button>
+        <button type="button" data-action="dem">查看 DEM</button>
+        <button type="button" data-action="lianyungangDem">查看连云港 DEM</button>
+        <button type="button" data-action="lianyungangBuildings" id="loadLianyungangBuildingsBtn">加载连云港全市建筑</button>
+        <button type="button" data-action="china">全国视角</button>
+        <button type="button" data-action="tilt">低空斜视</button>
       </div>
-      <div class="convex-hull-actions">
-        <label class="convex-hull-mode">包络
-          <select id="convexHullEnvelopeMode">
-            <option value="shell" selected>模型外壳</option>
-            <option value="convex">凸包</option>
-          </select>
-        </label>
-        <button type="button" id="convexHullFeatureBtn" aria-pressed="false">点击模型</button>
-        <button type="button" id="convexHullClearBtn">清除包络</button>
+    </details>
+
+    <details class="hud-section" id="sectionLayers">
+      <summary>图层开关</summary>
+      <div class="toggle-group" aria-label="底图图层">
+        <h3>底图</h3>
+        <div class="toggles">
+          <button type="button" data-layer="image" aria-pressed="true">影像底图</button>
+          <button type="button" data-layer="boundary" aria-pressed="true">国界叠加</button>
+          <button type="button" data-layer="terrain" aria-pressed="true">三维地形</button>
+          <button type="button" data-layer="place" aria-pressed="true">三维地名</button>
+        </div>
       </div>
-      <p class="convex-hull-status" id="convexHullStatus" data-state="idle" aria-live="polite">单体包络分析未开启。</p>
-      <div class="convex-hull-grid-controls" aria-label="iBEST-DB 三维网格参数">
-        <label>Level
-          <input id="convexHullGridLevel" type="number" min="6" max="32" step="1" value="19" />
-        </label>
-        <label class="convex-hull-agg">聚合
-          <input id="convexHullGridAgg" type="checkbox" checked />
-        </label>
-        <button type="button" id="convexHullGridBtn" disabled>生成 GGER 网格</button>
+      <div class="toggle-group" aria-label="模型与高程图层">
+        <h3>模型与高程</h3>
+        <div class="toggles">
+          <button type="button" data-layer="tileset" aria-pressed="true">导出模型</button>
+          <button type="button" data-layer="dem" aria-pressed="false">DEM 网格</button>
+          <button type="button" data-layer="lianyungangDem" aria-pressed="false">连云港 DEM</button>
+        </div>
       </div>
-      <p class="convex-hull-grid-status" id="convexHullGridStatus" data-state="idle" aria-live="polite">等待凸包计算。</p>
-      <details class="convex-hull-wkt" id="convexHullWktDetails" hidden>
-        <summary>查看包络 WKT <span>EPSG:4978</span></summary>
-        <label for="convexHullWkt">POLYHEDRALSURFACE Z</label>
-        <textarea id="convexHullWkt" readonly spellcheck="false" aria-label="包络 WKT"></textarea>
-        <button type="button" id="convexHullCopyWktBtn">复制包络 WKT</button>
-      </details>
-    </section>
-    <div class="toggles" aria-label="图层开关">
-      <button type="button" data-layer="image" aria-pressed="true">影像底图</button>
-      <button type="button" data-layer="boundary" aria-pressed="true">国界叠加</button>
-      <button type="button" data-layer="terrain" aria-pressed="true">三维地形</button>
-      <button type="button" data-layer="tileset" aria-pressed="true">导出模型</button>
-      <button type="button" data-layer="dem" aria-pressed="false">DEM 网格</button>
-      <button type="button" data-layer="lianyungangDem" aria-pressed="false">连云港 DEM</button>
-      <button type="button" data-layer="place" aria-pressed="true">三维地名</button>
-      <button type="button" data-layer="gger" aria-pressed="false">GGER 网格</button>
-      <button type="button" data-layer="airspace" aria-pressed="false">空域柱网</button>
-      <button type="button" data-layer="slice" aria-pressed="false">高度切片</button>
-      <button type="button" data-layer="ggerLabels" aria-pressed="false">网格编码</button>
-      <button type="button" data-layer="flightObstacles" aria-pressed="false">飞行障碍</button>
-      <button type="button" data-layer="airspaceTiles" aria-pressed="false">W/G Tiles</button>
-      <button type="button" data-layer="suitableFootprint" aria-pressed="false">适飞基底</button>
-      <button type="button" data-layer="suitableWAirspace" aria-pressed="false">W 适飞</button>
-      <button type="button" data-layer="suitableGAirspace" aria-pressed="false">G 适飞</button>
-    </div>
-    <div class="obstacle-controls" aria-label="飞行障碍过滤">
-      <h2>Flight Obstacles</h2>
-      <div class="control-grid">
-        <label class="field">Max rows
-          <input id="flightObstacleLimit" type="number" min="1" max="1000" step="25" value="200" />
-        </label>
-        <label class="field">Mode
-          <select id="flightObstacleMode">
-            <option value="outline">Outline</option>
-          </select>
-        </label>
-        <label class="field">Terrain detail
-          <select id="terrainLodMode">
-            <option value="auto">Auto LOD</option>
-            <option value="0">Overview</option>
-            <option value="1">Medium</option>
-            <option value="2">Fine</option>
-          </select>
-        </label>
+      <div class="toggle-group" aria-label="GGER 网格图层">
+        <h3>GGER 网格</h3>
+        <div class="toggles">
+          <button type="button" data-layer="gger" aria-pressed="false">GGER 网格</button>
+          <button type="button" data-layer="airspace" aria-pressed="false">空域柱网</button>
+          <button type="button" data-layer="slice" aria-pressed="false">高度切片</button>
+          <button type="button" data-layer="ggerLabels" aria-pressed="false">网格编码</button>
+        </div>
       </div>
-      <div class="source-toggles" aria-label="飞行障碍来源过滤">
-        <button type="button" data-obstacle-source="building" aria-pressed="true" style="--source-color:#4cc9f0">建筑</button>
-        <button type="button" data-obstacle-source="terrain" aria-pressed="false" style="--source-color:#8bc34a">地形</button>
-        <button type="button" data-obstacle-source="no_fly_zone" aria-pressed="true" style="--source-color:#ff3b30">长期禁飞区</button>
-        <button type="button" data-obstacle-source="temp_control" aria-pressed="true" style="--source-color:#ffb000">临时禁飞/管制</button>
+      <div class="toggle-group" aria-label="适飞空域图层">
+        <h3>适飞空域</h3>
+        <div class="toggles">
+          <button type="button" data-layer="airspaceTiles" aria-pressed="false">W/G 体素</button>
+          <button type="button" data-layer="suitableFootprint" aria-pressed="false" data-requires-auth>适飞基底</button>
+          <button type="button" data-layer="suitableWAirspace" aria-pressed="false" data-requires-auth>W 适飞</button>
+          <button type="button" data-layer="suitableGAirspace" aria-pressed="false" data-requires-auth>G 适飞</button>
+        </div>
       </div>
-      <div class="obstacle-actions">
-        <button type="button" data-action="refreshFlightObstacles">刷新障碍</button>
-        <button type="button" data-action="zoomFlightObstacles">定位障碍</button>
-        <button type="button" data-action="clearFlightObstacles">清除</button>
+      <div class="toggle-group" aria-label="飞行障碍图层">
+        <h3>障碍</h3>
+        <div class="toggles">
+          <button type="button" data-layer="flightObstacles" aria-pressed="false" data-requires-auth>飞行障碍</button>
+        </div>
       </div>
-    </div>
-    <div id="flightPathWorkbench"></div>
-    <div id="airspaceConstraintEditor"></div>
-    <div class="airspace-controls" aria-label="W/G 空域 3D Tiles 参数">
-      <h2>W/G Airspace Tiles（离线体素）</h2>
-      <div class="control-grid">
-        <label class="field">Layer
-          <select id="airspaceTilesMode">
-            <option value="candidateW">W 候选</option>
-            <option value="candidateG">G 候选</option>
-            <option value="suitableW">W 适飞</option>
-            <option value="suitableG">G 适飞</option>
-          </select>
-        </label>
-        <label class="field">Level
-          <select id="airspaceTilesLevel">
-            <option value="19">19</option>
-            <option value="20" selected>20</option>
-            <option value="21">21</option>
-            <option value="22">22</option>
-          </select>
-        </label>
-        <label class="field checkbox-field">Mixed
-          <input id="airspaceTilesMixed" type="checkbox" checked />
-        </label>
+    </details>
+
+    <details class="hud-section" id="sectionEnvelope">
+      <summary>单体包络分析<span class="section-hint" id="convexHullHint"></span></summary>
+      <section class="convex-hull-controls" aria-labelledby="convexHullTitle">
+        <h2 id="convexHullTitle" class="sr-only">单体包络分析（浏览器端几何计算）</h2>
+        <div class="convex-hull-actions">
+          <label class="convex-hull-mode">包络
+            <select id="convexHullEnvelopeMode">
+              <option value="shell" selected>模型外壳</option>
+              <option value="convex">凸包</option>
+            </select>
+          </label>
+          <button type="button" id="convexHullFeatureBtn" aria-pressed="false">点击模型</button>
+          <button type="button" id="convexHullClearBtn">清除包络</button>
+        </div>
+        <p class="convex-hull-status" id="convexHullStatus" data-state="idle" aria-live="polite">单体包络分析未开启。</p>
+        <div class="convex-hull-grid-controls" aria-label="iBEST-DB 三维网格参数">
+          <label>层级
+            <input id="convexHullGridLevel" type="number" min="6" max="32" step="1" value="19" />
+          </label>
+          <label class="convex-hull-agg">聚合
+            <input id="convexHullGridAgg" type="checkbox" checked />
+          </label>
+          <button type="button" id="convexHullGridBtn" disabled data-requires-auth>生成 GGER 网格</button>
+        </div>
+        <p class="convex-hull-grid-status" id="convexHullGridStatus" data-state="idle" aria-live="polite">等待凸包计算。</p>
+        <details class="convex-hull-wkt" id="convexHullWktDetails" hidden>
+          <summary>查看包络 WKT <span>EPSG:4978</span></summary>
+          <label for="convexHullWkt">POLYHEDRALSURFACE Z</label>
+          <textarea id="convexHullWkt" readonly spellcheck="false" aria-label="包络 WKT"></textarea>
+          <button type="button" id="convexHullCopyWktBtn">复制包络 WKT</button>
+        </details>
+      </section>
+    </details>
+
+    <details class="hud-section" id="sectionObstacles" data-requires-auth>
+      <summary>飞行障碍</summary>
+      <div class="obstacle-controls" aria-label="飞行障碍过滤">
+        <div class="control-grid">
+          <label class="field">最大行数
+            <input id="flightObstacleLimit" type="number" min="1" max="1000" step="25" value="200" />
+          </label>
+          <label class="field">模式
+            <select id="flightObstacleMode">
+              <option value="outline">轮廓</option>
+            </select>
+          </label>
+          <label class="field">地形精度
+            <select id="terrainLodMode">
+              <option value="auto">自动 LOD</option>
+              <option value="0">概览</option>
+              <option value="1">中等</option>
+              <option value="2">精细</option>
+            </select>
+          </label>
+        </div>
+        <div class="source-toggles" aria-label="飞行障碍来源过滤">
+          <button type="button" data-obstacle-source="building" aria-pressed="true" style="--source-color:#4cc9f0">建筑</button>
+          <button type="button" data-obstacle-source="terrain" aria-pressed="false" style="--source-color:#8bc34a">地形</button>
+          <button type="button" data-obstacle-source="no_fly_zone" aria-pressed="true" style="--source-color:#ff3b30">长期禁飞区</button>
+          <button type="button" data-obstacle-source="temp_control" aria-pressed="true" style="--source-color:#ffb000">临时禁飞/管制</button>
+        </div>
+        <div class="obstacle-actions">
+          <button type="button" data-action="refreshFlightObstacles">刷新障碍</button>
+          <button type="button" data-action="zoomFlightObstacles">定位障碍</button>
+          <button type="button" data-action="clearFlightObstacles">清除</button>
+        </div>
       </div>
-    </div>
-    <div class="airspace-controls" aria-label="GGER 空域网格参数">
-      <h2>GGER Airspace Grid</h2>
-      <div class="control-grid">
-        <label class="field">Level
-          <select id="ggerLevelMode">
-            <option value="auto">Auto</option>
-            <option value="1">1</option>
-            <option value="2">2</option>
-            <option value="3">3</option>
-            <option value="4">4</option>
-            <option value="5">5</option>
-            <option value="6">6</option>
-            <option value="7">7</option>
-            <option value="8">8</option>
-            <option value="9">9</option>
-            <option value="10">10</option>
-            <option value="11">11</option>
-            <option value="12">12</option>
-            <option value="13">13</option>
-            <option value="14">14</option>
-            <option value="15">15</option>
-            <option value="16">16</option>
-            <option value="17">17</option>
-            <option value="18">18</option>
-            <option value="19">19</option>
-            <option value="20">20</option>
-            <option value="21">21</option>
-            <option value="22">22</option>
-            <option value="23">23</option>
-            <option value="24">24</option>
-            <option value="25">25</option>
-            <option value="26">26</option>
-            <option value="27">27</option>
-            <option value="28">28</option>
-            <option value="29">29</option>
-            <option value="30">30</option>
-            <option value="31">31</option>
-            <option value="32">32</option>
-          </select>
-        </label>
-        <label class="field">Max cells
-          <input id="ggerMaxCells" type="number" min="200" max="8000" step="100" value="3000" />
-        </label>
-        <label class="field">Anchor height
-          <input id="ggerAnchorHeight" type="number" step="10" value="0" />
-        </label>
-        <label class="field">Stack count
-          <input id="ggerStackCount" type="number" min="1" max="10" step="1" value="3" />
-        </label>
-        <label class="field" style="grid-column: 1 / -1;">Current height <span id="ggerCurrentHeightValue">120m</span>
-          <input id="ggerCurrentHeight" type="range" min="0" max="300" step="1" value="120" />
-        </label>
+    </details>
+
+    <details class="hud-section" id="sectionFlightPath" data-requires-auth>
+      <summary>航迹规划与回放</summary>
+      <div id="flightPathWorkbench"></div>
+    </details>
+
+    <details class="hud-section" id="sectionAirspaceConstraint" data-requires-auth>
+      <summary>空域约束管理</summary>
+      <div id="airspaceConstraintEditor"></div>
+    </details>
+
+    <details class="hud-section" id="sectionAirspaceTiles">
+      <summary>W/G 空域体素</summary>
+      <div class="airspace-controls" aria-label="W/G 空域 3D Tiles 参数">
+        <div class="control-grid">
+          <label class="field">图层
+            <select id="airspaceTilesMode">
+              <option value="candidateW">W 候选</option>
+              <option value="candidateG">G 候选</option>
+              <option value="suitableW">W 适飞</option>
+              <option value="suitableG">G 适飞</option>
+            </select>
+          </label>
+          <label class="field">层级
+            <select id="airspaceTilesLevel">
+              <option value="19">19</option>
+              <option value="20" selected>20</option>
+              <option value="21">21</option>
+              <option value="22">22</option>
+            </select>
+          </label>
+          <label class="field checkbox-field">混合层级
+            <input id="airspaceTilesMixed" type="checkbox" checked />
+          </label>
+        </div>
       </div>
-    </div>
+    </details>
+
+    <details class="hud-section" id="sectionGgerGrid">
+      <summary>GGER 空域网格</summary>
+      <div class="airspace-controls" aria-label="GGER 空域网格参数">
+        <div class="control-grid">
+          <label class="field">层级
+            <select id="ggerLevelMode">
+              <option value="auto">自动</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="7">7</option>
+              <option value="8">8</option>
+              <option value="9">9</option>
+              <option value="10">10</option>
+              <option value="11">11</option>
+              <option value="12">12</option>
+              <option value="13">13</option>
+              <option value="14">14</option>
+              <option value="15">15</option>
+              <option value="16">16</option>
+              <option value="17">17</option>
+              <option value="18">18</option>
+              <option value="19">19</option>
+              <option value="20">20</option>
+              <option value="21">21</option>
+              <option value="22">22</option>
+              <option value="23">23</option>
+              <option value="24">24</option>
+              <option value="25">25</option>
+              <option value="26">26</option>
+              <option value="27">27</option>
+              <option value="28">28</option>
+              <option value="29">29</option>
+              <option value="30">30</option>
+              <option value="31">31</option>
+              <option value="32">32</option>
+            </select>
+          </label>
+          <label class="field">最大单元数
+            <input id="ggerMaxCells" type="number" min="200" max="8000" step="100" value="3000" />
+          </label>
+          <label class="field">锚定高度
+            <input id="ggerAnchorHeight" type="number" step="10" value="0" />
+          </label>
+          <label class="field">堆叠层数
+            <input id="ggerStackCount" type="number" min="1" max="10" step="1" value="3" />
+          </label>
+          <label class="field" style="grid-column: 1 / -1;">当前高度 <span id="ggerCurrentHeightValue">120m</span>
+            <input id="ggerCurrentHeight" type="range" min="0" max="300" step="1" value="120" />
+          </label>
+        </div>
+      </div>
+    </details>
   </section>
 
+  <div class="right-dock">
   <aside class="readout" aria-label="运行状态">
-    <h2>Live Diagnostics</h2>
+    <h2>实时状态</h2>
     <div class="grid">
-      <div class="metric"><span>Lon</span><strong id="lon">--</strong></div>
-      <div class="metric"><span>Lat</span><strong id="lat">--</strong></div>
-      <div class="metric"><span>Alt</span><strong id="alt">--</strong></div>
+      <div class="metric"><span>经度</span><strong id="lon">--</strong></div>
+      <div class="metric"><span>纬度</span><strong id="lat">--</strong></div>
+      <div class="metric"><span>高度</span><strong id="alt">--</strong></div>
     </div>
-    <div class="status" id="status">正在初始化天地图三维服务……</div>
+    <div class="status-center" aria-label="状态消息">
+      <div class="status" id="status" data-level="info" aria-live="polite">正在初始化天地图三维服务……</div>
+      <ul class="status-history" id="statusHistory"></ul>
+    </div>
     <div class="airspace-readout" aria-label="GGER 网格状态">
-      <div class="metric"><span>GGER Level</span><strong id="ggerLevel">--</strong></div>
-      <div class="metric"><span>Cells</span><strong id="ggerCells">--</strong></div>
-      <div class="metric wide"><span>Height Layer</span><code id="ggerHeightLayer">--</code></div>
-      <div class="metric wide"><span>Selected 2D GGER</span><code id="ggerSelected2D">--</code></div>
-      <div class="metric wide"><span>Selected 3D GGER</span><code id="ggerSelected3D">--</code></div>
+      <div class="metric"><span>GGER 层级</span><strong id="ggerLevel">--</strong></div>
+      <div class="metric"><span>单元数</span><strong id="ggerCells">--</strong></div>
+      <div class="metric wide"><span>高度层</span><code id="ggerHeightLayer">--</code></div>
+      <div class="metric wide"><span>选中 2D 网格</span><code id="ggerSelected2D">--</code></div>
+      <div class="metric wide"><span>选中 3D 网格</span><code id="ggerSelected3D">--</code></div>
     </div>
     <div class="flight-playback-readout" aria-label="飞行航迹回放状态">
-      <h2>Flight Replay</h2>
+      <h2>航迹回放</h2>
       <div class="grid">
-        <div class="metric"><span>Progress</span><strong id="flightReplayProgress">--</strong></div>
-        <div class="metric"><span>Altitude</span><strong id="flightReplayAltitude">--</strong></div>
-        <div class="metric"><span>Speed</span><strong id="flightReplaySpeed">--</strong></div>
-        <div class="metric"><span>Distance</span><strong id="flightReplayDistance">--</strong></div>
-        <div class="metric"><span>Mode</span><strong id="flightReplayMode">Idle</strong></div>
-        <div class="metric"><span>Gridcell</span><strong id="flightReplayGrid">--</strong></div>
+        <div class="metric"><span>进度</span><strong id="flightReplayProgress">--</strong></div>
+        <div class="metric"><span>高度</span><strong id="flightReplayAltitude">--</strong></div>
+        <div class="metric"><span>速度</span><strong id="flightReplaySpeed">--</strong></div>
+        <div class="metric"><span>距离</span><strong id="flightReplayDistance">--</strong></div>
+        <div class="metric"><span>模式</span><strong id="flightReplayMode">空闲</strong></div>
+        <div class="metric"><span>网格单元</span><strong id="flightReplayGrid">--</strong></div>
       </div>
     </div>
   </aside>
 
-  <aside class="feature-panel" aria-label="CityDB 模型属性">
+  <aside class="feature-panel" aria-label="选择详情">
     <header>
-      <h2>Selection Inspector</h2>
+      <h2>选择详情</h2>
       <button class="feature-close" id="closeFeaturePanel" type="button" aria-label="关闭选择详情面板" title="关闭详情面板">×</button>
+      <div class="feature-owner-bar">
+        <button class="feature-back" id="featurePanelBack" type="button" style="display:none" aria-label="返回上一个详情来源">‹ 返回</button>
+        <span class="feature-owner" id="featurePanelOwner" style="display:none"></span>
+      </div>
       <p>点击建筑模型查询 CityDB 属性，或开启飞行障碍图层查看多源 GGER 障碍。</p>
     </header>
     <div class="feature-content" id="featureProperties">
       <div class="feature-empty">尚未选择建筑模型。</div>
     </div>
   </aside>
-
-  <div class="badge" aria-hidden="true">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l7 4v7c0 5-3 8-7 9-4-1-7-4-7-9V6l7-4z"/><path d="M9 12l2 2 4-5"/></svg>
-    TK 已配置 · 2444…9347
   </div>
 
   <script src="./src/app/create-huaguoshan-app.js"></script>

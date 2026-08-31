@@ -10,10 +10,77 @@
     if (el) el.textContent = value;
   }
 
+  function setAuthStatusClass(statusEl, stateClass) {
+    statusEl.classList.remove('anon', 'logged-in', 'error');
+    statusEl.classList.add('auth-status', stateClass);
+  }
+
   function createStatusLogger(selector) {
     return function log(message) {
       text(selector || '#status', message);
       console.info('[Tianditu3D]', message);
+    };
+  }
+
+  function detectStatusLevel(message) {
+    var textValue = String(message || '');
+    if (/失败|错误|异常|无法|拒绝|过期/.test(textValue)) return 'error';
+    if (/已|成功|完成|就绪/.test(textValue)) return 'success';
+    return 'info';
+  }
+
+  function formatStatusTime(date) {
+    var pad = function (value) { return String(value).padStart(2, '0'); };
+    return pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
+  }
+
+  // 状态中心：当前消息 + 最近历史，避免多模块共用单行状态互相覆盖。
+  // log(message[, level]) — level 为 'info' | 'success' | 'error'，缺省按文本推断。
+  function createStatusCenter(options) {
+    var target = options || {};
+    var currentEl = document.querySelector(target.currentSelector || '#status');
+    var historyEl = document.querySelector(target.historySelector || '#statusHistory');
+    var maxItems = target.maxItems || 5;
+    var entries = [];
+
+    function render() {
+      if (historyEl) {
+        historyEl.innerHTML = entries.map(function (entry) {
+          return '<li class="status-entry" data-level="' + entry.level + '">' +
+            '<time>' + entry.time + '</time>' +
+            '<span>' + escapeStatusHtml(entry.message) + '</span>' +
+          '</li>';
+        }).join('');
+      }
+    }
+
+    function escapeStatusHtml(value) {
+      return String(value).replace(/[&<>"']/g, function (ch) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+      });
+    }
+
+    function log(message, level) {
+      var resolvedLevel = level || detectStatusLevel(message);
+      if (currentEl) {
+        currentEl.textContent = message;
+        currentEl.setAttribute('data-level', resolvedLevel);
+      }
+      entries.unshift({ message: String(message), level: resolvedLevel, time: formatStatusTime(new Date()) });
+      if (entries.length > maxItems) entries.length = maxItems;
+      render();
+      if (resolvedLevel === 'error') console.warn('[Tianditu3D]', message);
+      else console.info('[Tianditu3D]', message);
+    }
+
+    return {
+      log: log,
+      entries: function () { return entries.slice(); },
+      destroy: function () {
+        entries = [];
+        if (historyEl) historyEl.innerHTML = '';
+        if (currentEl) currentEl.textContent = '';
+      }
     };
   }
 
@@ -39,13 +106,15 @@
     if (jwt) {
       if (loginBtn) loginBtn.style.display = 'none';
       if (logoutBtn) logoutBtn.style.display = '';
-      if (statusEl) { statusEl.textContent = '已登录'; statusEl.className = 'auth-status logged-in'; }
-      if (userInput) userInput.value = '';
-      if (passInput) passInput.value = '';
+      if (statusEl) { statusEl.textContent = '已登录'; setAuthStatusClass(statusEl, 'logged-in'); }
+      if (userInput) { userInput.value = ''; userInput.style.display = 'none'; }
+      if (passInput) { passInput.value = ''; passInput.style.display = 'none'; }
     } else {
       if (loginBtn) loginBtn.style.display = '';
       if (logoutBtn) logoutBtn.style.display = 'none';
-      if (statusEl) { statusEl.textContent = '未登录'; statusEl.className = 'auth-status anon'; }
+      if (statusEl) { statusEl.textContent = '未登录'; setAuthStatusClass(statusEl, 'anon'); }
+      if (userInput) userInput.style.display = '';
+      if (passInput) passInput.style.display = '';
     }
   }
 
@@ -79,10 +148,45 @@
     });
   }
 
+  // 未登录时锁定依赖 RPC 的控件（data-requires-auth），登录后恢复。
+  function setAuthRequiredLocked(locked) {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-requires-auth]'), function (el) {
+      el.classList.toggle('auth-locked', locked);
+      if (el.matches('details.hud-section')) {
+        // 只锁定内容区，保留 summary 可展开查看
+        Array.prototype.forEach.call(el.querySelectorAll(':scope > :not(summary)'), function (child) {
+          if (locked) child.setAttribute('inert', '');
+          else child.removeAttribute('inert');
+        });
+        var summary = el.querySelector(':scope > summary');
+      } else if (locked) {
+        el.setAttribute('inert', '');
+      } else {
+        el.removeAttribute('inert');
+      }
+      if (el.matches('details.hud-section')) {
+        if (!summary) return;
+        var hint = summary.querySelector('.auth-required-hint');
+        if (locked && !hint) {
+          hint = document.createElement('span');
+          hint.className = 'section-hint auth-required-hint';
+          hint.textContent = '需登录';
+          summary.appendChild(hint);
+        } else if (!locked && hint) {
+          hint.remove();
+        }
+      }
+    });
+  }
+
   function initAuth(options) {
     var authClient = options.authClient;
     var log = options.log;
     var selectors = options.selectors || {};
+    var onAuthChanged = typeof options.onAuthChanged === 'function' ? options.onAuthChanged : null;
+    function notifyAuthChanged() {
+      if (onAuthChanged) onAuthChanged(Boolean(authClient.token()));
+    }
     var loginBtn = document.querySelector(selectors.loginButton || '#authLoginBtn');
     var logoutBtn = document.querySelector(selectors.logoutButton || '#authLogoutBtn');
     var usernameInput = document.querySelector(selectors.username || '#authUsername');
@@ -97,11 +201,11 @@
           log('请输入用户名和密码');
           return;
         }
-        authenticate(authClient, log, selectors, username, password).catch(function (error) {
+        authenticate(authClient, log, selectors, username, password).then(notifyAuthChanged).catch(function (error) {
           var statusEl;
           log('登录失败：' + error.message);
           statusEl = document.querySelector(statusSelector);
-          if (statusEl) { statusEl.textContent = '登录失败'; statusEl.className = 'auth-status error'; }
+          if (statusEl) { statusEl.textContent = '登录失败'; setAuthStatusClass(statusEl, 'error'); }
         });
       });
     }
@@ -109,6 +213,7 @@
     if (logoutBtn) {
       logoutBtn.addEventListener('click', function () {
         logout(authClient, log, selectors);
+        notifyAuthChanged();
       });
     }
 
@@ -120,7 +225,48 @@
       });
     }
 
-    return checkAuthStatus(authClient, log, selectors);
+    notifyAuthChanged();
+    return checkAuthStatus(authClient, log, selectors).then(function (user) {
+      notifyAuthChanged();
+      return user;
+    });
+  }
+
+  function initHudSections(options) {
+    var target = options || {};
+    var storageKey = target.storageKey || 'hud.sections.open';
+    var sections = Array.prototype.slice.call(document.querySelectorAll('details.hud-section[id]'));
+    if (!sections.length) return;
+    function readStored() {
+      try {
+        var raw = window.localStorage.getItem(storageKey);
+        var parsed = raw ? JSON.parse(raw) : null;
+        return Array.isArray(parsed) ? parsed : null;
+      } catch (error) {
+        return null;
+      }
+    }
+    var stored = readStored();
+    if (stored) {
+      sections.forEach(function (section) {
+        section.open = stored.indexOf(section.id) !== -1;
+      });
+    }
+    function persist() {
+      var openIds = sections.filter(function (section) { return section.open; }).map(function (section) { return section.id; });
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify(openIds));
+      } catch (error) { /* 忽略隐私模式下的存储失败 */ }
+    }
+    sections.forEach(function (section) {
+      section.addEventListener('toggle', persist);
+    });
+
+    return function destroy() {
+      sections.forEach(function (section) {
+        section.removeEventListener('toggle', persist);
+      });
+    };
   }
 
   global.HuaguoshanHud = {
@@ -131,6 +277,9 @@
     authenticate: authenticate,
     logout: logout,
     checkAuthStatus: checkAuthStatus,
-    initAuth: initAuth
+    initAuth: initAuth,
+    initHudSections: initHudSections,
+    createStatusCenter: createStatusCenter,
+    setAuthRequiredLocked: setAuthRequiredLocked
   };
 })(window);

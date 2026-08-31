@@ -398,3 +398,58 @@ GET /aircraft_assets
 | `403` | 当前角色无接口权限 |
 | `404` | 接口不存在，例如调用未提供的反无设备控制 RPC |
 | `409` | 资产编码、来源幂等键或观测来源键冲突 |
+
+## 13. 侦测与处置设备扩展
+
+Phase 1 在保留现有设备模型的基础上增加以下设备类别：
+
+| `category_code` | 类别 | 专业属性资源 |
+|---|---|---|
+| `jamming_device` | 干扰设备 | `/equipment_jamming_device_profiles` |
+| `aoa_direction_finder` | AOA 到达角测向设备 | `/equipment_aoa_direction_finder_profiles` |
+| `microwave_radar` | 微波雷达/探测设备 | `/equipment_microwave_radar_profiles` |
+| `remote_id_receiver` | RemoteID 接收设备 | `/equipment_remote_id_receiver_profiles` |
+| `directed_energy_device` | 激光/定向能处置设备 | `/equipment_directed_energy_device_profiles` |
+| `electro_optical_device` | 光电设备 | `/equipment_electro_optical_device_profiles` |
+
+6G 继续使用现有的 `base_station_6g` 类别和 `/equipment_assets` 资源，不新增 6G 类别。
+设备类别字典通过以下只读资源提供：
+
+```http
+GET /equipment_asset_categories
+```
+
+返回 `code`、`name`、`category_group`、`description`、`enabled` 和 `sort_order`。`equipment_online_statistics` 现额外返回 `catalog_name`，该字段来自设备类别字典，可直接用于前端展示。
+
+设备专业属性资源为只读查询资源，设备创建和基础资产更新仍通过 `/equipment_assets` 完成。新增能力包括：
+
+- `network_sensing_6g`：6G 网络感知
+- `radio_jamming`：无线电干扰
+- `aoa_measurement`：到达角测向
+- `microwave_detection`：微波探测
+- `range_measurement`：距离测量
+- `velocity_measurement`：速度测量
+- `remote_id_identification`：RemoteID 身份识别
+- `electro_optical_observation`：光电观测
+- `electro_optical_tracking`：光电跟踪
+- `directed_energy_response`：定向能处置
+
+干扰设备和激光/定向能设备最高只能配置为 `recommendable` 接入级别。平台 Phase 1 不提供干扰、激光发射、瞄准或功率控制 RPC，仅提供资产、状态、能力、覆盖范围和方案推荐所需的数据模型。
+
+数据库迁移脚本为：
+
+```text
+backend/migrate_equipment_detection_devices.sql
+```
+
+该迁移脚本依赖 `backend/create_equipment_asset_schema.sql`，可重复执行。模拟数据使用 Python 脚本生成：
+
+```text
+scripts/seed_detection_equipment.py
+```
+
+脚本依赖 `psycopg[binary]`，每种设备随机生成 5–10 个资产。默认随机种子为 `731`，可通过 `--seed` 生成另一组可复现数据：
+
+```bash
+uv run scripts/seed_detection_equipment.py --dsn "$DATABASE_URL" --seed 731
+```

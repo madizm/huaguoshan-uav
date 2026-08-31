@@ -1,0 +1,520 @@
+  /* 功能面板：状态中心、详情内容卡片、凸包、飞行障碍、航迹与空域列表 */
+
+  /* ── 状态中心 ───────────────────────────────────── */
+
+  .status {
+    min-height: 42px;
+    padding: 10px 12px;
+    border-left: 3px solid var(--gold);
+    border-radius: 10px;
+    color: rgba(255, 247, 223, 0.75);
+    background: rgba(0, 0, 0, 0.18);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .status[data-level="error"] { border-left-color: #ff6b5e; color: #ffc0b6; }
+  .status[data-level="success"] { border-left-color: #8bd17c; color: #d8f5c8; }
+
+  .status-history {
+    margin: 8px 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 4px;
+  }
+
+  .status-entry {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    padding: 4px 8px;
+    border-left: 2px solid rgba(255, 247, 223, 0.18);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.14);
+    color: rgba(255, 247, 223, 0.55);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .status-entry time {
+    flex: none;
+    color: rgba(255, 247, 223, 0.38);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .status-entry[data-level="error"] { border-left-color: rgba(255, 107, 94, 0.65); color: rgba(255, 192, 182, 0.8); }
+  .status-entry[data-level="success"] { border-left-color: rgba(139, 209, 124, 0.55); }
+
+  /* ── 详情面板内容 ───────────────────────────────── */
+
+  .feature-content {
+    overflow: auto;
+    padding: 14px 16px 16px;
+  }
+
+  .feature-empty,
+  .feature-error,
+  .feature-loading {
+    padding: 12px;
+    border-radius: 14px;
+    color: rgba(255, 247, 223, 0.74);
+    background: rgba(0, 0, 0, 0.18);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .feature-error {
+    border-left: 3px solid var(--cinnabar);
+  }
+
+  .feature-card {
+    display: grid;
+    gap: 12px;
+  }
+
+  .feature-title {
+    padding: 12px;
+    border: 1px solid rgba(255, 247, 223, 0.14);
+    border-radius: 16px;
+    background: rgba(255, 247, 223, 0.06);
+  }
+
+  .feature-title strong {
+    display: block;
+    overflow-wrap: anywhere;
+    color: var(--paper-strong);
+    font-family: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
+    font-size: 18px;
+    line-height: 1.3;
+  }
+
+  .feature-title span,
+  .feature-meta-row span,
+  .feature-property span {
+    color: rgba(255, 247, 223, 0.52);
+    font-size: 11px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+  }
+
+  .feature-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .feature-meta-row,
+  .feature-property {
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid rgba(255, 247, 223, 0.10);
+    border-radius: 13px;
+    background: rgba(0, 0, 0, 0.14);
+  }
+
+  .feature-meta-row code,
+  .feature-property code {
+    display: block;
+    margin-top: 5px;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    color: var(--paper-strong);
+    font-family: "DIN Condensed", "Avenir Next Condensed", monospace;
+    font-size: 14px;
+    line-height: 1.38;
+  }
+
+  .feature-properties {
+    display: grid;
+    gap: 8px;
+  }
+
+  .feature-grid-card {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid rgba(94, 234, 212, 0.28);
+    border-radius: 16px;
+    background:
+      linear-gradient(135deg, rgba(94, 234, 212, 0.10), rgba(8, 61, 51, 0.20)),
+      rgba(0, 0, 0, 0.16);
+  }
+
+  .feature-grid-card h3 {
+    margin: 0;
+    color: #5eead4;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .feature-grid-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .feature-grid-actions button {
+    padding: 8px 11px;
+    font-size: 12px;
+  }
+
+  .feature-grid-cells {
+    display: grid;
+    gap: 6px;
+    max-height: 168px;
+    overflow: auto;
+    padding-right: 2px;
+  }
+
+  .feature-grid-cell {
+    display: grid;
+    gap: 4px;
+    padding: 8px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.18);
+  }
+
+  .feature-grid-cell b {
+    overflow-wrap: anywhere;
+    color: #5eead4;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+
+  .feature-grid-cell code {
+    margin: 0;
+    color: rgba(255, 247, 223, 0.78);
+    font-size: 12px;
+  }
+
+  .obstacle-card {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid color-mix(in srgb, var(--source-color, #ffb000) 48%, transparent);
+    border-radius: 16px;
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--source-color, #ffb000) 16%, transparent), rgba(0, 0, 0, 0.18)),
+      rgba(0, 0, 0, 0.12);
+  }
+
+  .obstacle-card + .obstacle-card {
+    margin-top: 10px;
+  }
+
+  .obstacle-card h3 {
+    margin: 0;
+    overflow-wrap: anywhere;
+    color: var(--source-color, #ffb000);
+    font-size: 15px;
+    line-height: 1.25;
+  }
+
+  .obstacle-pill {
+    display: inline-flex;
+    width: fit-content;
+    border-radius: 999px;
+    padding: 4px 8px;
+    color: var(--ink);
+    background: var(--source-color, #ffb000);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .feature-property.has-children {
+    border-color: rgba(215, 168, 70, 0.24);
+    background: rgba(215, 168, 70, 0.08);
+  }
+
+  .tag-list {
+    display: grid;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .tag-row {
+    display: grid;
+    grid-template-columns: minmax(82px, 0.38fr) minmax(0, 1fr);
+    gap: 8px;
+    align-items: start;
+    padding: 7px 8px;
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.16);
+  }
+
+  .tag-row b {
+    overflow-wrap: anywhere;
+    color: var(--gold);
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .tag-row code {
+    margin: 0;
+    font-size: 13px;
+  }
+
+  /* ── 各业务控件面板 ─────────────────────────────── */
+
+  .flight-path-controls,
+  .airspace-admin-controls,
+  .airspace-controls,
+  .obstacle-controls {
+    margin-top: 16px;
+    padding: 14px;
+    border: 1px solid rgba(215, 168, 70, 0.24);
+    border-radius: 16px;
+    background:
+      linear-gradient(135deg, rgba(215, 168, 70, 0.10), rgba(8, 61, 51, 0.22)),
+      rgba(0, 0, 0, 0.16);
+  }
+
+  .obstacle-controls {
+    border-color: rgba(255, 59, 48, 0.30);
+    background:
+      linear-gradient(135deg, rgba(255, 59, 48, 0.12), rgba(76, 201, 240, 0.08)),
+      rgba(0, 0, 0, 0.18);
+  }
+
+  .airspace-admin-controls {
+    border-color: rgba(255, 176, 0, 0.32);
+    background:
+      linear-gradient(135deg, rgba(255, 176, 0, 0.13), rgba(255, 59, 48, 0.08)),
+      rgba(0, 0, 0, 0.18);
+  }
+
+  .flight-path-controls h2,
+  .airspace-admin-controls h2,
+  .airspace-controls h2,
+  .obstacle-controls h2 {
+    margin: 0 0 10px;
+    color: var(--gold);
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+
+  .flight-path-controls {
+    border-color: rgba(94, 234, 212, 0.32);
+    background:
+      radial-gradient(circle at top left, rgba(94, 234, 212, 0.16), transparent 48%),
+      linear-gradient(135deg, rgba(76, 201, 240, 0.12), rgba(215, 168, 70, 0.08)),
+      rgba(0, 0, 0, 0.18);
+  }
+
+  .draw-help,
+  .admin-hint {
+    margin: 9px 0 0;
+    color: rgba(255, 247, 223, 0.66);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .flight-path-point-list,
+  .flight-path-plan-list,
+  .airspace-zone-list {
+    display: grid;
+    gap: 8px;
+    max-height: 172px;
+    overflow: auto;
+    margin-top: 10px;
+    padding-right: 2px;
+  }
+
+  .flight-path-point-item,
+  .flight-path-plan-item,
+  .airspace-zone-item {
+    display: grid;
+    gap: 6px;
+    padding: 9px;
+    border: 1px solid rgba(255, 176, 0, 0.20);
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.16);
+  }
+
+  .flight-path-point-item strong,
+  .flight-path-plan-item strong,
+  .airspace-zone-item strong {
+    overflow-wrap: anywhere;
+    color: var(--paper-strong);
+    font-size: 13px;
+  }
+
+  .flight-path-point-item span,
+  .flight-path-plan-item span,
+  .airspace-zone-item span {
+    color: rgba(255, 247, 223, 0.62);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .flight-path-plan-item .admin-actions,
+  .airspace-zone-item .admin-actions {
+    margin-top: 0;
+  }
+
+  .flight-path-plan-item button,
+  .airspace-zone-item button {
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+
+  /* ── 单体包络分析 ───────────────────────────────── */
+
+  .convex-hull-controls {
+    margin-top: 16px;
+    padding: 14px;
+    border: 1px solid rgba(246, 200, 95, 0.38);
+    border-radius: 16px;
+    background:
+      linear-gradient(115deg, rgba(246, 200, 95, 0.14), transparent 58%),
+      rgba(0, 0, 0, 0.18);
+  }
+
+  .convex-hull-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .convex-hull-mode {
+    display: grid;
+    gap: 4px;
+    color: rgba(255, 247, 223, 0.54);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .convex-hull-mode select {
+    min-width: 104px;
+    border: 1px solid rgba(246, 200, 95, 0.32);
+    border-radius: 999px;
+    padding: 8px 28px 8px 11px;
+    color: var(--paper-strong);
+    background: rgba(4, 17, 14, 0.72);
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .convex-hull-actions > button { align-self: end; }
+
+  .convex-hull-actions button[aria-pressed="true"] {
+    border-color: #f6c85f;
+    color: #071713;
+    background: #f6c85f;
+    box-shadow: 0 0 0 4px rgba(246, 200, 95, 0.12);
+  }
+
+  .convex-hull-status {
+    margin: 10px 0 0;
+    padding-left: 10px;
+    border-left: 2px solid rgba(255, 247, 223, 0.24);
+    color: rgba(255, 247, 223, 0.64);
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .convex-hull-status[data-state="busy"] { border-color: #f6c85f; color: #ffe9a8; }
+  .convex-hull-status[data-state="success"] { border-color: #5eead4; color: #b8fff2; }
+  .convex-hull-status[data-state="error"] { border-color: #ff725c; color: #ffc0b6; }
+
+  .convex-hull-grid-controls {
+    display: grid;
+    grid-template-columns: 74px 64px minmax(0, 1fr);
+    align-items: end;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .convex-hull-grid-controls label {
+    display: grid;
+    gap: 5px;
+    color: rgba(255, 247, 223, 0.54);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .convex-hull-grid-controls input[type="number"] {
+    width: 100%;
+    border: 1px solid rgba(246, 200, 95, 0.26);
+    border-radius: 10px;
+    padding: 7px 8px;
+    color: var(--paper-strong);
+    background: rgba(4, 17, 14, 0.72);
+    font: inherit;
+  }
+
+  .convex-hull-grid-controls .convex-hull-agg {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 31px;
+  }
+
+  .convex-hull-grid-controls input[type="checkbox"] { accent-color: #f6c85f; }
+  .convex-hull-grid-controls button { padding: 9px 10px; }
+  .convex-hull-grid-controls button:disabled { cursor: not-allowed; opacity: 0.42; }
+
+  .convex-hull-grid-status {
+    margin: 8px 0 0;
+    color: rgba(255, 247, 223, 0.52);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .convex-hull-grid-status[data-state="busy"] { color: #ffe9a8; }
+  .convex-hull-grid-status[data-state="success"] { color: #b8fff2; }
+  .convex-hull-grid-status[data-state="error"] { color: #ffc0b6; }
+
+  .convex-hull-wkt {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(246, 200, 95, 0.18);
+  }
+
+  .convex-hull-wkt summary {
+    color: #ffe9a8;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .convex-hull-wkt summary span {
+    margin-left: 6px;
+    color: rgba(255, 247, 223, 0.45);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+  }
+
+  .convex-hull-wkt label {
+    display: block;
+    margin: 10px 0 6px;
+    color: rgba(255, 247, 223, 0.48);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+  }
+
+  .convex-hull-wkt textarea {
+    width: 100%;
+    min-height: 116px;
+    resize: vertical;
+    border: 1px solid rgba(246, 200, 95, 0.26);
+    border-radius: 10px;
+    padding: 9px;
+    color: #b8fff2;
+    background: rgba(4, 17, 14, 0.76);
+    font: 11px/1.45 "SFMono-Regular", Consolas, monospace;
+  }
+
+  .convex-hull-wkt button {
+    margin-top: 8px;
+    padding: 8px 11px;
+    font-size: 11px;
+  }

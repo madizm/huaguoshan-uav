@@ -1,0 +1,241 @@
+  /* 通用控件：按钮、表单域、认证条、开关组、动作行 */
+
+  button,
+  .chip {
+    border: 1px solid rgba(255, 247, 223, 0.28);
+    border-radius: 999px;
+    padding: 10px 14px;
+    color: var(--paper-strong);
+    background: rgba(255, 247, 223, 0.08);
+    font: inherit;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+  }
+
+  button:hover,
+  button:focus-visible {
+    transform: translateY(-1px);
+    border-color: var(--gold);
+    background: rgba(215, 168, 70, 0.18);
+    outline: none;
+  }
+
+  button.primary {
+    border-color: rgba(216, 90, 53, 0.7);
+    background: linear-gradient(135deg, var(--cinnabar), #a53b25);
+    box-shadow: 0 14px 34px rgba(216, 90, 53, 0.24);
+  }
+
+  button[aria-pressed="false"] {
+    color: rgba(255, 247, 223, 0.55);
+    background: rgba(0, 0, 0, 0.14);
+  }
+
+  .actions,
+  .toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .control-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .field {
+    display: grid;
+    gap: 6px;
+    color: rgba(255, 247, 223, 0.68);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .field select,
+  .field input,
+  .field textarea {
+    width: 100%;
+    border: 1px solid rgba(255, 247, 223, 0.22);
+    border-radius: 12px;
+    padding: 8px 10px;
+    color: var(--paper-strong);
+    background: rgba(8, 20, 17, 0.72);
+    font: inherit;
+    font-size: 13px;
+    outline: none;
+  }
+
+  .field textarea {
+    min-height: 58px;
+    resize: vertical;
+    line-height: 1.4;
+  }
+
+  .field input[type="range"] {
+    padding: 0;
+    accent-color: var(--gold);
+  }
+
+  .field select:focus-visible,
+  .field input:focus-visible,
+  .field textarea:focus-visible {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 3px rgba(215, 168, 70, 0.16);
+  }
+
+  .admin-actions,
+  .draw-actions,
+  .playback-actions,
+  .mode-actions,
+  .speed-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .playback-actions {
+    align-items: center;
+    padding-top: 10px;
+    border-top: 1px solid rgba(94, 234, 212, 0.18);
+  }
+
+  .speed-actions {
+    margin-top: 0;
+    gap: 6px;
+  }
+
+  .mode-actions {
+    margin-top: 0;
+    gap: 6px;
+  }
+
+  .speed-actions button,
+  .mode-actions button {
+    min-width: 42px;
+    padding-inline: 10px;
+  }
+
+  .flight-playback-slider {
+    grid-column: 1 / -1;
+    margin-top: 10px;
+  }
+
+  .source-toggles {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .source-toggles button {
+    justify-content: center;
+    padding: 9px 10px;
+    border-color: var(--source-color, rgba(255, 247, 223, 0.28));
+    box-shadow: inset 0 0 0 999px rgba(255, 255, 255, 0.00);
+  }
+
+  .source-toggles button[aria-pressed="true"] {
+    background:
+      linear-gradient(135deg, color-mix(in srgb, var(--source-color, var(--gold)) 26%, transparent), rgba(255, 247, 223, 0.07));
+    color: var(--paper-strong);
+  }
+
+  .obstacle-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .toggle-group { margin-top: 10px; }
+
+  .toggle-group > h3 {
+    margin: 0 0 6px;
+    padding: 0 14px;
+    color: rgba(255, 247, 223, 0.55);
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.16em;
+  }
+
+  .toggle-group .toggles {
+    margin-top: 0;
+    padding: 0 14px;
+  }
+
+  .toggle-group:last-child .toggles { padding-bottom: 12px; }
+
+  /* ── 认证条 ─────────────────────────────────────── */
+
+  .auth-bar {
+    margin-top: 16px;
+    padding: 14px;
+    border: 1px solid rgba(215, 168, 70, 0.24);
+    border-radius: 16px;
+    background:
+      linear-gradient(135deg, rgba(215, 168, 70, 0.10), rgba(8, 61, 51, 0.22)),
+      rgba(0, 0, 0, 0.16);
+  }
+
+  .auth-bar .auth-body {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .auth-bar input {
+    border: 1px solid rgba(244, 236, 216, 0.22);
+    border-radius: 999px;
+    padding: 7px 14px;
+    background: rgba(8, 20, 17, 0.72);
+    color: var(--paper-strong);
+    font: inherit;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 160ms ease;
+    min-width: 0;
+    flex: 1 1 100px;
+  }
+
+  .auth-bar input:focus {
+    border-color: var(--gold);
+  }
+
+  .auth-bar .auth-status {
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+
+  .auth-bar .auth-status.anon {
+    border-color: rgba(244, 236, 216, 0.28);
+    color: rgba(244, 236, 216, 0.55);
+  }
+
+  .auth-bar .auth-status.logged-in {
+    border-color: var(--jade);
+    color: var(--jade);
+  }
+
+  .auth-bar .auth-status.error {
+    border-color: var(--cinnabar);
+    color: var(--cinnabar);
+  }
+
+  /* 未登录锁定态 */
+  .auth-locked { opacity: 0.55; }
+
+  button.auth-locked { cursor: not-allowed; }
+
+  .auth-required-hint {
+    color: #ffb000;
+  }
