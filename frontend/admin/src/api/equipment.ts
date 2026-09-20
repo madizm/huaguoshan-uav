@@ -27,6 +27,7 @@ export interface EquipmentAsset {
   serial_no: string | null
   created_at: string
   updated_at: string
+  is_simulated: boolean
 }
 
 export interface RadarModel {
@@ -62,6 +63,7 @@ export interface MicrowaveRadarProfile {
 export interface AssetListParams {
   categoryCode?: string
   keyword?: string
+  isSimulated?: boolean
   limit: number
   offset: number
 }
@@ -76,11 +78,12 @@ export function listRadarModels(): Promise<RadarModel[]> {
 
 export function listAssets(params: AssetListParams): Promise<PagedResult<EquipmentAsset>> {
   const query: Record<string, string> = {
-    select: 'id,asset_code,category_code,name,model,managing_unit_name,deployment_mode,lifecycle_status,updated_at',
+    select: 'id,asset_code,category_code,name,model,managing_unit_name,deployment_mode,lifecycle_status,is_simulated,updated_at',
     order: 'id.desc',
   }
   if (params.categoryCode) query.category_code = `eq.${params.categoryCode}`
   if (params.keyword) query.or = `(asset_code.ilike.*${params.keyword}*,name.ilike.*${params.keyword}*)`
+  if (params.isSimulated !== undefined) query.is_simulated = `eq.${params.isSimulated}`
   return requestPaged('/equipment_assets', { query, limit: params.limit, offset: params.offset })
 }
 

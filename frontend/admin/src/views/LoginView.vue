@@ -29,7 +29,7 @@ async function submit() {
 <template>
   <div class="login-page">
     <el-card class="login-card">
-      <h2 class="login-title">花果山设备管理后台</h2>
+      <h2 class="login-title">连云港反无设备管理后台</h2>
       <el-form @submit.prevent="submit">
         <el-form-item>
           <el-input v-model="form.username" placeholder="用户名" size="large" autofocus />

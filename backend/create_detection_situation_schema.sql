@@ -491,11 +491,19 @@ comment on column api.detection_source_types.source_type_code is '厂商来源�
 
 create or replace view api.detection_observation_sources as
 select s.id,s.source_system,s.external_station_id as station_id,s.external_box_code as box_code,
-  s.name,s.coordinate_system,s.enabled,st.connector_state,st.last_message_at,st.last_snapshot_at,st.updated_at
-from situation.observation_source s left join situation.observation_source_status_current st on st.observation_source_id=s.id;
-comment on view api.detection_observation_sources is '侦测观测来源和接入链路状态只读资源。';
+  s.name,s.coordinate_system,s.enabled,st.connector_state,st.last_message_at,st.last_snapshot_at,st.updated_at,
+  s.asset_id,a.asset_code,a.name as asset_name,a.lifecycle_status as asset_lifecycle_status,
+  s.source_timezone,s.lost_timeout_seconds,st.last_connected_at,st.last_disconnected_at,
+  st.last_error_code,st.last_error_at,st.details
+from situation.observation_source s
+join equipment.asset a on a.id=s.asset_id
+left join situation.observation_source_status_current st on st.observation_source_id=s.id;
+comment on view api.detection_observation_sources is '侦测观测来源、设备资产映射和接入链路状态只读资源。';
 comment on column api.detection_observation_sources.station_id is '来源系统站点 ID。';
 comment on column api.detection_observation_sources.connector_state is '接入连接器状态，不等同于物理设备在线状态。';
+comment on column api.detection_observation_sources.asset_id is '来源映射的统一设备资产 ID。';
+comment on column api.detection_observation_sources.lost_timeout_seconds is '目标未出现在来源快照后判定丢失的宽限秒数。';
+comment on column api.detection_observation_sources.last_error_code is '连接器最近一次错误编码，不包含敏感错误详情。';
 
 create or replace function api.get_detection_situation_snapshot(
   p_station_ids text[] default null,p_source_type_codes smallint[] default null,
@@ -602,6 +610,54 @@ end;
 $$;
 comment on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) is '返回 JSON：track、points、non_spatial_observations 和 evidence；查询半开时间区间内航迹证据，窗口最大 24 小时，最多返回 5000 个抽样点。';
 
+create or replace function api.update_detection_observation_source(
+  p_source_id bigint,p_name text,p_asset_id bigint,p_source_timezone text,
+  p_lost_timeout_seconds integer,p_enabled boolean
+) returns jsonb language plpgsql security definer
+set search_path=pg_catalog,public,equipment,situation,api as $$
+declare v_source situation.observation_source%rowtype;
+begin
+  if p_source_id is null then raise exception 'source ID is required'; end if;
+  if nullif(btrim(p_name),'') is null then raise exception 'source name is required'; end if;
+  if p_lost_timeout_seconds not between 5 and 3600 then
+    raise exception 'lost timeout must be between 5 and 3600 seconds';
+  end if;
+  if not exists(select 1 from pg_timezone_names where name=p_source_timezone) then
+    raise exception 'unknown source timezone %',p_source_timezone;
+  end if;
+  if not exists(
+    select 1 from equipment.asset where id=p_asset_id
+      and (not p_enabled or lifecycle_status='active')
+  ) then
+    raise exception 'mapped asset does not exist or is not active';
+  end if;
+
+  update situation.observation_source set
+    name=btrim(p_name),asset_id=p_asset_id,source_timezone=p_source_timezone,
+    lost_timeout_seconds=p_lost_timeout_seconds,enabled=p_enabled,updated_at=now()
+  where id=p_source_id returning * into v_source;
+  if not found then raise exception 'observation source % does not exist',p_source_id; end if;
+
+  if not p_enabled then
+    insert into situation.observation_source_status_current(observation_source_id,connector_state,updated_at)
+    values(v_source.id,'unknown',now())
+    on conflict(observation_source_id) do update set connector_state='unknown',updated_at=now();
+  end if;
+  insert into situation.change_event(
+    event_type,aggregate_type,aggregate_id,observation_source_id,occurred_at,payload
+  ) values(
+    'source_status','observation_source',v_source.id,v_source.id,now(),
+    jsonb_build_object('source_id',v_source.id,'configuration_updated',true,'enabled',v_source.enabled)
+  );
+  return jsonb_build_object(
+    'id',v_source.id,'name',v_source.name,'asset_id',v_source.asset_id,
+    'source_timezone',v_source.source_timezone,'lost_timeout_seconds',v_source.lost_timeout_seconds,
+    'enabled',v_source.enabled
+  );
+end;
+$$;
+comment on function api.update_detection_observation_source(bigint,text,bigint,text,integer,boolean) is '管理员更新侦测来源名称、资产映射、来源时区、目标丢失宽限和启停状态；返回 JSON：id、name、asset_id、source_timezone、lost_timeout_seconds、enabled。';
+
 revoke all on schema situation from public,anonymous,admin,detection_ingest;
 revoke all on all tables in schema situation from public,anonymous,admin,detection_ingest;
 revoke all on all functions in schema situation from public,anonymous,admin,detection_ingest;
@@ -617,10 +673,12 @@ revoke all on api.detection_source_types,api.detection_observation_sources from 
 revoke all on function api.get_detection_situation_snapshot(text[],smallint[],double precision,double precision,double precision,double precision,integer,integer) from public,anonymous;
 revoke all on function api.get_detection_situation_changes(bigint,text[],integer) from public,anonymous;
 revoke all on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) from public,anonymous;
+revoke all on function api.update_detection_observation_source(bigint,text,bigint,text,integer,boolean) from public,anonymous;
 grant select on api.detection_source_types,api.detection_observation_sources to admin;
 grant execute on function api.get_detection_situation_snapshot(text[],smallint[],double precision,double precision,double precision,double precision,integer,integer) to admin;
 grant execute on function api.get_detection_situation_changes(bigint,text[],integer) to admin;
 grant execute on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) to admin;
+grant execute on function api.update_detection_observation_source(bigint,text,bigint,text,integer,boolean) to admin;
 
 notify pgrst,'reload schema';
 commit;

@@ -92,6 +92,23 @@ class DetectionSituationSchemaTests(unittest.TestCase):
             )
         self.assertIn("grant select on api.detection_source_types", self.lower)
         self.assertNotIn("grant insert on api.detection_source_types", self.lower)
+        self.assertIn("asset_lifecycle_status", self.lower)
+        self.assertIn("last_error_code", self.lower)
+        self.assertIn("lost_timeout_seconds", self.lower)
+
+    def test_admin_can_update_observation_source_through_bounded_rpc(self):
+        function = "api.update_detection_observation_source"
+        self.assertIn(f"create or replace function {function}", self.lower)
+        self.assertRegex(
+            self.lower,
+            rf"comment on function {re.escape(function)}\([^;]+?is '[^']*返回 json",
+        )
+        self.assertIn("lost timeout must be between 5 and 3600 seconds", self.lower)
+        self.assertIn("from pg_timezone_names", self.lower)
+        self.assertIn("lifecycle_status='active'", self.lower)
+        self.assertIn("grant execute on function api.update_detection_observation_source", self.lower)
+        self.assertIn("revoke all on function api.update_detection_observation_source", self.lower)
+        self.assertNotIn("grant update on situation.observation_source", self.lower)
 
     def test_source_90_seed_registers_and_binds_the_verified_asset(self):
         self.assertIn("'radar_cloud'", self.lower)

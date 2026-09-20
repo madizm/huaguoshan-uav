@@ -1,0 +1,45 @@
+html,
+body,
+#app {
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  color: #202522;
+  background: #f4f6f5;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.page-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.page-toolbar-spacer {
+  flex: 1 1 24px;
+}
+
+.table-shell {
+  overflow: hidden;
+  border: 1px solid #dfe4e1;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.table-shell .el-table {
+  --el-table-border-color: #e4e8e6;
+}
+
+.page-pagination {
+  justify-content: flex-end;
+  margin-top: 16px;
+}

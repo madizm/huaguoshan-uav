@@ -184,6 +184,40 @@ POST /postgrest/rpc/get_target_track_detail
 }
 ```
 
+### 6.1 管理侦测来源
+
+管理员通过受约束 RPC 更新来源配置，不直接写入 `situation` 基础表：
+
+```http
+POST /postgrest/rpc/update_detection_observation_source
+Authorization: Bearer <admin-jwt>
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "p_source_id": 1,
+  "p_name": "连云港雷达云平台站点 90",
+  "p_asset_id": 2,
+  "p_source_timezone": "Asia/Shanghai",
+  "p_lost_timeout_seconds": 30,
+  "p_enabled": true
+}
+```
+
+返回 JSON 包含 `id`、`name`、`asset_id`、`source_timezone`、`lost_timeout_seconds` 和 `enabled`。接口约束：
+
+- 名称不能为空，来源时区必须是 PostgreSQL 已知时区。
+- 目标丢失宽限必须在 5 至 3600 秒之间。
+- 启用来源时，映射设备必须存在且处于 `active` 生命周期。
+- `source_system`、站点 ID 和盒子编码不可通过此接口修改。
+- 停用后接入函数拒绝该来源的新观测，并将连接器状态重置为 `unknown`。
+- 每次配置变更产生一条 `source_status` 增量事件。
+
+`detection_observation_sources` 视图同时返回设备资产映射、来源时区、丢失宽限、连接时间和最近错误，供管理后台诊断使用。
+
 ## 7. 验证
 
 ```bash
