@@ -322,4 +322,8 @@ app = create_app()
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("auth_service:app", host="0.0.0.0", port=int(os.getenv("AUTH_SERVICE_PORT", "8000")))
+    uvicorn.run(
+        "auth_service:app",
+        host=os.getenv("AUTH_SERVICE_HOST", "127.0.0.1"),
+        port=int(os.getenv("AUTH_SERVICE_PORT", "8000")),
+    )

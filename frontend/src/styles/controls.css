@@ -239,3 +239,139 @@
   .auth-required-hint {
     color: #ffb000;
   }
+
+  /* ── 源数据校验：航空遥测条带 ─────────────────────── */
+
+  .source-situation-controls {
+    margin: 4px 10px 12px;
+    padding: 12px;
+    border: 1px solid rgba(94, 234, 212, 0.16);
+    border-radius: 12px;
+    background:
+      linear-gradient(90deg, rgba(94, 234, 212, 0.04) 1px, transparent 1px),
+      rgba(4, 22, 18, 0.42);
+    background-size: 18px 100%;
+  }
+
+  .source-window {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .source-situation-note {
+    margin: 10px 0;
+    padding-left: 10px;
+    border-left: 2px solid var(--gold);
+    color: rgba(255, 247, 223, 0.62);
+    font-size: 11px;
+    line-height: 1.55;
+  }
+
+  .source-situation-toggles,
+  .source-situation-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+
+  .source-situation-toggles button {
+    flex: 1 1 100px;
+    padding: 8px 9px;
+    border-color: color-mix(in srgb, var(--source-color) 72%, transparent);
+    font-size: 11px;
+  }
+
+  .source-situation-toggles button[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--source-color) 18%, rgba(0, 0, 0, 0.2));
+  }
+
+  .source-situation-actions { margin-top: 10px; }
+
+  .source-situation-actions button { padding: 8px 11px; }
+
+  .source-situation-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.38;
+    transform: none;
+  }
+
+  .source-situation-summary {
+    display: grid;
+    gap: 7px;
+    margin-top: 10px;
+  }
+
+  .source-situation-empty {
+    margin: 0;
+    padding: 10px;
+    color: rgba(255, 247, 223, 0.48);
+    font-size: 12px;
+    text-align: center;
+  }
+
+  .source-quality-card {
+    padding: 9px 10px;
+    border: 1px solid rgba(255, 247, 223, 0.12);
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.18);
+  }
+
+  .source-quality-card[data-quality="warning"] {
+    border-color: rgba(216, 90, 53, 0.34);
+  }
+
+  .source-quality-card header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .source-quality-card header i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--source-color);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--source-color) 15%, transparent);
+  }
+
+  .source-quality-card header strong { font-size: 12px; }
+
+  .source-quality-card header span {
+    margin-left: auto;
+    color: var(--gold);
+    font-size: 10px;
+  }
+
+  .source-quality-card[data-quality="warning"] header span { color: #ff8f5f; }
+
+  .source-quality-card dl {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 5px;
+    margin: 8px 0 0;
+  }
+
+  .source-quality-card dl div { min-width: 0; }
+
+  .source-quality-card dt {
+    color: rgba(255, 247, 223, 0.43);
+    font-size: 9px;
+    white-space: nowrap;
+  }
+
+  .source-quality-card dd {
+    margin: 2px 0 0;
+    overflow: hidden;
+    color: var(--paper-strong);
+    font-family: "DIN Condensed", "Avenir Next Condensed", sans-serif;
+    font-size: 13px;
+    text-overflow: ellipsis;
+  }
+
+  .source-quality-card > p {
+    margin: 7px 0 0;
+    color: rgba(255, 247, 223, 0.38);
+    font-size: 9px;
+    letter-spacing: 0.02em;
+  }
