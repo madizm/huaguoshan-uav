@@ -36,6 +36,14 @@ def parse_floor(value) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def decode_tile(pbf: bytes) -> dict:
+    """Decode MVT geometry while preserving its raw downward Y axis."""
+    return mapbox_vector_tile.decode(
+        pbf,
+        default_options={"y_coord_down": True},
+    )
+
+
 def tile_transformer(z: int, x: int, y: int, extent: int = 4096):
     span = 360.0 / 2**z
     lon0 = -180 + x * span
@@ -80,7 +88,7 @@ def main() -> None:
 
     rows = []
     for z, x, y, pbf in iter_tiles():
-        tile = mapbox_vector_tile.decode(pbf.read_bytes())
+        tile = decode_tile(pbf.read_bytes())
         layer = tile.get("BLD")
         if not layer:
             continue
@@ -103,7 +111,10 @@ def main() -> None:
                 """
                 insert into raw.tianditu_bld_fragment (elemid, z, x, y, floor_num, geom)
                 values (%s, %s, %s, %s, %s, ST_GeomFromWKB(%s, 4326))
-                on conflict (elemid, z, x, y) do nothing
+                on conflict (elemid, z, x, y) do update set
+                  floor_num = excluded.floor_num,
+                  geom = excluded.geom,
+                  ingested_at = now()
                 """,
                 rows,
             )

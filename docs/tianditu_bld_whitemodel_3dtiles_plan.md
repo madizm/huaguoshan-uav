@@ -66,8 +66,8 @@ PostGIS staging（raw 域，按 ELEMID 去重 + 跨瓦片 ST_Union 重组）
 
 ### S2 解码入库 staging
 
-- `mapbox-vector-tile` 解码；瓦片内坐标 `(vx, vy)`（extent 4096）转经纬度：
-  `lon = -180 + (x + vx/4096) × span`，`lat = -90 + (y + vy/4096) × span`
+- `mapbox-vector-tile` 解码时显式设置 `y_coord_down=True`，保留 MVT 原始的 Y 轴向下坐标；瓦片内坐标 `(vx, vy)`（extent 4096）转经纬度：
+  `lon = -180 + (x + vx/4096) × span`，`lat = -90 + (y + 1 - vy/4096) × span`
 - 入 staging 表（按 ELEMID 幂等）：
 
 ```sql

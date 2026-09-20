@@ -67,7 +67,7 @@ log "Running pg2b3dm: $PG2B3DM_BIN"
 log "Validating 3D Tiles"
 npx --yes 3d-tiles-validator \
   --tilesetFile "$OUTPUT_DIR/tileset.json" \
-  --outputFile "$OUTPUT_DIR/validation-report.json" || true
+  --reportFile "$OUTPUT_DIR/validation-report.json"
 
 log "Done: $OUTPUT_DIR"
 find "$OUTPUT_DIR" -maxdepth 2 -type f | sort | head -20
