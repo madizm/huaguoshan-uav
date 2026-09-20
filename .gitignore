@@ -8,3 +8,12 @@ exports/
 .pi/tools/
 .pi/todos/
 开发环境.md
+deploy/offline-build/
+node_modules/
+dist/
+deploy/offline/
+deploy/dist.zip
+deploy-pack.zip
+postgrest-*.tar.xz
+*.osm.pbf
+生产环境.md
