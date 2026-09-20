@@ -11,6 +11,7 @@
       var subdomains = tiandituConfig.subdomains || ['0', '1', '2', '3', '4', '5', '6', '7'];
       var localTilesetUrl = tilesetConfig.citydb || '../exports/citydb-3dtiler/huaguoshan_3dtiles/tileset.json';
       var lianyungangBuildingsTilesetUrl = tilesetConfig.lianyungangBuildings || '../exports/citydb-3dtiler/lianyungang_buildings_3dtiles/tileset.json';
+      var tiandituWhitemodelTilesetUrl = tilesetConfig.tiandituWhitemodel || '../exports/tianditu-bld-3dtiles/tileset.json';
       var demTilesetUrl = tilesetConfig.huaguoshanDem || '../exports/terrain/huaguoshan_dem_3dtiles/tileset.json';
       var lianyungangDemTilesetUrl = tilesetConfig.lianyungangDem || '../exports/terrain/lianyungang_dem_3dtiles/tileset.json';
       var airspaceWgTilesetUrls = tilesetConfig.airspaceWg || {};
@@ -41,6 +42,9 @@
         buildingsReady: false,
         lianyungangBuildingsTileset: null,
         lianyungangBuildingsReady: false,
+        tiandituWhitemodelTileset: null,
+        tiandituWhitemodelReady: false,
+        tiandituWhitemodelLoadPromise: null,
         lianyungangBuildingsLoadPromise: null,
         demTileset: null,
         demReady: false,
@@ -53,6 +57,7 @@
         airspaceGrid: null,
         airspaceTilesLayer: null,
         suitableFootprintLayer: null,
+        sourceSituation: null,
         airspaceEnabled: false,
         featurePropertyCache: {},
         featureGridCache: {},
@@ -301,6 +306,19 @@
         return new URL('analysis/feature-catalog.json', new URL(tilesetUrl, document.baseURI)).href;
       }
 
+      function initSourceSituation() {
+        if (!window.HuaguoshanSourceSituation) {
+          log('源数据校验模块未加载。', 'error');
+          return;
+        }
+        state.sourceSituation = window.HuaguoshanSourceSituation.createModule({
+          CesiumRuntime: Cesium,
+          viewer: state.viewer,
+          rpc: postgrestRpc,
+          log: log
+        });
+      }
+
       function initConvexHullAnalysis() {
         state.convexHullAnalysis = window.HuaguoshanConvexHull.createModule({
           CesiumRuntime: Cesium,
@@ -449,6 +467,34 @@
         });
         return state.lianyungangBuildingsLoadPromise;
       }
+      function loadTiandituWhitemodel() {
+        var button = $('#loadTiandituWhitemodelBtn');
+        if (state.tiandituWhitemodelReady) {
+          window.HuaguoshanTilesets.flyToTiandituWhitemodel(Cesium, state, log);
+          return Promise.resolve(state.tiandituWhitemodelTileset);
+        }
+        if (state.tiandituWhitemodelLoadPromise) return state.tiandituWhitemodelLoadPromise;
+
+        if (button) {
+          button.disabled = true;
+          button.textContent = '正在加载建筑白膜…';
+        }
+        state.tiandituWhitemodelLoadPromise = window.HuaguoshanTilesets.addTiandituWhitemodel(
+          Cesium, state.viewer, state, tiandituWhitemodelTilesetUrl, log
+        ).then(function (tileset) {
+          if (tileset) {
+            if (button) button.textContent = '查看天地图建筑白膜';
+            window.HuaguoshanTilesets.flyToTiandituWhitemodel(Cesium, state, log);
+          } else if (button) {
+            button.textContent = '重试加载建筑白膜';
+          }
+          return tileset;
+        }).finally(function () {
+          state.tiandituWhitemodelLoadPromise = null;
+          if (button) button.disabled = false;
+        });
+        return state.tiandituWhitemodelLoadPromise;
+      }
 
       function addLocalTileset(viewer) {
         return window.HuaguoshanTilesets.addCitydbBuildings(Cesium, viewer, state, localTilesetUrl, log);
@@ -491,6 +537,7 @@
           flyToHuaguoshan: flyToHuaguoshan,
           flyToTileset: flyToTileset,
           loadLianyungangBuildings: loadLianyungangBuildings,
+          loadTiandituWhitemodel: loadTiandituWhitemodel,
           flyToDem: flyToDem,
           flyToLianyungangDem: flyToLianyungangDem,
           flyToSelectedGridHighlight: flyToSelectedGridHighlight
@@ -504,6 +551,7 @@
         }
 
         state.viewer = window.HuaguoshanCesiumMap.createViewer(Cesium, 'cesiumContainer');
+        // 调试与自动化测试钩子挂在 init 末尾统一暴露（见 window.HuaguoshanApp）。
 
         configureScene(state.viewer);
         addImagery(state.viewer);
@@ -513,6 +561,7 @@
         initAirspaceGrid(state.viewer);
         initAirspaceTilesLayer();
         initSuitableFootprintLayer();
+        initSourceSituation();
         initFlightObstacleLayer();
         initConvexHullAnalysis();
         addLocalTileset(state.viewer);
@@ -560,6 +609,7 @@
         appEvents.clear();
         panelRouter.destroy();
         statusCenter.destroy();
+        if (state.sourceSituation) state.sourceSituation.destroy();
         if (state.viewer && !state.viewer.isDestroyed()) state.viewer.destroy();
       }
 
@@ -613,5 +663,5 @@
       // Call auth init after the main init.
       initAuth();
 
-      window.HuaguoshanApp = { destroy: destroyApp };
+      window.HuaguoshanApp = { state: state, destroy: destroyApp, get viewer() { return state.viewer; } };
     })();

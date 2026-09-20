@@ -35,6 +35,7 @@
   <script src="./src/features/airspace-grid/grid-geometry.js"></script>
   <script src="./src/features/airspace-grid/airspace-grid-ui.js"></script>
   <script src="./src/features/suitable-footprint/suitable-footprint-module.js"></script>
+  <script src="./src/features/source-situation/source-situation-module.js"></script>
   <script src="./src/features/airspace-tiles/airspace-tiles-module.js"></script>
   <script src="./src/features/citydb-inspector/citydb-inspector.js"></script>
   <script src="./src/features/convex-hull/glb-feature-geometry.js"></script>
@@ -79,6 +80,7 @@
         <button type="button" data-action="dem">查看 DEM</button>
         <button type="button" data-action="lianyungangDem">查看连云港 DEM</button>
         <button type="button" data-action="lianyungangBuildings" id="loadLianyungangBuildingsBtn">加载连云港全市建筑</button>
+        <button type="button" data-action="tiandituWhitemodel" id="loadTiandituWhitemodelBtn">加载天地图建筑白膜</button>
         <button type="button" data-action="china">全国视角</button>
         <button type="button" data-action="tilt">低空斜视</button>
       </div>
@@ -127,6 +129,34 @@
           <button type="button" data-layer="flightObstacles" aria-pressed="false" data-requires-auth>飞行障碍</button>
         </div>
       </div>
+    </details>
+
+    <details class="hud-section" id="sectionSourceSituation" data-requires-auth open>
+      <summary>源数据校验<span class="section-hint" id="sourceSituationHint">未加载</span></summary>
+      <section class="source-situation-controls" aria-label="无人机与无源雷达源数据校验">
+        <div class="source-window">
+          <label class="field">开始日期
+            <input id="sourceSituationStart" type="date" value="2025-12-26" />
+          </label>
+          <label class="field">结束日期
+            <input id="sourceSituationEnd" type="date" value="2025-12-31" />
+          </label>
+        </div>
+        <p class="source-situation-note">平面轨迹校验 · 高度基准尚未确认<br />无人机 60 秒抽样，雷达显示区间内每条航迹的末次位置。</p>
+        <div class="source-situation-toggles" aria-label="源数据图层">
+          <button type="button" data-source-situation="uav_hf" aria-pressed="true" style="--source-color:#5eead4">华飞无人机</button>
+          <button type="button" data-source-situation="uav_yh" aria-pressed="true" style="--source-color:#80b7ff">亿航无人机</button>
+          <button type="button" data-source-situation="passive_radar" aria-pressed="true" style="--source-color:#f6c85f">无源雷达目标</button>
+        </div>
+        <div class="source-situation-actions">
+          <button class="primary" type="button" id="sourceSituationLoad">加载并定位</button>
+          <button type="button" id="sourceSituationLocate" disabled>定位数据范围</button>
+          <button type="button" id="sourceSituationClear" disabled>清除</button>
+        </div>
+        <div class="source-situation-summary" id="sourceSituationSummary" aria-live="polite">
+          <p class="source-situation-empty">尚未加载源数据。</p>
+        </div>
+      </section>
     </details>
 
     <details class="hud-section" id="sectionEnvelope">

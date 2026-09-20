@@ -57,6 +57,40 @@
     });
   }
 
+  function addTiandituWhitemodel(CesiumRuntime, viewer, state, url, log) {
+    if (unsupported(CesiumRuntime, '当前 Cesium 版本不支持 Cesium3DTileset，无法挂载天地图建筑白膜。', log)) return Promise.resolve(null);
+    log('正在加载天地图建筑白膜 3D Tiles：' + url);
+    return global.HuaguoshanTilesetLoader.add3DTileset(CesiumRuntime, viewer, url, {
+      tilesetOptions: {
+        maximumScreenSpaceError: 8,
+        dynamicScreenSpaceError: true,
+        skipLevelOfDetail: true,
+        immediatelyLoadDesiredLevelOfDetail: false,
+        cullRequestsWhileMoving: true,
+        show: true
+      },
+      onAdded: function (tileset) { state.tiandituWhitemodelTileset = tileset; }
+    }).then(function (tileset) {
+      state.tiandituWhitemodelReady = true;
+      log('天地图建筑白膜已挂载。');
+      return tileset;
+    }).catch(function (error) {
+      console.error('[Tianditu3D] Tianditu whitemodel tileset load failed:', error);
+      log('天地图建筑白膜加载失败。请确认 exports/tianditu-bld-3dtiles/tileset.json 存在，并从工程根目录启动服务。');
+      return null;
+    });
+  }
+
+  function flyToTiandituWhitemodel(CesiumRuntime, state, log) {
+    if (!state.tiandituWhitemodelTileset || !state.tiandituWhitemodelReady) return;
+    global.HuaguoshanCamera.flyToTileset(CesiumRuntime, state.viewer, state.tiandituWhitemodelTileset, {
+      duration: 2.2,
+      heading: 18,
+      pitch: -40
+    });
+    log('已定位到天地图建筑白膜范围。');
+  }
+
   function flyToLianyungangBuildings(CesiumRuntime, state, log) {
     if (!state.lianyungangBuildingsTileset || !state.lianyungangBuildingsReady) return;
     global.HuaguoshanCamera.flyToTileset(CesiumRuntime, state.viewer, state.lianyungangBuildingsTileset, {
@@ -192,6 +226,8 @@
   global.HuaguoshanTilesets = {
     addCitydbBuildings: addCitydbBuildings,
     addLianyungangBuildings: addLianyungangBuildings,
+    addTiandituWhitemodel: addTiandituWhitemodel,
+    flyToTiandituWhitemodel: flyToTiandituWhitemodel,
     addDem: addDem,
     addLianyungangDem: addLianyungangDem,
     flyToTileset: flyToTileset,
