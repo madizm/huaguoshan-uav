@@ -8,7 +8,7 @@ import {
   type AssetCategory,
   type EquipmentAsset,
 } from '../api/equipment'
-import RadarEditorDrawer from '../components/RadarEditorDrawer.vue'
+import EquipmentEditorDrawer from '../components/EquipmentEditorDrawer.vue'
 
 const categories = ref<AssetCategory[]>([])
 const categoryNameMap = reactive<Record<string, string>>({})
@@ -115,7 +115,7 @@ onMounted(async () => {
           <el-option label="全部设备" value="all" />
         </el-select>
         <div class="page-toolbar-spacer" />
-        <el-button type="primary" @click="openCreate">新增雷达设备</el-button>
+        <el-button type="primary" @click="openCreate">新增设备</el-button>
     </div>
 
     <div class="table-shell">
@@ -144,12 +144,7 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column label="操作" width="160">
           <template #default="{ row }">
-            <el-button
-              v-if="row.category_code === 'microwave_radar'"
-              text
-              type="primary"
-              @click="openEdit(row)"
-            >
+            <el-button text type="primary" @click="openEdit(row)">
               编辑
             </el-button>
             <el-button text :type="row.lifecycle_status === 'active' ? 'danger' : 'success'" @click="toggleLifecycle(row)">
@@ -170,7 +165,7 @@ onMounted(async () => {
         @current-change="loadAssets"
         @size-change="search"
     />
-    <RadarEditorDrawer v-model="drawerVisible" :asset="editingAsset" @saved="loadAssets" />
+    <EquipmentEditorDrawer v-model="drawerVisible" :asset="editingAsset" :categories="categories" @saved="loadAssets" />
   </section>
 </template>
 

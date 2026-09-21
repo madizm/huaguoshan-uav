@@ -421,7 +421,7 @@ GET /equipment_asset_categories
 
 返回 `code`、`name`、`category_group`、`description`、`enabled` 和 `sort_order`。`equipment_online_statistics` 现额外返回 `catalog_name`，该字段来自设备类别字典，可直接用于前端展示。
 
-设备专业属性资源为只读查询资源，设备创建和基础资产更新仍通过 `/equipment_assets` 完成。新增能力包括：
+设备专业属性资源为只读查询资源；管理后台通过第 14 节的事务配置 RPC 同时保存资产和专业属性。新增能力包括：
 
 - `network_sensing_6g`：6G 网络感知
 - `radio_jamming`：无线电干扰
@@ -453,3 +453,75 @@ scripts/seed_detection_equipment.py
 ```bash
 uv run scripts/seed_detection_equipment.py --dsn "$DATABASE_URL" --seed 731
 ```
+
+## 14. 管理后台设备配置
+
+管理后台通过以下只读资源查询包含经纬度的完整资产详情：
+
+```http
+GET /equipment_asset_admin_details
+```
+
+读取单个设备及其类别专业属性：
+
+```http
+POST /rpc/get_equipment_configuration
+```
+
+请求体为 `{"p_asset_id": 101}`。
+
+新增或更新任意设备类别时使用统一事务 RPC，不直接写专业属性视图：
+
+```http
+POST /rpc/save_equipment_configuration
+```
+
+请求体示例：
+
+```json
+{
+  "p_asset": {
+    "id": 101,
+    "asset_code": "HGS-RADAR-001",
+    "category_code": "microwave_radar",
+    "name": "一号微波雷达",
+    "managing_unit_name": "花果山景区管理处",
+    "deployment_mode": "fixed",
+    "longitude": 119.275,
+    "latitude": 34.650,
+    "elevation_amsl_m": 180,
+    "manufacturer": "JBHT",
+    "serial_no": "SN-001"
+  },
+  "p_profile": {
+    "model_code": "JBRM200",
+    "face_count": 1,
+    "install_azimuth_deg": 90,
+    "install_tilt_deg": 0,
+    "control_host": "192.168.1.10",
+    "control_port": 9000,
+    "protocol": "JBHT-V1"
+  },
+  "p_expected_updated_at": "2026-07-13T15:00:00Z"
+}
+```
+
+新增时省略 `p_asset.id` 和 `p_expected_updated_at`。更新时必须传入页面读取到的
+`updated_at`；如果设备已被其他管理员修改，RPC 会拒绝覆盖，前端应重新加载后再保存。
+资产和对应类别的专业属性在同一数据库事务中保存，任一步失败都会整体回滚。
+`p_profile` 字段必须属于该类别的 profile 表，未知字段会被拒绝。旧的
+`/rpc/save_microwave_radar_configuration` 继续作为微波雷达兼容入口。
+
+### 14.1 关联配置
+
+`get_equipment_configuration` 还返回：
+
+- `capabilities`：设备能力、接入级别、启用状态和参数；
+- `sensor_channels`：传感设备的通道、指标、单位和预警阈值；
+- `dispatch_resource`：四类可调度设备的应急资源配置，未登记时为 `null`。
+- `coverages`：关联到具体设备能力的 WGS84 GeoJSON 覆盖范围及 AMSL 高度区间。
+
+保存时将这些字段放在 `p_asset` 中。仅在字段存在时更新对应配置；能力采用按编码
+增删和更新，保留未删除能力的主键及覆盖范围关系。`sensor_channels` 只允许用于
+`sensor` 类别。应急资源仍受数据库的可调度设备类别约束。覆盖范围只允许使用
+`Polygon` 或 `MultiPolygon`，且引用的能力必须已配置到当前设备。

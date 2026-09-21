@@ -1,11 +1,12 @@
--- 设备管理后台（frontend/admin）需要的写权限补充。
--- api.equipment_microwave_radar_profiles 为 select * 自动可更新视图，仅缺授权。
--- 依赖 migrate_microwave_radar_model_spec.sql；可安全重复执行。
+-- 兼容迁移：撤回雷达 profile 的直接 HTTP 写权限。
+-- 后台应使用 create_equipment_admin_api.sql 提供的事务 RPC，避免产生半成品资产。
+-- 依赖 create_equipment_admin_api.sql；可安全重复执行。
 
 begin;
 
-grant insert, update, delete on api.equipment_microwave_radar_profiles to admin;
-comment on view api.equipment_microwave_radar_profiles is '微波雷达设备专业属性 CRUD 资源，含型号、部署姿态与网络接入。';
+revoke insert, update, delete on api.equipment_microwave_radar_profiles from admin;
+grant execute on function api.save_microwave_radar_configuration(jsonb, jsonb, timestamptz) to admin;
+comment on view api.equipment_microwave_radar_profiles is '微波雷达设备专业属性只读资源，写入使用事务配置 RPC。';
 
 notify pgrst, 'reload schema';
 commit;

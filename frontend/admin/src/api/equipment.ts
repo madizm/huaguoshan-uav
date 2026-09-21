@@ -8,6 +8,49 @@ export interface AssetCategory {
   enabled: boolean
   sort_order: number
 }
+export interface CapabilityCatalogItem {
+  code: string
+  name: string
+  capability_type: string
+  description: string | null
+}
+
+export interface AssetCapabilityConfiguration {
+  id?: number
+  capability_code: string
+  capability_name?: string
+  capability_type?: string
+  access_level: 'observable' | 'recommendable' | 'linkable' | 'controllable'
+  enabled: boolean
+  parameters: Record<string, unknown>
+}
+
+export interface SensorChannelConfiguration {
+  id?: number
+  channel_code: string
+  metric_code: string
+  unit: string | null
+  warning_threshold: Record<string, unknown>
+}
+
+export interface AssetCoverageConfiguration {
+  id?: number
+  capability_code: string
+  coverage_geom: Record<string, unknown>
+  min_height_amsl_m: number | null
+  max_height_amsl_m: number | null
+  valid_from: string | null
+  valid_to: string | null
+  metadata: Record<string, unknown>
+}
+
+export interface DispatchResourceConfiguration {
+  resource_role: string
+  active: boolean
+  available_from: string | null
+  available_to: string | null
+  metadata: Record<string, unknown>
+}
 
 export interface EquipmentAsset {
   id: number
@@ -21,6 +64,8 @@ export interface EquipmentAsset {
   deployment_mode: string | null
   lifecycle_status: string
   geom: unknown
+  longitude: number
+  latitude: number
   elevation_amsl_m: number | null
   manufacturer: string | null
   model: string | null
@@ -46,20 +91,6 @@ export interface RadarModel {
   power_w: number | null
 }
 
-export interface MicrowaveRadarProfile {
-  asset_id: number
-  model_code: string | null
-  face_count: number
-  install_azimuth_deg: number | null
-  install_tilt_deg: number | null
-  control_host: string | null
-  control_port: number | null
-  protocol: string | null
-  detection_mode: string | null
-  multi_target_supported: boolean
-  recommendation_notes: string | null
-}
-
 export interface AssetListParams {
   categoryCode?: string
   keyword?: string
@@ -71,6 +102,19 @@ export interface AssetListParams {
 export function listCategories(): Promise<AssetCategory[]> {
   return http.get('/equipment_asset_categories', { order: 'sort_order.asc' })
 }
+export function listCapabilityCatalog(): Promise<CapabilityCatalogItem[]> {
+  return http.get('/equipment_capability_catalog', { order: 'capability_type.asc,code.asc' })
+}
+export function updateCategory(code: string, changes: Partial<AssetCategory>): Promise<void> {
+  return http.post('/rpc/update_equipment_category', { p_code: code, p_changes: changes })
+}
+
+export function updateCapability(code: string, changes: Partial<CapabilityCatalogItem>): Promise<void> {
+  return http.post('/rpc/update_equipment_capability', { p_code: code, p_changes: changes })
+}
+export function updateRadarModel(modelCode: string, changes: Partial<RadarModel>): Promise<void> {
+  return http.post('/rpc/update_equipment_radar_model', { p_model_code: modelCode, p_changes: changes })
+}
 
 export function listRadarModels(): Promise<RadarModel[]> {
   return http.get('/equipment_radar_models', { order: 'model_code.asc' })
@@ -78,13 +122,13 @@ export function listRadarModels(): Promise<RadarModel[]> {
 
 export function listAssets(params: AssetListParams): Promise<PagedResult<EquipmentAsset>> {
   const query: Record<string, string> = {
-    select: 'id,asset_code,category_code,name,model,managing_unit_name,deployment_mode,lifecycle_status,is_simulated,updated_at',
+    select: 'id,asset_code,category_code,type_code,name,source_system,source_asset_id,model,manufacturer,serial_no,managing_unit_name,deployment_mode,lifecycle_status,is_simulated,longitude,latitude,elevation_amsl_m,created_at,updated_at',
     order: 'id.desc',
   }
   if (params.categoryCode) query.category_code = `eq.${params.categoryCode}`
   if (params.keyword) query.or = `(asset_code.ilike.*${params.keyword}*,name.ilike.*${params.keyword}*)`
   if (params.isSimulated !== undefined) query.is_simulated = `eq.${params.isSimulated}`
-  return requestPaged('/equipment_assets', { query, limit: params.limit, offset: params.offset })
+  return requestPaged('/equipment_asset_admin_details', { query, limit: params.limit, offset: params.offset })
 }
 
 export interface AssetPayload {
@@ -101,19 +145,61 @@ export interface AssetPayload {
   manufacturer?: string | null
 }
 
-export function createAsset(payload: AssetPayload): Promise<EquipmentAsset[]> {
-  return http.post('/equipment_assets', payload, ['return=representation'])
-}
-
 export function updateAsset(id: number, payload: Partial<AssetPayload> & { lifecycle_status?: string }): Promise<void> {
   return http.patch('/equipment_assets', { id: `eq.${id}` }, payload)
 }
 
-export function getRadarProfile(assetId: number): Promise<MicrowaveRadarProfile[]> {
-  return http.get('/equipment_microwave_radar_profiles', { asset_id: `eq.${assetId}` })
+export interface EquipmentConfiguration {
+  asset: EquipmentAsset
+  profile: Record<string, unknown>
+  capabilities: AssetCapabilityConfiguration[]
+  sensor_channels: SensorChannelConfiguration[]
+  dispatch_resource: DispatchResourceConfiguration | null
+  coverages: AssetCoverageConfiguration[]
 }
 
-// upsert：按主键 asset_id 冲突合并。
-export function upsertRadarProfile(profile: Partial<MicrowaveRadarProfile> & { asset_id: number }): Promise<void> {
-  return http.post('/equipment_microwave_radar_profiles', profile, ['resolution=merge-duplicates'])
+export interface SaveEquipmentConfigurationRequest {
+  asset: {
+    id?: number
+    asset_code: string
+    category_code: string
+    type_code: string | null
+    name: string
+    source_system?: string
+    source_asset_id?: string
+    managing_unit_name: string | null
+    deployment_mode: string
+    longitude: number
+    latitude: number
+    elevation_amsl_m: number | null
+    manufacturer: string | null
+    model: string | null
+    serial_no: string | null
+    is_simulated?: boolean
+    capabilities?: AssetCapabilityConfiguration[]
+    sensor_channels?: SensorChannelConfiguration[]
+    dispatch_resource?: DispatchResourceConfiguration | null
+    coverages?: AssetCoverageConfiguration[]
+  }
+  profile: Record<string, unknown>
+  expectedUpdatedAt?: string
+}
+
+export interface SaveEquipmentConfigurationResult {
+  asset_id: number
+  updated_at: string
+}
+
+export function getEquipmentConfiguration(assetId: number): Promise<EquipmentConfiguration> {
+  return http.post('/rpc/get_equipment_configuration', { p_asset_id: assetId })
+}
+
+export function saveEquipmentConfiguration(
+  request: SaveEquipmentConfigurationRequest,
+): Promise<SaveEquipmentConfigurationResult> {
+  return http.post('/rpc/save_equipment_configuration', {
+    p_asset: request.asset,
+    p_profile: request.profile,
+    p_expected_updated_at: request.expectedUpdatedAt ?? null,
+  })
 }
