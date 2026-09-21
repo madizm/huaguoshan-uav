@@ -79,17 +79,10 @@ drop materialized view if exists emergency_resource.category_statistics;
 
 create materialized view emergency_resource.category_statistics as
 select
-  'rescue_force'::text as category_code,
-  '救援力量'::text as category_name,
+  'medical_resource'::text as category_code,
+  '医疗资源'::text as category_name,
   count(*)::bigint as resource_count,
   now() as refreshed_at
-from emergency_resource.rescue_force
-union all
-select
-  'medical_resource'::text as category_code,
-  '医疗资源'::text,
-  count(*)::bigint,
-  now()
 from emergency_resource.medical_resource
 union all
 select
