@@ -575,6 +575,62 @@ end;
 $$;
 comment on function api.get_detection_situation_changes(bigint,text[],integer) is '返回 JSON：from_cursor、next_cursor、has_more 和 changes；按持久化游标补读目标及来源状态增量，单次最多 1000 条。';
 
+create or replace function api.list_detection_target_tracks(
+  p_start_at timestamptz,p_end_at timestamptz,p_station_ids text[] default null,
+  p_source_type_codes smallint[] default null,p_limit integer default 200
+) returns jsonb language plpgsql stable security definer
+set search_path=pg_catalog,public,equipment,situation as $$
+declare v_result jsonb;
+begin
+  if p_start_at is null or p_end_at is null or p_end_at<=p_start_at then raise exception 'invalid half-open time window'; end if;
+  if p_end_at-p_start_at>interval '7 days' then raise exception 'track list window cannot exceed 7 days'; end if;
+  if p_limit not between 1 and 1000 then raise exception 'limit must be between 1 and 1000'; end if;
+  with matching_tracks as (
+    select t.id,t.track_code,t.status,t.first_observed_at,t.last_observed_at,t.lost_at,
+      s.source_target_id,s.source_type_code,dt.name source_type_name,src.external_station_id station_id,
+      row_number() over(order by t.last_observed_at desc,t.id desc) result_order
+    from situation.target_track t
+    join situation.source_target_session s on s.id=t.source_session_id
+    join situation.observation_source src on src.id=s.observation_source_id
+    left join situation.detection_source_type dt on dt.vendor_code=s.source_type_code
+    where t.first_observed_at<p_end_at and t.last_observed_at>=p_start_at
+      and (p_station_ids is null or src.external_station_id=any(p_station_ids))
+      and (p_source_type_codes is null or s.source_type_code=any(p_source_type_codes))
+    order by t.last_observed_at desc,t.id desc limit p_limit
+  ), summaries as (
+    select mt.*,coalesce(count(r.id),0) observation_count,
+      coalesce(count(r.geom),0) spatial_point_count,
+      coalesce(count(r.id) filter(where cardinality(o.quality_flags)>0),0) flagged_observation_count,
+      min(r.height_amsl_m) min_altitude_amsl_m,max(r.height_amsl_m) max_altitude_amsl_m,
+      (array_agg(o.model order by r.observed_at desc,r.id desc) filter(where nullif(o.model,'') is not null))[1] model,
+      st_extent(r.geom) spatial_extent
+    from matching_tracks mt
+    left join situation.track_observation x on x.track_id=mt.id
+    left join equipment.raw_observation r on r.id=x.observation_id
+      and r.observed_at>=p_start_at and r.observed_at<p_end_at
+    left join situation.target_observation o on o.observation_id=r.id
+    group by mt.id,mt.track_code,mt.status,mt.first_observed_at,mt.last_observed_at,mt.lost_at,
+      mt.source_target_id,mt.source_type_code,mt.source_type_name,mt.station_id,mt.result_order
+  )
+  select jsonb_build_object(
+    'start_at',p_start_at,'end_at_exclusive',p_end_at,'limit',p_limit,
+    'tracks',coalesce(jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+      'track_id',id,'track_code',track_code,'status',status,'station_id',station_id,
+      'source_target_id',source_target_id,'source_type_code',source_type_code,'source_type_name',source_type_name,
+      'model',model,'first_observed_at',first_observed_at,'last_observed_at',last_observed_at,'lost_at',lost_at,
+      'observation_count',observation_count,'spatial_point_count',spatial_point_count,
+      'flagged_observation_count',flagged_observation_count,'min_altitude_amsl_m',min_altitude_amsl_m,
+      'max_altitude_amsl_m',max_altitude_amsl_m,
+      'bounds',case when spatial_extent is null then null else jsonb_build_object(
+        'west',st_xmin(spatial_extent),'south',st_ymin(spatial_extent),
+        'east',st_xmax(spatial_extent),'north',st_ymax(spatial_extent)) end
+    )) order by result_order),'[]'::jsonb)
+  ) into v_result from summaries;
+  return v_result;
+end;
+$$;
+comment on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) is '返回 JSON：start_at、end_at_exclusive、limit 和 tracks；按半开时间区间列出侦测航迹摘要、空间点数量、质量统计和范围，窗口最大 7 天，最多 1000 条。';
+
 create or replace function api.get_target_track_detail(
   p_track_id bigint,p_start_at timestamptz,p_end_at timestamptz,p_max_points integer default 2000
 ) returns jsonb language plpgsql stable security definer
@@ -582,7 +638,7 @@ set search_path=pg_catalog,public,equipment,situation as $$
 declare v_result jsonb;
 begin
   if p_start_at is null or p_end_at is null or p_end_at<=p_start_at then raise exception 'invalid half-open time window'; end if;
-  if p_end_at-p_start_at>interval '24 hours' then raise exception 'track detail window cannot exceed 24 hours'; end if;
+  if p_end_at-p_start_at>interval '7 days' then raise exception 'track detail window cannot exceed 7 days'; end if;
   if p_max_points not between 1 and 5000 then raise exception 'max points must be between 1 and 5000'; end if;
   with observations as (
     select r.id,r.observed_at,r.geom,r.height_amsl_m,o.source_type_code,o.frequency_mhz,o.relative_height_m,
@@ -608,7 +664,7 @@ begin
   return v_result;
 end;
 $$;
-comment on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) is '返回 JSON：track、points、non_spatial_observations 和 evidence；查询半开时间区间内航迹证据，窗口最大 24 小时，最多返回 5000 个抽样点。';
+comment on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) is '返回 JSON：track、points、non_spatial_observations 和 evidence；查询半开时间区间内航迹证据，窗口最大 7 天，最多返回 5000 个抽样点。';
 
 create or replace function api.update_detection_observation_source(
   p_source_id bigint,p_name text,p_asset_id bigint,p_source_timezone text,
@@ -672,11 +728,13 @@ grant execute on function situation.reconcile_detection_targets(text,text,timest
 revoke all on api.detection_source_types,api.detection_observation_sources from public,anonymous;
 revoke all on function api.get_detection_situation_snapshot(text[],smallint[],double precision,double precision,double precision,double precision,integer,integer) from public,anonymous;
 revoke all on function api.get_detection_situation_changes(bigint,text[],integer) from public,anonymous;
+revoke all on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) from public,anonymous;
 revoke all on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) from public,anonymous;
 revoke all on function api.update_detection_observation_source(bigint,text,bigint,text,integer,boolean) from public,anonymous;
 grant select on api.detection_source_types,api.detection_observation_sources to admin;
 grant execute on function api.get_detection_situation_snapshot(text[],smallint[],double precision,double precision,double precision,double precision,integer,integer) to admin;
 grant execute on function api.get_detection_situation_changes(bigint,text[],integer) to admin;
+grant execute on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) to admin;
 grant execute on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) to admin;
 grant execute on function api.update_detection_observation_source(bigint,text,bigint,text,integer,boolean) to admin;
 

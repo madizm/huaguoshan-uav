@@ -149,6 +149,7 @@ GET  /postgrest/detection_source_types
 GET  /postgrest/detection_observation_sources
 POST /postgrest/rpc/get_detection_situation_snapshot
 POST /postgrest/rpc/get_detection_situation_changes
+POST /postgrest/rpc/list_detection_target_tracks
 POST /postgrest/rpc/get_target_track_detail
 ```
 
@@ -173,7 +174,21 @@ POST /postgrest/rpc/get_target_track_detail
 }
 ```
 
-航迹详情使用半开时间区间，单次窗口最大 24 小时：
+历史航迹摘要使用半开时间区间，单次窗口最大 7 天：
+
+```json
+{
+  "p_start_at": "2026-09-20T16:00:00Z",
+  "p_end_at": "2026-09-21T16:00:00Z",
+  "p_station_ids": ["90"],
+  "p_source_type_codes": [20],
+  "p_limit": 200
+}
+```
+
+返回 `tracks`，每项包含航迹、来源目标、时间范围、空间点数量、质量标记数量、高度范围和空间范围。
+
+航迹详情使用半开时间区间，单次窗口最大 7 天：
 
 ```json
 {

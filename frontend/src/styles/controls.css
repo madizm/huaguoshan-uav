@@ -240,13 +240,13 @@
     color: #ffb000;
   }
 
-  /* ── 源数据校验：航空遥测条带 ─────────────────────── */
+  /* ── 侦测态势 ─────────────────────────────────────── */
 
   .source-situation-controls {
     margin: 4px 10px 12px;
     padding: 12px;
     border: 1px solid rgba(94, 234, 212, 0.16);
-    border-radius: 12px;
+    border-radius: 8px;
     background:
       linear-gradient(90deg, rgba(94, 234, 212, 0.04) 1px, transparent 1px),
       rgba(4, 22, 18, 0.42);
@@ -313,7 +313,7 @@
   .source-quality-card {
     padding: 9px 10px;
     border: 1px solid rgba(255, 247, 223, 0.12);
-    border-radius: 10px;
+    border-radius: 6px;
     background: rgba(0, 0, 0, 0.18);
   }
 
@@ -347,7 +347,7 @@
 
   .source-quality-card dl {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 5px;
     margin: 8px 0 0;
   }
@@ -373,5 +373,100 @@
     margin: 7px 0 0;
     color: rgba(255, 247, 223, 0.38);
     font-size: 9px;
-    letter-spacing: 0.02em;
+    letter-spacing: 0;
   }
+
+  .source-mode {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    margin-bottom: 10px;
+    padding: 3px;
+    border: 1px solid rgba(255, 247, 223, 0.12);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.2);
+  }
+
+  .source-mode button {
+    min-width: 0;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+  }
+
+  .source-mode button[aria-pressed="true"] {
+    background: rgba(94, 234, 212, 0.14);
+    color: var(--jade);
+  }
+
+  .detection-track-list {
+    display: grid;
+    gap: 6px;
+    max-height: 320px;
+    overflow: auto;
+  }
+
+  .detection-track-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px 10px;
+    width: 100%;
+    min-width: 0;
+    padding: 9px 10px;
+    border-color: rgba(255, 247, 223, 0.13);
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.18);
+    text-align: left;
+  }
+
+  .detection-track-row:hover,
+  .detection-track-row:focus-visible {
+    border-color: rgba(94, 234, 212, 0.5);
+    background: rgba(94, 234, 212, 0.08);
+  }
+
+  .detection-track-main {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr);
+    align-items: center;
+    gap: 2px 7px;
+    min-width: 0;
+  }
+
+  .detection-track-main i {
+    grid-row: 1 / 3;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--source-color);
+  }
+
+  .detection-track-main strong,
+  .detection-track-main small,
+  .detection-track-meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .detection-track-main strong { font-size: 11px; }
+
+  .detection-track-main small,
+  .detection-track-count small,
+  .detection-track-meta {
+    color: rgba(255, 247, 223, 0.46);
+    font-size: 9px;
+  }
+
+  .detection-track-count {
+    display: grid;
+    justify-items: end;
+  }
+
+  .detection-track-count strong {
+    color: var(--paper-strong);
+    font-size: 13px;
+  }
+
+  .detection-track-meta { grid-column: 1 / -1; }

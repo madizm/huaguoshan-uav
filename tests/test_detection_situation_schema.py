@@ -70,6 +70,7 @@ class DetectionSituationSchemaTests(unittest.TestCase):
         for function in (
             "api.get_detection_situation_snapshot",
             "api.get_detection_situation_changes",
+            "api.list_detection_target_tracks",
             "api.get_target_track_detail",
         ):
             self.assertIn(f"create or replace function {function}", self.lower)
@@ -80,6 +81,10 @@ class DetectionSituationSchemaTests(unittest.TestCase):
         self.assertIn("p_limit integer default 1000", self.lower)
         self.assertIn("p_limit integer default 500", self.lower)
         self.assertIn("p_max_points integer default 2000", self.lower)
+        self.assertIn("p_end_at-p_start_at>interval '7 days'", self.lower)
+        self.assertNotIn("track detail window cannot exceed 24 hours", self.lower)
+        self.assertIn("'spatial_point_count',spatial_point_count", self.lower)
+        self.assertIn("grant execute on function api.list_detection_target_tracks", self.lower)
         self.assertIn("grant execute on function api.get_detection_situation_snapshot", self.lower)
         self.assertIn("to admin", self.lower)
 

@@ -132,29 +132,32 @@
     </details>
 
     <details class="hud-section" id="sectionSourceSituation" data-requires-auth open>
-      <summary>源数据校验<span class="section-hint" id="sourceSituationHint">未加载</span></summary>
-      <section class="source-situation-controls" aria-label="无人机与无源雷达源数据校验">
+      <summary>侦测态势<span class="section-hint" id="sourceSituationHint">未加载</span></summary>
+      <section class="source-situation-controls" aria-label="雷达与电侦目标态势">
+        <div class="source-mode" role="group" aria-label="态势模式">
+          <button type="button" data-situation-mode="realtime" aria-pressed="true">实时</button>
+          <button type="button" data-situation-mode="history" aria-pressed="false">历史</button>
+        </div>
         <div class="source-window">
           <label class="field">开始日期
-            <input id="sourceSituationStart" type="date" value="2025-12-26" />
+            <input id="sourceSituationStart" type="date" />
           </label>
           <label class="field">结束日期
-            <input id="sourceSituationEnd" type="date" value="2025-12-31" />
+            <input id="sourceSituationEnd" type="date" />
           </label>
         </div>
-        <p class="source-situation-note">平面轨迹校验 · 高度基准尚未确认<br />无人机 60 秒抽样，雷达显示区间内每条航迹的末次位置。</p>
+        <p class="source-situation-note" id="sourceSituationNote">实时模式仅显示当前跟踪目标；无坐标侦测单独计数。</p>
         <div class="source-situation-toggles" aria-label="源数据图层">
-          <button type="button" data-source-situation="uav_hf" aria-pressed="true" style="--source-color:#5eead4">华飞无人机</button>
-          <button type="button" data-source-situation="uav_yh" aria-pressed="true" style="--source-color:#80b7ff">亿航无人机</button>
-          <button type="button" data-source-situation="passive_radar" aria-pressed="true" style="--source-color:#f6c85f">无源雷达目标</button>
+          <button type="button" data-source-situation="10" aria-pressed="true" style="--source-color:#f6c85f">雷达</button>
+          <button type="button" data-source-situation="20" aria-pressed="true" style="--source-color:#5eead4">电侦</button>
         </div>
         <div class="source-situation-actions">
-          <button class="primary" type="button" id="sourceSituationLoad">加载并定位</button>
-          <button type="button" id="sourceSituationLocate" disabled>定位数据范围</button>
+          <button class="primary" type="button" id="sourceSituationLoad">刷新实时态势</button>
+          <button type="button" id="sourceSituationLocate" disabled>定位目标</button>
           <button type="button" id="sourceSituationClear" disabled>清除</button>
         </div>
         <div class="source-situation-summary" id="sourceSituationSummary" aria-live="polite">
-          <p class="source-situation-empty">尚未加载源数据。</p>
+          <p class="source-situation-empty">尚未加载侦测态势。</p>
         </div>
       </section>
     </details>
