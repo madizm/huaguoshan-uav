@@ -7,9 +7,12 @@
   'use strict';
 
   var SOURCE_STYLE = {
+    radar: { color: '#f6c85f', label: '雷达' },
+    radio_detection: { color: '#5eead4', label: '电侦' },
     10: { color: '#f6c85f', label: '雷达' },
     20: { color: '#5eead4', label: '电侦' }
   };
+  var LEGACY_SOURCE_TYPE = { radar: 10, radio_detection: 20 };
   var MAX_TRACK_SPEED_MPS = 100;
 
   function $(selector) { return typeof document === 'undefined' ? null : document.querySelector(selector); }
@@ -86,14 +89,22 @@
     return { segments: segments, jumpCount: jumpCount };
   }
 
-  function selectedSourceTypes(buttons) {
+  function selectedDetectionMethods(buttons) {
     return (buttons || []).filter(function (button) {
       return button.getAttribute('aria-pressed') === 'true';
-    }).map(function (button) { return Number(button.dataset.sourceSituation); });
+    }).map(function (button) { return button.dataset.detectionMethod; });
   }
-  function sourceTypeFilter(buttons) {
-    var selected = selectedSourceTypes(buttons);
+  function detectionMethodFilter(buttons) {
+    var selected = selectedDetectionMethods(buttons);
     return selected.length === (buttons || []).length ? null : selected;
+  }
+  function legacySourceTypeFilter(buttons) {
+    var supported = (buttons || []).filter(function (button) {
+      return LEGACY_SOURCE_TYPE[button.dataset.detectionMethod] != null;
+    });
+    var selected = selectedDetectionMethods(supported);
+    if (selected.length === supported.length) return null;
+    return selected.map(function (code) { return LEGACY_SOURCE_TYPE[code]; });
   }
 
   function indexLiveTracks(tracks) {
@@ -121,7 +132,7 @@
         return;
       }
       if (change.type !== 'target_upsert') return;
-      if (acceptedSourceTypes && acceptedSourceTypes.indexOf(Number(payload.source_type_code)) < 0) return;
+      if (acceptedSourceTypes && acceptedSourceTypes.indexOf(payload.detection_method_code) < 0) return;
       if (!track) {
         track = trackMap[key] = {
           track_id: Number(trackId),
@@ -130,6 +141,7 @@
           source_target_id: payload.source_target_id,
           source_type_code: payload.source_type_code,
           model: payload.model,
+          latest_observation_method_code: payload.detection_method_code,
           points: []
         };
       }
@@ -138,6 +150,7 @@
       ['track_code', 'source_target_id', 'source_type_code', 'model'].forEach(function (field) {
         if (payload[field] != null) track[field] = payload[field];
       });
+      if (payload.detection_method_code != null) track.latest_observation_method_code = payload.detection_method_code;
       if (payload.position && payload.observation_id != null && !track.points.some(function (point) {
         return String(point.observation_id) === String(payload.observation_id);
       })) {
@@ -148,6 +161,7 @@
           altitude_amsl_m: payload.altitude_amsl_m,
           source_type_code: payload.source_type_code,
           speed_mps: payload.speed_mps,
+          detection_method_code: payload.detection_method_code,
           quality_flags: payload.quality_flags || []
         });
       }
@@ -222,6 +236,7 @@
     var liveCursor = 0;
     var liveSources = [];
     var liveTrailSeconds = 300;
+    var liveDetectionMethods = [];
     var livePolling = false;
     var loadButton = $('#sourceSituationLoad');
     var locateButton = $('#sourceSituationLocate');
@@ -231,7 +246,8 @@
     var note = $('#sourceSituationNote');
     var startInput = $('#sourceSituationStart');
     var endInput = $('#sourceSituationEnd');
-    var sourceButtons = typeof document === 'undefined' ? [] : Array.prototype.slice.call(document.querySelectorAll('[data-source-situation]'));
+    var sourceToggleContainer = typeof document === 'undefined' ? null : document.querySelector('.source-situation-toggles');
+    var sourceButtons = typeof document === 'undefined' ? [] : Array.prototype.slice.call(document.querySelectorAll('[data-detection-method]'));
     var modeButtons = typeof document === 'undefined' ? [] : Array.prototype.slice.call(document.querySelectorAll('[data-situation-mode]'));
     var disposers = [];
 
@@ -270,7 +286,7 @@
       var key = String(sourceTypeCode == null ? 'unknown' : sourceTypeCode);
       if (dataSources[key]) return dataSources[key];
       var dataSource = new CesiumRuntime.CustomDataSource(name || ('detection-' + key));
-      var button = sourceButtons.find(function (item) { return item.dataset.sourceSituation === key; });
+      var button = sourceButtons.find(function (item) { return item.dataset.detectionMethod === key; });
       dataSource.show = !button || button.getAttribute('aria-pressed') !== 'false';
       viewer.dataSources.add(dataSource);
       dataSources[key] = dataSource;
@@ -300,8 +316,10 @@
       var tracks = payload.tracks || [];
       tracks.forEach(function (track) {
         var points = track.points || [];
-        var style = SOURCE_STYLE[track.source_type_code] || { color: '#9ba8a2', label: '来源待确认' };
-        var dataSource = addDataSource(track.source_type_code, style.label);
+        var methodCode = track.latest_observation_method_code ||
+          (points.length && points[points.length - 1].detection_method_code) || 'unknown';
+        var style = SOURCE_STYLE[methodCode] || { color: '#9ba8a2', label: '方式待确认' };
+        var dataSource = addDataSource(methodCode, style.label);
         var split = splitTrack(points, MAX_TRACK_SPEED_MPS);
         var lost = track.status === 'lost';
         points.forEach(extendBounds);
@@ -418,18 +436,44 @@
       return {
         generated_at: generatedAt || new Date().toISOString(),
         tracks: Object.keys(liveTracks).map(function (key) { return liveTracks[key]; }),
-        sources: liveSources
+        sources: liveSources,
+        detection_methods: liveDetectionMethods
       };
+    }
+
+    function synchronizeDetectionMethods(methods) {
+      var palette = ['#f6c85f', '#5eead4', '#7dd3fc', '#c4b5fd', '#fb7185', '#86efac'];
+      liveDetectionMethods = methods || [];
+      liveDetectionMethods.forEach(function (method, index) {
+        var metadata = method.display_metadata || {};
+        SOURCE_STYLE[method.code] = {
+          color: metadata.color || (SOURCE_STYLE[method.code] && SOURCE_STYLE[method.code].color) || palette[index % palette.length],
+          label: method.name || method.code
+        };
+        if (!sourceToggleContainer || sourceButtons.some(function (button) {
+          return button.dataset.detectionMethod === method.code;
+        })) return;
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.detectionMethod = method.code;
+        button.setAttribute('aria-pressed', 'true');
+        button.style.setProperty('--source-color', SOURCE_STYLE[method.code].color);
+        button.textContent = SOURCE_STYLE[method.code].label;
+        sourceToggleContainer.appendChild(button);
+        sourceButtons.push(button);
+        bindSourceButton(button);
+      });
     }
 
     function loadRealtime(silent) {
       var sequence = ++requestSequence;
-      var sourceTypes = sourceTypeFilter(sourceButtons);
+      var detectionMethods = detectionMethodFilter(sourceButtons);
       if (!silent) setLoading(true, '刷新实时态势');
       if (hint && !silent) hint.textContent = '查询中';
-      return rpc('get_detection_live_tracks', {
-        p_station_ids: null,
-        p_source_type_codes: sourceTypes,
+      return rpc('get_detection_live_tracks_v2', {
+        p_observation_source_ids: null,
+        p_producer_asset_ids: null,
+        p_detection_method_codes: detectionMethods,
         p_active_within_seconds: 120,
         p_trail_seconds: 300,
         p_max_tracks: 1000,
@@ -437,6 +481,7 @@
       }).then(function (payload) {
         if (destroyed || sequence !== requestSequence || mode !== 'realtime') return payload;
         payload = payload || { tracks: [], sources: [], cursor: 0, trail_seconds: 300 };
+        synchronizeDetectionMethods(payload.detection_methods || []);
         liveTracks = indexLiveTracks(payload.tracks);
         liveCursor = Number(payload.cursor || 0);
         liveSources = payload.sources || [];
@@ -456,7 +501,7 @@
     function pollRealtimeChanges() {
       if (livePolling || destroyed || mode !== 'realtime' || !liveCursor) return Promise.resolve();
       livePolling = true;
-      var acceptedTypes = sourceTypeFilter(sourceButtons);
+      var acceptedTypes = detectionMethodFilter(sourceButtons);
       function readPage() {
         return rpc('get_detection_situation_changes', {
           p_after_cursor: liveCursor,
@@ -496,7 +541,7 @@
     function loadHistory() {
       var payload;
       try {
-        payload = buildHistoryPayload(startInput && startInput.value, endInput && endInput.value, sourceTypeFilter(sourceButtons));
+        payload = buildHistoryPayload(startInput && startInput.value, endInput && endInput.value, legacySourceTypeFilter(sourceButtons));
       } catch (error) {
         log(error.message, 'error');
         return Promise.reject(error);
@@ -549,6 +594,9 @@
         button.setAttribute('aria-pressed', String(button.dataset.situationMode === mode));
       });
       var historyMode = mode === 'history';
+      sourceButtons.forEach(function (button) {
+        button.hidden = historyMode && LEGACY_SOURCE_TYPE[button.dataset.detectionMethod] == null;
+      });
       if (startInput) startInput.disabled = !historyMode;
       if (endInput) endInput.disabled = !historyMode;
       if (loadButton) loadButton.textContent = historyMode ? '查询历史航迹' : '刷新实时态势';
@@ -563,6 +611,18 @@
       if (!element) return;
       element.addEventListener(eventName, handler);
       disposers.push(function () { element.removeEventListener(eventName, handler); });
+    }
+
+    function bindSourceButton(button) {
+      bind(button, 'click', function () {
+        var active = button.getAttribute('aria-pressed') !== 'true';
+        button.setAttribute('aria-pressed', String(active));
+        if (mode === 'realtime' && liveCursor) {
+          loadRealtime(true).then(startRealtimeRefresh).catch(function () {});
+        } else if (dataSources[button.dataset.detectionMethod]) {
+          dataSources[button.dataset.detectionMethod].show = active;
+        }
+      });
     }
 
     setDefaultDates();
@@ -580,17 +640,7 @@
     modeButtons.forEach(function (button) {
       bind(button, 'click', function () { setMode(button.dataset.situationMode); });
     });
-    sourceButtons.forEach(function (button) {
-      bind(button, 'click', function () {
-        var active = button.getAttribute('aria-pressed') !== 'true';
-        button.setAttribute('aria-pressed', String(active));
-        if (mode === 'realtime' && liveCursor) {
-          loadRealtime(true).then(startRealtimeRefresh).catch(function () {});
-        } else if (dataSources[button.dataset.sourceSituation]) {
-          dataSources[button.dataset.sourceSituation].show = active;
-        }
-      });
-    });
+    sourceButtons.forEach(bindSourceButton);
 
     return {
       load: function () { return mode === 'history' ? loadHistory() : loadRealtime(false); },
@@ -619,8 +669,9 @@
       coordinates: coordinates,
       groundSpeed: groundSpeed,
       escapeHtml: escapeHtml,
-      selectedSourceTypes: selectedSourceTypes,
-      sourceTypeFilter: sourceTypeFilter
+      selectedDetectionMethods: selectedDetectionMethods,
+      detectionMethodFilter: detectionMethodFilter,
+      legacySourceTypeFilter: legacySourceTypeFilter
     }
   };
 });

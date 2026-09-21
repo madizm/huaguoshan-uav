@@ -162,9 +162,13 @@ uv run scripts/radar_cloud_connector.py
 
 ```http
 GET  /postgrest/detection_source_types
+GET  /postgrest/detection_methods
+GET  /postgrest/detection_method_mappings
+GET  /postgrest/detection_method_mapping_history
 GET  /postgrest/detection_observation_sources
 POST /postgrest/rpc/get_detection_situation_snapshot
 POST /postgrest/rpc/get_detection_live_tracks
+POST /postgrest/rpc/get_detection_live_tracks_v2
 POST /postgrest/rpc/get_detection_situation_changes
 POST /postgrest/rpc/list_detection_target_tracks
 POST /postgrest/rpc/get_target_track_detail
@@ -197,6 +201,22 @@ POST /postgrest/rpc/get_target_track_detail
 ```
 
 返回当前活动目标、每条目标最近一段有界空间尾迹、来源状态和增量游标。前端随后使用游标补读增量，避免重复下载完整尾迹。
+
+新接入应使用平台稳定侦测方式版本：
+
+```json
+{
+  "p_observation_source_ids": null,
+  "p_producer_asset_ids": null,
+  "p_detection_method_codes": ["radar", "radio_detection"],
+  "p_active_within_seconds": 120,
+  "p_trail_seconds": 300,
+  "p_max_tracks": 1000,
+  "p_max_points_per_track": 300
+}
+```
+
+`get_detection_live_tracks_v2` 按平台稳定侦测方式过滤关联观测，不再按航迹会话上的厂商数值类型过滤。三个数组参数均遵循：`null` 表示不过滤，`[]` 表示空集。响应中的 `observation_methods` 表示尾迹窗口内出现过的全部侦测方式，`latest_observation_method_code` 表示最新观测方式；每个空间点也携带自己的 `detection_method_code`。旧接口仅用于兼容现有调用方。
 
 ### 6.3 态势增量
 
@@ -272,6 +292,32 @@ Content-Type: application/json
 - 每次配置变更产生一条 `source_status` 增量事件。
 
 `detection_observation_sources` 视图同时返回设备资产映射、来源时区、丢失宽限、连接时间和最近错误，供管理后台诊断使用。
+
+### 6.7 管理侦测方式与厂商映射
+
+```http
+GET  /postgrest/detection_methods
+GET  /postgrest/detection_method_mappings
+GET  /postgrest/detection_method_mapping_history
+POST /postgrest/rpc/create_detection_method
+POST /postgrest/rpc/update_detection_method
+POST /postgrest/rpc/upsert_detection_method_mapping
+```
+
+稳定编码如 `radar`、`radio_detection` 创建后不可修改。已使用的方式不删除，只能把 `lifecycle_status` 设置为 `deprecated`。`visible` 只控制管理端和业务筛选器展示；厂商类型是否继续接入由映射上的 `accept_ingest` 独立控制。
+
+映射创建及其侦测方式、接入开关、扩展配置变更会追加写入 `detection_method_mapping_history`，记录变更前后值、时间和可取得的 JWT 主体。
+
+厂商映射以 `(source_system, vendor_code)` 唯一，例如：
+
+```text
+radar_cloud + 10 -> radar
+radar_cloud + 20 -> radio_detection
+```
+
+接入适配器向规范化载荷写入 `detectionMethodCode`。数据库同时校验厂商编码映射，防止适配器把同一个厂商类型解释成不同的平台侦测方式。
+
+能识别实际生产设备时，适配器可同时写入 `sourceProducerAssetId`。接入函数按 `(sourceSystem, sourceProducerAssetId)` 解析 `equipment.asset`，并写入观测的 `producer_asset_id`；无法明确识别时保持为空，不把接入盒子冒充为实际生产设备。
 
 ## 7. 验证
 

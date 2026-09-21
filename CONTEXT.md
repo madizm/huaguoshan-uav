@@ -122,6 +122,11 @@ A source that produces target observations, environmental observations, device s
 产生目标观测、环境观测、设备状态或告警的数据来源，如雷达、光电、无线电侦测、气象站、电磁监测、人工上报或第三方平台。
 _Avoid_: Sensor, Device, 传感器、设备
 
+**Detection Method（侦测方式）**:
+The platform-stable technical method by which an Airspace Target observation is produced, such as radar, radio detection, electro-optical observation, Remote ID, network sensing, or manual reporting; it is independent of the Equipment Asset category and Observation Source through which the observation is ingested.
+产生空域目标观测的平台稳定技术方式，如雷达、电侦、光电、Remote ID、网络感知或人工上报；它独立于产生观测的设施设备类别以及接入该观测的观测来源。
+_Avoid_: Equipment Type, Observation Source, Vendor Source Type, 设备类型、观测来源、厂商来源类型
+
 **Situation Snapshot（态势快照）**:
 A point-in-time integrated expression of Airspace Targets, Airspace Constraints, Assessment Factors, Response Capability Coverage, and Emergency Resource states for current assessment and large-screen display.
 某一时刻平台对空域目标、空域约束、研判因子、处置能力覆盖和应急资源状态的综合表达，用于当前研判和大屏展示。

@@ -17,6 +17,9 @@ class DetectionSituationSchemaTests(unittest.TestCase):
     def test_creates_detection_domain_tables(self):
         for table in (
             "detection_source_type",
+            "detection_method",
+            "detection_method_mapping",
+            "detection_method_mapping_history",
             "observation_source",
             "observation_source_status_current",
             "target_observation",
@@ -44,6 +47,9 @@ class DetectionSituationSchemaTests(unittest.TestCase):
         self.assertIn("(20, 'radio_detection', '电侦'", self.lower)
         self.assertIn("p_observation->>'stationid'", self.lower)
         self.assertIn("p_observation->>'sourcetypecode'", self.lower)
+        self.assertIn("p_observation->>'detectionmethodcode'", self.lower)
+        self.assertIn("p_observation->>'sourceproducerassetid'", self.lower)
+        self.assertIn("detection_method_code", self.lower)
         self.assertIn("p_observation->>'sourceobservationid'", self.lower)
         self.assertNotIn("jsonb_array_elements(v_items)", self.lower)
 
@@ -91,6 +97,10 @@ class DetectionSituationSchemaTests(unittest.TestCase):
         self.assertIn("p_max_points_per_track integer default 300", self.lower)
         self.assertIn("'position',case when r.geom is null then null else st_asgeojson", self.lower)
         self.assertIn("grant execute on function api.get_detection_live_tracks", self.lower)
+        self.assertIn("create or replace function api.get_detection_live_tracks_v2", self.lower)
+        self.assertIn("p_detection_method_codes text[] default null", self.lower)
+        self.assertIn("grant execute on function api.get_detection_live_tracks_v2", self.lower)
+        self.assertIn("'observation_methods'", self.lower)
         self.assertIn("p_max_points integer default 2000", self.lower)
         self.assertIn("p_end_at-p_start_at>interval '7 days'", self.lower)
         self.assertNotIn("track detail window cannot exceed 24 hours", self.lower)
@@ -100,7 +110,13 @@ class DetectionSituationSchemaTests(unittest.TestCase):
         self.assertIn("to admin", self.lower)
 
     def test_api_facade_is_read_only(self):
-        for view in ("detection_source_types", "detection_observation_sources"):
+        for view in (
+            "detection_source_types",
+            "detection_methods",
+            "detection_method_mappings",
+            "detection_method_mapping_history",
+            "detection_observation_sources",
+        ):
             self.assertIn(f"create or replace view api.{view}", self.lower)
             self.assertRegex(
                 self.lower,
@@ -125,6 +141,20 @@ class DetectionSituationSchemaTests(unittest.TestCase):
         self.assertIn("grant execute on function api.update_detection_observation_source", self.lower)
         self.assertIn("revoke all on function api.update_detection_observation_source", self.lower)
         self.assertNotIn("grant update on situation.observation_source", self.lower)
+
+    def test_detection_method_admin_contract_is_bounded(self):
+        for function in (
+            "api.create_detection_method",
+            "api.update_detection_method",
+            "api.upsert_detection_method_mapping",
+        ):
+            self.assertIn(f"create or replace function {function}", self.lower)
+            self.assertIn(f"grant execute on function {function}", self.lower)
+        self.assertIn("detection method code is immutable", self.lower)
+        self.assertIn("accept_ingest", self.lower)
+        self.assertIn("audit_detection_method_mapping", self.lower)
+        self.assertIn("request.jwt.claims", self.lower)
+        self.assertNotIn("grant update on situation.detection_method", self.lower)
 
     def test_source_90_seed_registers_and_binds_the_verified_asset(self):
         self.assertIn("'radar_cloud'", self.lower)

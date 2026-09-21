@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { Edit, Refresh, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules, TagProps } from 'element-plus'
+import DetectionMethodManager from '../components/DetectionMethodManager.vue'
 import { listAssets, type EquipmentAsset } from '../api/equipment'
 import {
   listDetectionSources,
@@ -328,6 +329,7 @@ onMounted(() => {
         <el-button type="primary" :loading="saving" @click="save">保存配置</el-button>
       </template>
     </el-drawer>
+    <DetectionMethodManager />
   </section>
 </template>
 

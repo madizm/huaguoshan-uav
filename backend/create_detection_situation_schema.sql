@@ -36,6 +36,108 @@ insert into situation.detection_source_type(vendor_code, code, name, description
 on conflict (vendor_code) do update set code=excluded.code, name=excluded.name,
   enabled=true, description=excluded.description;
 
+create table if not exists situation.detection_method (
+  code text primary key check (code ~ '^[a-z][a-z0-9_]*$'),
+  name text not null check (btrim(name) <> ''),
+  description text,
+  lifecycle_status text not null default 'active' check (lifecycle_status in ('active','deprecated')),
+  visible boolean not null default true,
+  sort_order integer not null default 0,
+  display_metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+comment on table situation.detection_method is '平台稳定侦测方式字典，与设备类别、接入来源及厂商枚举相互独立。';
+comment on column situation.detection_method.code is '不可变的平台稳定编码，如 radar、radio_detection。';
+comment on column situation.detection_method.lifecycle_status is '生命周期状态；deprecated 仅阻止新映射，不删除历史引用。';
+comment on column situation.detection_method.visible is '是否在管理端及业务筛选器中展示，不控制数据接入。';
+comment on column situation.detection_method.display_metadata is '颜色、图标等非业务展示配置。';
+
+create table if not exists situation.detection_method_mapping (
+  id bigserial primary key,
+  source_system text not null check (btrim(source_system) <> ''),
+  vendor_code text not null check (btrim(vendor_code) <> ''),
+  method_code text not null references situation.detection_method(code) on delete restrict,
+  accept_ingest boolean not null default true,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (source_system,vendor_code)
+);
+comment on table situation.detection_method_mapping is '各来源系统厂商枚举到平台稳定侦测方式的受控映射。';
+comment on column situation.detection_method_mapping.source_system is '来源系统稳定编码。';
+comment on column situation.detection_method_mapping.vendor_code is '厂商原始侦测方式编码，按文本保存以兼容数值和字符串枚举。';
+comment on column situation.detection_method_mapping.method_code is '映射后的平台稳定侦测方式编码。';
+comment on column situation.detection_method_mapping.accept_ingest is '是否允许该厂商类型继续接入，与前端可见性相互独立。';
+
+create table if not exists situation.detection_method_mapping_history (
+  id bigserial primary key,
+  mapping_id bigint not null references situation.detection_method_mapping(id) on delete restrict,
+  source_system text not null,
+  vendor_code text not null,
+  old_method_code text,
+  new_method_code text not null,
+  old_accept_ingest boolean,
+  new_accept_ingest boolean not null,
+  old_metadata jsonb,
+  new_metadata jsonb not null,
+  changed_at timestamptz not null default now(),
+  changed_by text
+);
+comment on table situation.detection_method_mapping_history is '厂商侦测方式映射的追加式审计历史。';
+comment on column situation.detection_method_mapping_history.mapping_id is '发生变更的厂商映射 ID。';
+comment on column situation.detection_method_mapping_history.old_method_code is '变更前平台侦测方式；首次创建时为空。';
+comment on column situation.detection_method_mapping_history.new_method_code is '变更后平台侦测方式。';
+comment on column situation.detection_method_mapping_history.changed_by is 'PostgREST JWT 主体或数据库会话用户。';
+
+create or replace function situation.audit_detection_method_mapping()
+returns trigger language plpgsql security definer
+set search_path=pg_catalog,public,situation as $$
+declare
+  v_claims jsonb;
+  v_actor text;
+begin
+  begin
+    v_claims:=nullif(current_setting('request.jwt.claims',true),'')::jsonb;
+  exception when others then
+    v_claims:='{}'::jsonb;
+  end;
+  v_actor:=coalesce(v_claims->>'sub',v_claims->>'role',session_user);
+  if tg_op='INSERT' or old.method_code is distinct from new.method_code
+      or old.accept_ingest is distinct from new.accept_ingest
+      or old.metadata is distinct from new.metadata then
+    insert into situation.detection_method_mapping_history(
+      mapping_id,source_system,vendor_code,old_method_code,new_method_code,
+      old_accept_ingest,new_accept_ingest,old_metadata,new_metadata,changed_by
+    ) values(
+      new.id,new.source_system,new.vendor_code,
+      case when tg_op='UPDATE' then old.method_code end,new.method_code,
+      case when tg_op='UPDATE' then old.accept_ingest end,new.accept_ingest,
+      case when tg_op='UPDATE' then old.metadata end,new.metadata,v_actor
+    );
+  end if;
+  return new;
+end;
+$$;
+comment on function situation.audit_detection_method_mapping() is '追加记录厂商侦测方式映射创建与有效配置变更；返回触发器新记录。';
+drop trigger if exists detection_method_mapping_audit on situation.detection_method_mapping;
+create trigger detection_method_mapping_audit after insert or update on situation.detection_method_mapping
+for each row execute function situation.audit_detection_method_mapping();
+
+insert into situation.detection_method(code,name,description,sort_order) values
+  ('radar','雷达','通过雷达探测空域目标。',10),
+  ('radio_detection','电侦','通过无线电信号侦测或测向发现目标。',20),
+  ('electro_optical','光电','通过可见光、红外或热成像观测目标。',30),
+  ('remote_id','Remote ID','接收并解析航空器远程身份广播。',40),
+  ('network_sensing','网络感知','通过通信网络侧数据感知目标。',50),
+  ('manual','人工上报','由人工报告形成目标观测。',60)
+on conflict (code) do nothing;
+
+insert into situation.detection_method_mapping(source_system,vendor_code,method_code,metadata) values
+  ('radar_cloud','10','radar',jsonb_build_object('legacy_vendor_code',10)),
+  ('radar_cloud','20','radio_detection',jsonb_build_object('legacy_vendor_code',20))
+on conflict (source_system,vendor_code) do nothing;
+
 create table if not exists situation.observation_source (
   id bigserial primary key,
   source_system text not null,
@@ -87,6 +189,7 @@ create table if not exists situation.target_observation (
   observation_id bigint primary key references equipment.raw_observation(id) on delete restrict,
   observation_source_id bigint not null references situation.observation_source(id) on delete restrict,
   source_type_code smallint references situation.detection_source_type(vendor_code),
+  detection_method_code text references situation.detection_method(code) on delete restrict,
   producer_asset_id bigint references equipment.asset(id) on delete restrict,
   source_target_id text not null,
   source_session_id text,
@@ -103,9 +206,12 @@ create table if not exists situation.target_observation (
   home_geom geometry(Point,4326),
   quality_flags text[] not null default '{}'
 );
+alter table situation.target_observation
+  add column if not exists detection_method_code text references situation.detection_method(code) on delete restrict;
 comment on table situation.target_observation is '原始设备观测的一对一目标侦测语义扩展。';
 comment on column situation.target_observation.observation_id is '对应的追加式设备原始观测 ID。';
-comment on column situation.target_observation.source_type_code is '厂商来源类型：10 雷达、20 电侦；缺失时为空。';
+comment on column situation.target_observation.source_type_code is '兼容保留的厂商来源类型：雷达云 10 雷达、20 电侦；缺失时为空。';
+comment on column situation.target_observation.detection_method_code is '规范化后的平台稳定侦测方式编码；无法确定时为空。';
 comment on column situation.target_observation.source_target_id is '来源系统目标标识，当前对应 serial。';
 comment on column situation.target_observation.source_session_id is '来源系统提供的目标会话 ID。';
 comment on column situation.target_observation.frequency_mhz is '侦测频率，单位 MHz。';
@@ -117,6 +223,12 @@ create index if not exists target_observation_source_target_idx
   on situation.target_observation(observation_source_id, source_target_id, observation_id desc);
 create index if not exists target_observation_source_type_idx
   on situation.target_observation(source_type_code, observation_id desc);
+create index if not exists target_observation_method_idx
+  on situation.target_observation(detection_method_code, observation_id desc);
+update situation.target_observation o set detection_method_code=m.method_code
+from situation.observation_source src,situation.detection_method_mapping m
+where o.detection_method_code is null and src.id=o.observation_source_id
+  and m.source_system=src.source_system and m.vendor_code=o.source_type_code::text;
 create index if not exists target_observation_quality_gin
   on situation.target_observation using gin(quality_flags);
 
@@ -277,6 +389,10 @@ declare
   v_observation_key text := p_observation->>'sourceObservationId';
   v_serial text := nullif(btrim(p_observation->>'sourceTargetId'),'');
   v_source_type smallint := situation.safe_numeric(p_observation->>'sourceTypeCode')::smallint;
+  v_detection_method text := nullif(btrim(p_observation->>'detectionMethodCode'),'');
+  v_mapped_method text;
+  v_source_producer_asset_id text := nullif(btrim(p_observation->>'sourceProducerAssetId'),'');
+  v_producer_asset_id bigint;
   v_event_type text := p_observation->>'eventType';
   v_observed_at timestamptz;
   v_received_at timestamptz;
@@ -317,6 +433,20 @@ begin
   if v_source_type is not null and not exists(
     select 1 from situation.detection_source_type where vendor_code=v_source_type and enabled
   ) then raise exception 'unsupported sourceTypeCode %',v_source_type; end if;
+  if v_source_type is not null then
+    select method_code into v_mapped_method from situation.detection_method_mapping
+    where source_system=v_source_system and vendor_code=v_source_type::text and accept_ingest;
+    if not found then
+      raise exception 'source type %.% is not configured for ingestion',v_source_system,v_source_type;
+    end if;
+    if v_detection_method is not null and v_detection_method<>v_mapped_method then
+      raise exception 'detectionMethodCode % conflicts with source type mapping %',v_detection_method,v_mapped_method;
+    end if;
+    v_detection_method:=coalesce(v_detection_method,v_mapped_method);
+  end if;
+  if v_detection_method is not null and not exists(
+    select 1 from situation.detection_method where code=v_detection_method
+  ) then raise exception 'unsupported detectionMethodCode %',v_detection_method; end if;
   if (v_lng is null)<>(v_lat is null) or (v_lng is not null and
       (v_lng not between -180 and 180 or v_lat not between -90 and 90 or (v_lng=0 and v_lat=0))) then
     raise exception 'longitude and latitude must form a valid non-zero WGS84 position';
@@ -329,6 +459,14 @@ begin
   where source_system=v_source_system and external_station_id=v_station_id and enabled
   order by (external_box_code<>'') desc,id limit 1;
   if not found then raise exception 'enabled observation source %.% is not configured',v_source_system,v_station_id; end if;
+
+  if v_source_producer_asset_id is not null then
+    select id into v_producer_asset_id from equipment.asset
+    where source_system=v_source_system and source_asset_id=v_source_producer_asset_id;
+    if not found then
+      raise exception 'producer asset %.% is not registered',v_source_system,v_source_producer_asset_id;
+    end if;
+  end if;
 
   perform pg_advisory_xact_lock(hashtextextended(v_source.id::text||':'||v_serial,0));
   insert into situation.observation_source_status_current(observation_source_id,connector_state,last_message_at,updated_at)
@@ -352,10 +490,10 @@ begin
   end if;
 
   insert into situation.target_observation(
-    observation_id,observation_source_id,source_type_code,source_target_id,source_session_id,event_type,
+    observation_id,observation_source_id,source_type_code,detection_method_code,producer_asset_id,source_target_id,source_session_id,event_type,
     model,frequency_mhz,relative_height_m,horizontal_distance_m,azimuth_deg,elevation_deg,speed_mps,list_type,quality_flags
   ) values(
-    v_observation_id,v_source.id,v_source_type,v_serial,nullif(p_observation->>'sourceSessionId',''),v_event_type,
+    v_observation_id,v_source.id,v_source_type,v_detection_method,v_producer_asset_id,v_serial,nullif(p_observation->>'sourceSessionId',''),v_event_type,
     nullif(p_observation->>'model',''),situation.safe_numeric(p_observation->>'frequencyMhz'),
     situation.safe_numeric(p_observation->>'relativeHeightM'),situation.safe_numeric(p_observation->>'horizontalDistanceM'),
     situation.safe_numeric(p_observation->>'azimuthDeg'),situation.safe_numeric(p_observation->>'elevationDeg'),
@@ -576,6 +714,114 @@ end;
 $$;
 comment on function situation.reconcile_detection_targets(text,text,timestamptz,text[]) is '按在线目标快照和来源宽限时间关闭缺失会话；返回 JSON：status、closedSessions、changeCursor。';
 
+create or replace view api.detection_methods as
+select m.code,m.name,m.description,m.lifecycle_status,m.visible,m.sort_order,m.display_metadata,
+  m.created_at,m.updated_at,count(o.observation_id) as observation_count
+from situation.detection_method m
+left join situation.target_observation o on o.detection_method_code=m.code
+group by m.code;
+comment on view api.detection_methods is '后台和业务筛选器使用的平台稳定侦测方式只读字典，含历史观测引用数量。';
+comment on column api.detection_methods.code is '不可变的平台稳定侦测方式编码。';
+comment on column api.detection_methods.observation_count is '引用该侦测方式的目标观测数量。';
+
+create or replace view api.detection_method_mappings as
+select x.id,x.source_system,x.vendor_code,x.method_code,m.name as method_name,
+  x.accept_ingest,x.metadata,x.created_at,x.updated_at
+from situation.detection_method_mapping x
+join situation.detection_method m on m.code=x.method_code;
+comment on view api.detection_method_mappings is '后台维护的厂商侦测枚举到平台稳定侦测方式的只读映射。';
+comment on column api.detection_method_mappings.vendor_code is '厂商原始编码文本。';
+comment on column api.detection_method_mappings.accept_ingest is '该厂商编码是否允许继续接入。';
+
+create or replace view api.detection_method_mapping_history as
+select id,mapping_id,source_system,vendor_code,old_method_code,new_method_code,
+  old_accept_ingest,new_accept_ingest,old_metadata,new_metadata,changed_at,changed_by
+from situation.detection_method_mapping_history;
+comment on view api.detection_method_mapping_history is '管理员只读查询的厂商侦测方式映射追加审计历史。';
+comment on column api.detection_method_mapping_history.changed_by is '执行映射变更的 JWT 主体或数据库会话用户。';
+
+create or replace function api.create_detection_method(
+  p_code text,p_name text,p_description text default null,p_visible boolean default true,
+  p_sort_order integer default 0,p_display_metadata jsonb default '{}'::jsonb
+) returns jsonb language plpgsql security definer
+set search_path=pg_catalog,public,situation as $$
+declare v_method situation.detection_method%rowtype;
+begin
+  p_code:=lower(btrim(p_code));
+  if p_code is null or p_code !~ '^[a-z][a-z0-9_]*$' then
+    raise exception 'detection method code must use lowercase letters, numbers and underscores';
+  end if;
+  if nullif(btrim(p_name),'') is null then raise exception 'detection method name is required'; end if;
+  if p_display_metadata is null or jsonb_typeof(p_display_metadata)<>'object' then
+    raise exception 'display metadata must be a JSON object';
+  end if;
+  insert into situation.detection_method(code,name,description,visible,sort_order,display_metadata)
+  values(p_code,btrim(p_name),nullif(btrim(p_description),''),coalesce(p_visible,true),coalesce(p_sort_order,0),p_display_metadata)
+  returning * into v_method;
+  return to_jsonb(v_method);
+exception when unique_violation then
+  raise exception 'detection method code % already exists',p_code;
+end;
+$$;
+comment on function api.create_detection_method(text,text,text,boolean,integer,jsonb) is '创建平台稳定侦测方式；编码创建后不可修改；返回 JSON：code、name、description、lifecycle_status、visible、sort_order、display_metadata 和时间。';
+
+create or replace function api.update_detection_method(p_code text,p_changes jsonb)
+returns jsonb language plpgsql security definer
+set search_path=pg_catalog,public,situation as $$
+declare v_method situation.detection_method%rowtype;
+begin
+  if p_changes is null or jsonb_typeof(p_changes)<>'object' then raise exception 'changes must be a JSON object'; end if;
+  if p_changes ? 'code' then raise exception 'detection method code is immutable'; end if;
+  if p_changes - array['name','description','lifecycle_status','visible','sort_order','display_metadata']::text[] <> '{}'::jsonb then
+    raise exception 'changes contain unsupported detection method fields';
+  end if;
+  if p_changes ? 'name' and nullif(btrim(p_changes->>'name'),'') is null then raise exception 'detection method name is required'; end if;
+  if p_changes ? 'lifecycle_status' and p_changes->>'lifecycle_status' not in ('active','deprecated') then
+    raise exception 'lifecycle status must be active or deprecated';
+  end if;
+  if p_changes ? 'display_metadata' and jsonb_typeof(p_changes->'display_metadata')<>'object' then
+    raise exception 'display metadata must be a JSON object';
+  end if;
+  update situation.detection_method set
+    name=case when p_changes ? 'name' then btrim(p_changes->>'name') else name end,
+    description=case when p_changes ? 'description' then nullif(btrim(p_changes->>'description'),'') else description end,
+    lifecycle_status=case when p_changes ? 'lifecycle_status' then p_changes->>'lifecycle_status' else lifecycle_status end,
+    visible=case when p_changes ? 'visible' then (p_changes->>'visible')::boolean else visible end,
+    sort_order=case when p_changes ? 'sort_order' then (p_changes->>'sort_order')::integer else sort_order end,
+    display_metadata=case when p_changes ? 'display_metadata' then p_changes->'display_metadata' else display_metadata end,
+    updated_at=now()
+  where code=p_code returning * into v_method;
+  if not found then raise exception 'detection method % does not exist',p_code; end if;
+  return to_jsonb(v_method);
+end;
+$$;
+comment on function api.update_detection_method(text,jsonb) is '更新侦测方式名称、说明、生命周期和展示配置，稳定编码不可修改；返回更新后的侦测方式 JSON。';
+
+create or replace function api.upsert_detection_method_mapping(
+  p_source_system text,p_vendor_code text,p_method_code text,
+  p_accept_ingest boolean default true,p_metadata jsonb default '{}'::jsonb
+) returns jsonb language plpgsql security definer
+set search_path=pg_catalog,public,situation as $$
+declare v_mapping situation.detection_method_mapping%rowtype;
+begin
+  p_source_system:=nullif(btrim(p_source_system),'');
+  p_vendor_code:=nullif(btrim(p_vendor_code),'');
+  if p_source_system is null or p_vendor_code is null then raise exception 'source system and vendor code are required'; end if;
+  if not exists(select 1 from situation.detection_method where code=p_method_code and lifecycle_status='active') then
+    raise exception 'active detection method % does not exist',p_method_code;
+  end if;
+  if p_metadata is null or jsonb_typeof(p_metadata)<>'object' then raise exception 'metadata must be a JSON object'; end if;
+  insert into situation.detection_method_mapping(source_system,vendor_code,method_code,accept_ingest,metadata)
+  values(p_source_system,p_vendor_code,p_method_code,coalesce(p_accept_ingest,true),p_metadata)
+  on conflict(source_system,vendor_code) do update set
+    method_code=excluded.method_code,accept_ingest=excluded.accept_ingest,
+    metadata=excluded.metadata,updated_at=now()
+  returning * into v_mapping;
+  return to_jsonb(v_mapping);
+end;
+$$;
+comment on function api.upsert_detection_method_mapping(text,text,text,boolean,jsonb) is '新增或更新来源系统厂商编码到活动侦测方式的映射；返回 JSON：id、source_system、vendor_code、method_code、accept_ingest、metadata 和时间。';
+
 create or replace view api.detection_source_types as
 select vendor_code as source_type_code,code,name,description from situation.detection_source_type where enabled;
 comment on view api.detection_source_types is '雷达和电侦来源类型只读字典。';
@@ -709,6 +955,116 @@ end;
 $$;
 comment on function api.get_detection_live_tracks(text[],smallint[],integer,integer,integer,integer) is '返回 JSON：generated_at、cursor、trail_seconds、tracks 和 sources；批量返回当前活动目标及最近一段空间尾迹，每条航迹点数有界。';
 
+create or replace function api.get_detection_live_tracks_v2(
+  p_observation_source_ids bigint[] default null,p_producer_asset_ids bigint[] default null,
+  p_detection_method_codes text[] default null,p_active_within_seconds integer default 120,
+  p_trail_seconds integer default 300,p_max_tracks integer default 1000,
+  p_max_points_per_track integer default 300
+) returns jsonb language plpgsql stable security definer
+set search_path=pg_catalog,public,equipment,situation,api as $$
+declare v_result jsonb;
+begin
+  if p_active_within_seconds not between 5 and 3600 then raise exception 'active window must be between 5 and 3600 seconds'; end if;
+  if p_trail_seconds not between 30 and 1800 then raise exception 'trail window must be between 30 and 1800 seconds'; end if;
+  if p_max_tracks not between 1 and 5000 then raise exception 'max tracks must be between 1 and 5000'; end if;
+  if p_max_points_per_track not between 2 and 1000 then raise exception 'max points per track must be between 2 and 1000'; end if;
+  with active_tracks as (
+    select t.id track_id,t.track_code,t.target_id,t.status,s.source_target_id,
+      src.id observation_source_id,src.external_station_id station_id,src.asset_id source_asset_id,
+      t.last_observed_at
+    from situation.target_track t
+    join situation.source_target_session s on s.id=t.source_session_id
+    join situation.observation_source src on src.id=s.observation_source_id
+    where t.status='tracking' and t.last_observed_at>=now()-make_interval(secs=>p_active_within_seconds)
+      and (p_observation_source_ids is null or src.id=any(p_observation_source_ids))
+      and (p_detection_method_codes is null or exists(
+        select 1 from situation.track_observation fx
+        join situation.target_observation fo on fo.observation_id=fx.observation_id
+        join equipment.raw_observation fr on fr.id=fx.observation_id
+        where fx.track_id=t.id and fo.detection_method_code=any(p_detection_method_codes)
+          and fr.observed_at>=now()-make_interval(secs=>p_active_within_seconds)
+      ))
+      and (p_producer_asset_ids is null or exists(
+        select 1 from situation.track_observation px
+        join situation.target_observation po on po.observation_id=px.observation_id
+        join equipment.raw_observation pr on pr.id=px.observation_id
+        where px.track_id=t.id and po.producer_asset_id=any(p_producer_asset_ids)
+          and pr.observed_at>=now()-make_interval(secs=>p_active_within_seconds)
+      ))
+    order by t.last_observed_at desc,t.id desc limit p_max_tracks
+  ), live_tracks as (
+    select a.*,coalesce(points.items,'[]'::jsonb) points,
+      coalesce(methods.items,'[]'::jsonb) observation_methods,
+      latest.detection_method_code latest_observation_method_code,
+      latest.detection_method_name latest_observation_method_name,
+      latest.producer_asset_id,latest.model,latest.frequency_mhz,latest.quality_flags
+    from active_tracks a
+    left join lateral (
+      select jsonb_agg(jsonb_build_object('code',q.code,'name',q.name) order by q.sort_order,q.code) items
+      from (
+        select distinct dm.code,dm.name,dm.sort_order
+        from situation.track_observation mx
+        join equipment.raw_observation mr on mr.id=mx.observation_id
+        join situation.target_observation mo on mo.observation_id=mx.observation_id
+        join situation.detection_method dm on dm.code=mo.detection_method_code
+        where mx.track_id=a.track_id and mr.observed_at>=now()-make_interval(secs=>p_trail_seconds)
+      ) q
+    ) methods on true
+    left join lateral (
+      select lo.detection_method_code,dm.name detection_method_name,lo.producer_asset_id,
+        lo.model,lo.frequency_mhz,lo.quality_flags
+      from situation.track_observation lx
+      join equipment.raw_observation lr on lr.id=lx.observation_id
+      join situation.target_observation lo on lo.observation_id=lx.observation_id
+      left join situation.detection_method dm on dm.code=lo.detection_method_code
+      where lx.track_id=a.track_id
+      order by lr.observed_at desc,lr.id desc limit 1
+    ) latest on true
+    left join lateral (
+      select jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+        'observation_id',p.id,'observed_at',p.observed_at,'position',ST_AsGeoJSON(p.geom)::jsonb,
+        'altitude_amsl_m',p.height_amsl_m,'detection_method_code',p.detection_method_code,
+        'detection_method_name',p.detection_method_name,'producer_asset_id',p.producer_asset_id,
+        'speed_mps',p.speed_mps,'quality_flags',p.quality_flags
+      )) order by p.observed_at,p.id) items
+      from (
+        select r.id,r.observed_at,r.geom,r.height_amsl_m,o.detection_method_code,
+          dm.name detection_method_name,o.producer_asset_id,o.speed_mps,o.quality_flags
+        from situation.track_observation x
+        join equipment.raw_observation r on r.id=x.observation_id
+        join situation.target_observation o on o.observation_id=r.id
+        left join situation.detection_method dm on dm.code=o.detection_method_code
+        where x.track_id=a.track_id and r.geom is not null
+          and r.observed_at>=now()-make_interval(secs=>p_trail_seconds)
+        order by r.observed_at desc,r.id desc limit p_max_points_per_track
+      ) p
+    ) points on true
+  )
+  select jsonb_build_object(
+    'generated_at',now(),'cursor',coalesce((select max(id) from situation.change_event),0),
+    'trail_seconds',p_trail_seconds,
+    'detection_methods',coalesce((select jsonb_agg(jsonb_build_object(
+      'code',code,'name',name,'description',description,'display_metadata',display_metadata
+    ) order by sort_order,code) from situation.detection_method where visible),'[]'::jsonb),
+    'tracks',coalesce((select jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+      'track_id',track_id,'track_code',track_code,'target_id',target_id,'status',status,
+      'observation_source_id',observation_source_id,'station_id',station_id,
+      'source_asset_id',source_asset_id,'source_target_id',source_target_id,
+      'producer_asset_id',producer_asset_id,'observation_methods',observation_methods,
+      'latest_observation_method_code',latest_observation_method_code,
+      'latest_observation_method_name',latest_observation_method_name,'model',model,
+      'frequency_mhz',frequency_mhz,'quality_flags',quality_flags,
+      'last_observed_at',last_observed_at,'points',points
+    )) order by last_observed_at desc) from live_tracks),'[]'::jsonb),
+    'sources',coalesce((select jsonb_agg(to_jsonb(v) order by id)
+      from api.detection_observation_sources v
+      where p_observation_source_ids is null or id=any(p_observation_source_ids)),'[]'::jsonb)
+  ) into v_result;
+  return v_result;
+end;
+$$;
+comment on function api.get_detection_live_tracks_v2(bigint[],bigint[],text[],integer,integer,integer,integer) is '返回 JSON：generated_at、cursor、trail_seconds、detection_methods、tracks 和 sources；按观测来源、实际生产设备及平台稳定侦测方式过滤活动航迹，并返回多方式证据与有界空间尾迹。';
+
 create or replace function api.get_detection_situation_changes(
   p_after_cursor bigint,p_station_ids text[] default null,p_limit integer default 500
 ) returns jsonb language plpgsql stable security definer
@@ -726,13 +1082,15 @@ begin
         'observation_id',r.id,'observed_at',r.observed_at,
         'position',case when r.geom is null then null else ST_AsGeoJSON(r.geom)::jsonb end,
         'altitude_amsl_m',r.height_amsl_m,'source_type_code',o.source_type_code,
-        'speed_mps',o.speed_mps,'quality_flags',o.quality_flags,
+        'detection_method_code',o.detection_method_code,'detection_method_name',dm.name,
+        'producer_asset_id',o.producer_asset_id,'speed_mps',o.speed_mps,'quality_flags',o.quality_flags,
         'track_code',t.track_code,'source_target_id',s.source_target_id,'model',o.model
       )) payload
     from page p
     left join equipment.raw_observation r on r.id=(p.payload->>'observation_id')::bigint
     left join situation.target_observation o on o.observation_id=r.id
     left join situation.target_track t on t.id=p.aggregate_id and p.aggregate_type='target_track'
+    left join situation.detection_method dm on dm.code=o.detection_method_code
     left join situation.source_target_session s on s.id=t.source_session_id
   )
   select jsonb_build_object('from_cursor',p_after_cursor,'next_cursor',coalesce((select max(id) from page),p_after_cursor),
@@ -896,20 +1254,28 @@ grant execute on function situation.update_detection_connector_status(text,text,
 grant execute on function situation.reconcile_detection_targets(text,text,timestamptz,text[]) to detection_ingest;
 grant execute on function situation.sync_detection_source_asset(jsonb) to detection_ingest;
 
-revoke all on api.detection_source_types,api.detection_observation_sources from public,anonymous;
+revoke all on api.detection_source_types,api.detection_methods,api.detection_method_mappings,api.detection_method_mapping_history,api.detection_observation_sources from public,anonymous;
 revoke all on function api.get_detection_situation_snapshot(text[],smallint[],double precision,double precision,double precision,double precision,integer,integer) from public,anonymous;
 revoke all on function api.get_detection_live_tracks(text[],smallint[],integer,integer,integer,integer) from public,anonymous;
+revoke all on function api.get_detection_live_tracks_v2(bigint[],bigint[],text[],integer,integer,integer,integer) from public,anonymous;
 revoke all on function api.get_detection_situation_changes(bigint,text[],integer) from public,anonymous;
 revoke all on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) from public,anonymous;
 revoke all on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) from public,anonymous;
 revoke all on function api.update_detection_observation_source(bigint,text,bigint,text,integer,boolean) from public,anonymous;
-grant select on api.detection_source_types,api.detection_observation_sources to admin;
+revoke all on function api.create_detection_method(text,text,text,boolean,integer,jsonb) from public,anonymous;
+revoke all on function api.update_detection_method(text,jsonb) from public,anonymous;
+revoke all on function api.upsert_detection_method_mapping(text,text,text,boolean,jsonb) from public,anonymous;
+grant select on api.detection_source_types,api.detection_methods,api.detection_method_mappings,api.detection_method_mapping_history,api.detection_observation_sources to admin;
 grant execute on function api.get_detection_situation_snapshot(text[],smallint[],double precision,double precision,double precision,double precision,integer,integer) to admin;
 grant execute on function api.get_detection_live_tracks(text[],smallint[],integer,integer,integer,integer) to admin;
+grant execute on function api.get_detection_live_tracks_v2(bigint[],bigint[],text[],integer,integer,integer,integer) to admin;
 grant execute on function api.get_detection_situation_changes(bigint,text[],integer) to admin;
 grant execute on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) to admin;
 grant execute on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) to admin;
 grant execute on function api.update_detection_observation_source(bigint,text,bigint,text,integer,boolean) to admin;
+grant execute on function api.create_detection_method(text,text,text,boolean,integer,jsonb) to admin;
+grant execute on function api.update_detection_method(text,jsonb) to admin;
+grant execute on function api.upsert_detection_method_mapping(text,text,text,boolean,jsonb) to admin;
 
 notify pgrst,'reload schema';
 commit;

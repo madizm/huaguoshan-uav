@@ -1,5 +1,14 @@
+const fs = require('fs');
 const assert = require('assert');
 const SourceSituation = require('../frontend/src/features/source-situation/source-situation-module');
+
+const sourceModuleText = fs.readFileSync(
+  require.resolve('../frontend/src/features/source-situation/source-situation-module'),
+  'utf8',
+);
+assert(sourceModuleText.includes("rpc('get_detection_live_tracks_v2'"));
+assert(sourceModuleText.includes('p_detection_method_codes: detectionMethods'));
+assert(!sourceModuleText.includes("rpc('get_detection_live_tracks',"));
 
 assert.deepStrictEqual(
   SourceSituation.buildHistoryPayload('2026-09-21', '2026-09-21', [20]),
@@ -58,13 +67,14 @@ assert.strictEqual(
   'warning',
 );
 
-const sourceButtons = [10, 20].map((code) => ({
-  dataset: { sourceSituation: String(code) },
+const sourceButtons = ['radar', 'radio_detection'].map((code) => ({
+  dataset: { detectionMethod: code },
   getAttribute: () => 'true',
 }));
-assert.strictEqual(SourceSituation._private.sourceTypeFilter(sourceButtons), null);
+assert.strictEqual(SourceSituation._private.detectionMethodFilter(sourceButtons), null);
 sourceButtons[0].getAttribute = () => 'false';
-assert.deepStrictEqual(SourceSituation._private.sourceTypeFilter(sourceButtons), [20]);
+assert.deepStrictEqual(SourceSituation._private.detectionMethodFilter(sourceButtons), ['radio_detection']);
+assert.deepStrictEqual(SourceSituation._private.legacySourceTypeFilter(sourceButtons), [20]);
 
 const liveTracks = SourceSituation.indexLiveTracks([{
   track_id: 7,
@@ -85,21 +95,22 @@ SourceSituation.applyLiveChanges(liveTracks, [{
     observed_at: '2026-09-21T10:01:00+08:00',
     position: { coordinates: [119.191, 34.59] },
     source_type_code: 20,
+    detection_method_code: 'radio_detection',
   },
 }, {
   type: 'target_upsert',
   occurred_at: '2026-09-21T10:01:00+08:00',
-  payload: { track_id: 7, observation_id: 2, position: { coordinates: [119.191, 34.59] }, source_type_code: 20 },
-}], '2026-09-21T10:01:00+08:00', 300, 60, [20]);
+  payload: { track_id: 7, observation_id: 2, position: { coordinates: [119.191, 34.59] }, source_type_code: 20, detection_method_code: 'radio_detection' },
+}], '2026-09-21T10:01:00+08:00', 300, 60, ['radio_detection']);
 assert.strictEqual(liveTracks['7'].points.length, 2, '增量观测按 observation_id 去重');
 
 SourceSituation.applyLiveChanges(liveTracks, [{
   type: 'target_remove',
   occurred_at: '2026-09-21T10:01:30+08:00',
   payload: { track_id: 7 },
-}], '2026-09-21T10:01:30+08:00', 300, 60, [20]);
+}], '2026-09-21T10:01:30+08:00', 300, 60, ['radio_detection']);
 assert.strictEqual(liveTracks['7'].status, 'lost');
-SourceSituation.applyLiveChanges(liveTracks, [], '2026-09-21T10:02:31+08:00', 300, 60, [20]);
+SourceSituation.applyLiveChanges(liveTracks, [], '2026-09-21T10:02:31+08:00', 300, 60, ['radio_detection']);
 assert.strictEqual(liveTracks['7'], undefined, '丢失航迹超过保留时间后移除');
 
 const html = SourceSituation.historySummaryHtml([{

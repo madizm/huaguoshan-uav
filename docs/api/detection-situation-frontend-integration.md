@@ -20,7 +20,7 @@
 登录取得 admin JWT
         │
         ▼
-get_detection_live_tracks
+get_detection_live_tracks_v2
 初始化活动目标、最近 5 分钟尾迹、来源状态和 cursor
         │
         ▼
@@ -145,13 +145,14 @@ async function rpc(name, payload, token) {
 ### 5.1 请求
 
 ```http
-POST /postgrest/rpc/get_detection_live_tracks
+POST /postgrest/rpc/get_detection_live_tracks_v2
 ```
 
 ```json
 {
-  "p_station_ids": ["90"],
-  "p_source_type_codes": [10, 20],
+  "p_observation_source_ids": null,
+  "p_producer_asset_ids": null,
+  "p_detection_method_codes": ["radar", "radio_detection"],
   "p_active_within_seconds": 120,
   "p_trail_seconds": 300,
   "p_max_tracks": 1000,
@@ -163,8 +164,9 @@ POST /postgrest/rpc/get_detection_live_tracks
 
 | 参数 | 范围 | 说明 |
 |---|---:|---|
-| `p_station_ids` | 可空 | 站点 ID 过滤；`null` 表示全部站点 |
-| `p_source_type_codes` | 可空 | 来源过滤；`null` 表示不过滤，`[]` 表示空集 |
+| `p_observation_source_ids` | 可空 | 观测来源 ID 过滤；`null` 表示全部来源 |
+| `p_producer_asset_ids` | 可空 | 实际生产观测的设备资产 ID；`null` 表示不过滤 |
+| `p_detection_method_codes` | 可空 | 平台稳定侦测方式过滤；`null` 表示不过滤，`[]` 表示空集 |
 | `p_active_within_seconds` | 5–3600 | 最近多久有观测才视为活动航迹 |
 | `p_trail_seconds` | 30–1800 | 每条航迹返回的尾迹时间窗口 |
 | `p_max_tracks` | 1–5000 | 最大活动航迹数 |
@@ -199,8 +201,9 @@ POST /postgrest/rpc/get_detection_live_tracks
       "status": "tracking",
       "station_id": "90",
       "source_target_id": "F6Q8D249V00GLEL3",
-      "source_type_code": 20,
-      "source_type_name": "电侦",
+      "observation_methods": [{"code": "radio_detection", "name": "电侦"}],
+      "latest_observation_method_code": "radio_detection",
+      "latest_observation_method_name": "电侦",
       "model": "DJI-Matrice 3D/3TD",
       "last_observed_at": "2026-09-21T10:30:31+08:00",
       "quality_flags": [],
@@ -213,7 +216,8 @@ POST /postgrest/rpc/get_detection_live_tracks
             "coordinates": [119.179627433, 34.597603822]
           },
           "altitude_amsl_m": 116.0,
-          "source_type_code": 20,
+          "detection_method_code": "radio_detection",
+          "detection_method_name": "电侦",
           "quality_flags": []
         }
       ]
@@ -290,7 +294,7 @@ POST /postgrest/rpc/get_detection_situation_changes
 
 ### 6.4 增量合并
 
-`target_upsert` 可能没有 `position`。这种消息表示目标仍被侦测到，但不能更新地图坐标。
+`target_upsert` 可能没有 `position`。这种消息表示目标仍被侦测到，但不能更新地图坐标。增量中的 `detection_method_code` 使用平台稳定编码，与初始化响应一致。
 
 建议的合并逻辑：
 
@@ -420,7 +424,7 @@ POST /postgrest/rpc/get_detection_situation_snapshot
 - `sources`：来源状态；
 - `cursor`：当前增量游标。
 
-实时尾迹页面优先使用 `get_detection_live_tracks`，不应同时调用两个初始化接口。
+实时尾迹页面使用 `get_detection_live_tracks_v2`，不应再同时调用旧版 `get_detection_live_tracks`。旧版只保留给尚未迁移的调用方。
 
 ## 11. 历史航迹
 

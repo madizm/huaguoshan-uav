@@ -107,6 +107,7 @@ class RadarCloudConnectorTests(unittest.TestCase):
         self.assertEqual(normalized["schemaVersion"], 1)
         self.assertEqual(normalized["eventType"], "snapshot")
         self.assertEqual(normalized["sourceTypeCode"], 20)
+        self.assertEqual(normalized["detectionMethodCode"], "radio_detection")
         self.assertEqual(normalized["observedAt"], "2026-09-20T09:46:08+00:00")
         self.assertEqual(normalized["horizontalDistanceM"], 290.0)
         self.assertEqual(normalized["speedMps"], 15.5)
@@ -125,6 +126,7 @@ class RadarCloudConnectorTests(unittest.TestCase):
             normalized["qualityFlags"],
             ["missing_source_type", "missing_position", "missing_source_time"],
         )
+        self.assertIsNone(normalized["detectionMethodCode"])
 
     def test_database_rejections_are_isolated_per_observation(self):
         source = SCRIPT.read_text(encoding="utf-8")

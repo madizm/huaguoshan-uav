@@ -32,6 +32,10 @@ SUPPORTED_MESSAGE_TYPES = {
     "uav_online_upsert",
 }
 SOURCE_TIMEZONE = ZoneInfo("Asia/Shanghai")
+DETECTION_METHOD_BY_SOURCE_TYPE = {
+    10: "radar",
+    20: "radio_detection",
+}
 
 
 def safe_number(value: Any) -> float | None:
@@ -130,6 +134,7 @@ def normalize_vendor_item(message_type: str, item: dict[str, Any], station_id: s
         longitude = latitude = None
     source_type = safe_number(item.get("sourceType"))
     source_type_code = int(source_type) if source_type in {10.0, 20.0} else None
+    detection_method_code = DETECTION_METHOD_BY_SOURCE_TYPE.get(source_type_code)
     quality_flags = []
     if source_type_code is None:
         quality_flags.append("missing_source_type")
@@ -145,7 +150,8 @@ def normalize_vendor_item(message_type: str, item: dict[str, Any], station_id: s
         "schemaVersion": 1, "sourceSystem": SOURCE_SYSTEM, "stationId": item_station,
         "sourceObservationId": hashlib.sha256(fingerprint.encode()).hexdigest(),
         "sourceTargetId": serial, "sourceSessionId": item.get("sessionId") or None,
-        "sourceTypeCode": source_type_code, "eventType": event_type,
+        "sourceTypeCode": source_type_code, "detectionMethodCode": detection_method_code,
+        "eventType": event_type,
         "observedAt": observed_at.isoformat(), "receivedAt": received_at.isoformat(),
         "longitude": longitude, "latitude": latitude,
         "altitudeAmslM": safe_number(item.get("altitude")),
