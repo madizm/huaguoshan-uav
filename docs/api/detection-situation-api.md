@@ -7,6 +7,7 @@
 - 数据库迁移：`backend/create_detection_situation_schema.sql`
 - 云平台连接器：`scripts/radar_cloud_connector.py`
 - 数据库设计：`docs/雷达云平台/云平台侦测接入设计.md`
+- 前端对接：`docs/api/detection-situation-frontend-integration.md`
 
 连接器直接调用受限 PostgreSQL 函数。设计文档中的 `/internal/v1/detection/*` 是逻辑内部接口；当前部署没有额外增加 HTTP 转发层，避免无意义的透传服务。
 
@@ -154,7 +155,7 @@ POST /postgrest/rpc/list_detection_target_tracks
 POST /postgrest/rpc/get_target_track_detail
 ```
 
-快照请求示例：
+### 6.1 当前态势快照
 
 ```json
 {
@@ -165,7 +166,9 @@ POST /postgrest/rpc/get_target_track_detail
 }
 ```
 
-实时航迹初始化请求示例：
+返回活动目标的当前位置、无坐标侦测、来源状态和当前增量游标。
+
+### 6.2 实时航迹初始化
 
 ```json
 {
@@ -180,8 +183,7 @@ POST /postgrest/rpc/get_target_track_detail
 
 返回当前活动目标、每条目标最近一段有界空间尾迹、来源状态和增量游标。前端随后使用游标补读增量，避免重复下载完整尾迹。
 
-增量请求示例：
-增量请求示例：
+### 6.3 态势增量
 
 ```json
 {
@@ -191,13 +193,11 @@ POST /postgrest/rpc/get_target_track_detail
 }
 ```
 
-历史航迹摘要使用半开时间区间，单次窗口最大 7 天：
-}
-```
-
 `target_upsert` 增量在有空间观测时包含 `observation_id`、`observed_at`、GeoJSON `position`、高度、速度、来源类型和质量标记；`target_remove` 用于将目标标记为丢失。
 
-历史航迹摘要使用半开时间区间，单次窗口最大 7 天：
+### 6.4 历史航迹摘要
+
+历史查询使用半开时间区间，单次窗口最大 7 天：
 
 ```json
 {
@@ -211,7 +211,9 @@ POST /postgrest/rpc/get_target_track_detail
 
 返回 `tracks`，每项包含航迹、来源目标、时间范围、空间点数量、质量标记数量、高度范围和空间范围。
 
-航迹详情使用半开时间区间，单次窗口最大 7 天：
+### 6.5 航迹详情
+
+航迹详情同样使用半开时间区间，单次窗口最大 7 天：
 
 ```json
 {
@@ -222,7 +224,7 @@ POST /postgrest/rpc/get_target_track_detail
 }
 ```
 
-### 6.1 管理侦测来源
+### 6.6 管理侦测来源
 
 管理员通过受约束 RPC 更新来源配置，不直接写入 `situation` 基础表：
 
