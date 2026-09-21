@@ -69,6 +69,7 @@ class DetectionSituationSchemaTests(unittest.TestCase):
     def test_read_rpcs_have_bounded_parameters_and_documented_json(self):
         for function in (
             "api.get_detection_situation_snapshot",
+            "api.get_detection_live_tracks",
             "api.get_detection_situation_changes",
             "api.list_detection_target_tracks",
             "api.get_target_track_detail",
@@ -80,6 +81,10 @@ class DetectionSituationSchemaTests(unittest.TestCase):
             )
         self.assertIn("p_limit integer default 1000", self.lower)
         self.assertIn("p_limit integer default 500", self.lower)
+        self.assertIn("p_trail_seconds integer default 300", self.lower)
+        self.assertIn("p_max_points_per_track integer default 300", self.lower)
+        self.assertIn("'position',case when r.geom is null then null else st_asgeojson", self.lower)
+        self.assertIn("grant execute on function api.get_detection_live_tracks", self.lower)
         self.assertIn("p_max_points integer default 2000", self.lower)
         self.assertIn("p_end_at-p_start_at>interval '7 days'", self.lower)
         self.assertNotIn("track detail window cannot exceed 24 hours", self.lower)

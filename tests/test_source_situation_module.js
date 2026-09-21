@@ -19,6 +19,11 @@ assert.throws(
   () => SourceSituation.buildHistoryPayload('2026-09-01', '2026-09-08'),
   /最多支持 7 天/,
 );
+assert.deepStrictEqual(
+  SourceSituation.buildHistoryPayload('2026-09-21', '2026-09-21', []).p_source_type_codes,
+  [],
+  '来源全部取消时必须查询空集，而不是退化为不过滤',
+);
 
 const split = SourceSituation.splitTrack([
   { observed_at: '2026-09-21T10:00:00+08:00', position: { coordinates: [119.19, 34.59] } },
@@ -60,6 +65,42 @@ const sourceButtons = [10, 20].map((code) => ({
 assert.strictEqual(SourceSituation._private.sourceTypeFilter(sourceButtons), null);
 sourceButtons[0].getAttribute = () => 'false';
 assert.deepStrictEqual(SourceSituation._private.sourceTypeFilter(sourceButtons), [20]);
+
+const liveTracks = SourceSituation.indexLiveTracks([{
+  track_id: 7,
+  status: 'tracking',
+  source_type_code: 20,
+  points: [{
+    observation_id: 1,
+    observed_at: '2026-09-21T10:00:00+08:00',
+    position: { coordinates: [119.19, 34.59] },
+  }],
+}]);
+SourceSituation.applyLiveChanges(liveTracks, [{
+  type: 'target_upsert',
+  occurred_at: '2026-09-21T10:01:00+08:00',
+  payload: {
+    track_id: 7,
+    observation_id: 2,
+    observed_at: '2026-09-21T10:01:00+08:00',
+    position: { coordinates: [119.191, 34.59] },
+    source_type_code: 20,
+  },
+}, {
+  type: 'target_upsert',
+  occurred_at: '2026-09-21T10:01:00+08:00',
+  payload: { track_id: 7, observation_id: 2, position: { coordinates: [119.191, 34.59] }, source_type_code: 20 },
+}], '2026-09-21T10:01:00+08:00', 300, 60, [20]);
+assert.strictEqual(liveTracks['7'].points.length, 2, '增量观测按 observation_id 去重');
+
+SourceSituation.applyLiveChanges(liveTracks, [{
+  type: 'target_remove',
+  occurred_at: '2026-09-21T10:01:30+08:00',
+  payload: { track_id: 7 },
+}], '2026-09-21T10:01:30+08:00', 300, 60, [20]);
+assert.strictEqual(liveTracks['7'].status, 'lost');
+SourceSituation.applyLiveChanges(liveTracks, [], '2026-09-21T10:02:31+08:00', 300, 60, [20]);
+assert.strictEqual(liveTracks['7'], undefined, '丢失航迹超过保留时间后移除');
 
 const html = SourceSituation.historySummaryHtml([{
   track_id: 1,

@@ -148,6 +148,7 @@ uv run scripts/radar_cloud_connector.py
 GET  /postgrest/detection_source_types
 GET  /postgrest/detection_observation_sources
 POST /postgrest/rpc/get_detection_situation_snapshot
+POST /postgrest/rpc/get_detection_live_tracks
 POST /postgrest/rpc/get_detection_situation_changes
 POST /postgrest/rpc/list_detection_target_tracks
 POST /postgrest/rpc/get_target_track_detail
@@ -164,6 +165,22 @@ POST /postgrest/rpc/get_target_track_detail
 }
 ```
 
+实时航迹初始化请求示例：
+
+```json
+{
+  "p_station_ids": ["90"],
+  "p_source_type_codes": [10, 20],
+  "p_active_within_seconds": 120,
+  "p_trail_seconds": 300,
+  "p_max_tracks": 1000,
+  "p_max_points_per_track": 300
+}
+```
+
+返回当前活动目标、每条目标最近一段有界空间尾迹、来源状态和增量游标。前端随后使用游标补读增量，避免重复下载完整尾迹。
+
+增量请求示例：
 增量请求示例：
 
 ```json
@@ -173,6 +190,12 @@ POST /postgrest/rpc/get_target_track_detail
   "p_limit": 500
 }
 ```
+
+历史航迹摘要使用半开时间区间，单次窗口最大 7 天：
+}
+```
+
+`target_upsert` 增量在有空间观测时包含 `observation_id`、`observed_at`、GeoJSON `position`、高度、速度、来源类型和质量标记；`target_remove` 用于将目标标记为丢失。
 
 历史航迹摘要使用半开时间区间，单次窗口最大 7 天：
 

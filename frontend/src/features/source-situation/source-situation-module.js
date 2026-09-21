@@ -29,7 +29,7 @@
       p_start_at: startDate + 'T00:00:00+08:00',
       p_end_at: exclusiveEnd + 'T00:00:00+08:00',
       p_station_ids: null,
-      p_source_type_codes: sourceTypeCodes && sourceTypeCodes.length ? sourceTypeCodes : null,
+      p_source_type_codes: sourceTypeCodes == null ? null : sourceTypeCodes,
       p_limit: 200
     };
   }
@@ -96,6 +96,74 @@
     return selected.length === (buttons || []).length ? null : selected;
   }
 
+  function indexLiveTracks(tracks) {
+    return (tracks || []).reduce(function (indexed, track) {
+      indexed[String(track.track_id)] = Object.assign({}, track, { points: (track.points || []).slice() });
+      return indexed;
+    }, {});
+  }
+
+  function applyLiveChanges(trackMap, changes, referenceTime, trailSeconds, lostRetentionSeconds, acceptedSourceTypes) {
+    var referenceMs = Date.parse(referenceTime);
+    var cutoffMs = referenceMs - Number(trailSeconds || 300) * 1000;
+    var lostCutoffMs = referenceMs - Number(lostRetentionSeconds || 60) * 1000;
+    (changes || []).forEach(function (change) {
+      var payload = change.payload || {};
+      var trackId = payload.track_id;
+      if (trackId == null) return;
+      var key = String(trackId);
+      var track = trackMap[key];
+      if (change.type === 'target_remove') {
+        if (track) {
+          track.status = 'lost';
+          track.lost_at = change.occurred_at;
+        }
+        return;
+      }
+      if (change.type !== 'target_upsert') return;
+      if (acceptedSourceTypes && acceptedSourceTypes.indexOf(Number(payload.source_type_code)) < 0) return;
+      if (!track) {
+        track = trackMap[key] = {
+          track_id: Number(trackId),
+          target_id: payload.target_id,
+          track_code: payload.track_code,
+          source_target_id: payload.source_target_id,
+          source_type_code: payload.source_type_code,
+          model: payload.model,
+          points: []
+        };
+      }
+      track.status = 'tracking';
+      track.last_observed_at = payload.observed_at || change.occurred_at;
+      ['track_code', 'source_target_id', 'source_type_code', 'model'].forEach(function (field) {
+        if (payload[field] != null) track[field] = payload[field];
+      });
+      if (payload.position && payload.observation_id != null && !track.points.some(function (point) {
+        return String(point.observation_id) === String(payload.observation_id);
+      })) {
+        track.points.push({
+          observation_id: payload.observation_id,
+          observed_at: payload.observed_at || change.occurred_at,
+          position: payload.position,
+          altitude_amsl_m: payload.altitude_amsl_m,
+          source_type_code: payload.source_type_code,
+          speed_mps: payload.speed_mps,
+          quality_flags: payload.quality_flags || []
+        });
+      }
+    });
+    Object.keys(trackMap).forEach(function (key) {
+      var track = trackMap[key];
+      track.points = (track.points || []).filter(function (point) {
+        return Date.parse(point.observed_at) >= cutoffMs;
+      }).sort(function (a, b) {
+        return Date.parse(a.observed_at) - Date.parse(b.observed_at) || Number(a.observation_id) - Number(b.observation_id);
+      });
+      if (track.status === 'lost' && Date.parse(track.lost_at) < lostCutoffMs) delete trackMap[key];
+    });
+    return trackMap;
+  }
+
   function sourceState(source, generatedAt) {
     if (!source || !source.enabled) return { code: 'disabled', label: '已停用' };
     if (source.connector_state !== 'connected') return { code: 'warning', label: '连接异常' };
@@ -107,20 +175,21 @@
   }
 
   function realtimeSummaryHtml(payload) {
-    var targets = payload && payload.targets || [];
-    var nonSpatial = payload && payload.non_spatial_detections || [];
+    var targets = payload && (payload.tracks || payload.targets) || [];
+    var spatialCount = targets.filter(function (track) { return (track.points || []).length || track.position; }).length;
+    var nonSpatialCount = targets.length - spatialCount;
     var sources = payload && payload.sources || [];
     var sourceCards = sources.map(function (source) {
       var state = sourceState(source, payload.generated_at);
       return '<article class="source-quality-card" data-quality="' + state.code + '">' +
         '<header><i style="--source-color:#5eead4"></i><strong>' + escapeHtml(source.name) + '</strong><span>' + state.label + '</span></header>' +
-        '<dl><div><dt>空间目标</dt><dd>' + formatCount(targets.length) + '</dd></div>' +
-        '<div><dt>无坐标</dt><dd>' + formatCount(nonSpatial.length) + '</dd></div>' +
+        '<dl><div><dt>空间目标</dt><dd>' + formatCount(spatialCount) + '</dd></div>' +
+        '<div><dt>无坐标</dt><dd>' + formatCount(nonSpatialCount) + '</dd></div>' +
         '<div><dt>站点</dt><dd>' + escapeHtml(source.station_id) + '</dd></div></dl>' +
         '<p>最近消息 ' + formatTime(source.last_message_at) + '</p></article>';
     }).join('');
     if (!sourceCards) sourceCards = '<p class="source-situation-empty">没有可用侦测来源。</p>';
-    if (!targets.length && !nonSpatial.length) sourceCards += '<p class="source-situation-empty">当前没有正在跟踪的目标。</p>';
+    if (!targets.length) sourceCards += '<p class="source-situation-empty">当前没有正在跟踪的目标。</p>';
     return sourceCards;
   }
 
@@ -149,6 +218,11 @@
     var refreshTimer = null;
     var destroyed = false;
     var requestSequence = 0;
+    var liveTracks = {};
+    var liveCursor = 0;
+    var liveSources = [];
+    var liveTrailSeconds = 300;
+    var livePolling = false;
     var loadButton = $('#sourceSituationLoad');
     var locateButton = $('#sourceSituationLocate');
     var clearButton = $('#sourceSituationClear');
@@ -186,6 +260,9 @@
       requestSequence += 1;
       removeLayers();
       if (summary) summary.innerHTML = '<p class="source-situation-empty">尚未加载侦测态势。</p>';
+      liveTracks = {};
+      liveCursor = 0;
+      liveSources = [];
       if (hint) hint.textContent = '未加载';
     }
 
@@ -220,25 +297,43 @@
 
     function renderRealtime(payload) {
       removeLayers();
-      (payload.targets || []).forEach(function (target) {
-        var style = SOURCE_STYLE[target.source_type_code] || { color: '#9ba8a2', label: '来源待确认' };
-        var dataSource = addDataSource(target.source_type_code, style.label);
+      var tracks = payload.tracks || [];
+      tracks.forEach(function (track) {
+        var points = track.points || [];
+        var style = SOURCE_STYLE[track.source_type_code] || { color: '#9ba8a2', label: '来源待确认' };
+        var dataSource = addDataSource(track.source_type_code, style.label);
+        var split = splitTrack(points, MAX_TRACK_SPEED_MPS);
+        var lost = track.status === 'lost';
+        points.forEach(extendBounds);
+        split.segments.forEach(function (segment, index) {
+          dataSource.entities.add({
+            id: 'detection-live-trail-' + track.track_id + '-' + index,
+            name: (track.track_code || track.source_target_id) + ' 实时尾迹',
+            polyline: {
+              positions: segment.map(function (point) { return pointPosition(point, 100); }),
+              width: lost ? 2 : 3,
+              material: CesiumRuntime.Color.fromCssColorString(style.color).withAlpha(lost ? 0.28 : 0.78),
+              clampToGround: false
+            }
+          });
+        });
+        if (!points.length) return;
+        var target = points[points.length - 1];
         var position = pointPosition(target, 100);
         if (!position) return;
-        extendBounds(target);
         dataSource.entities.add({
-          id: 'detection-target-' + target.track_id,
-          name: (target.model || style.label) + ' ' + target.source_target_id,
+          id: 'detection-target-' + track.track_id,
+          name: (track.model || style.label) + ' ' + track.source_target_id,
           position: position,
           point: {
-            pixelSize: 11,
-            color: CesiumRuntime.Color.fromCssColorString(style.color),
+            pixelSize: lost ? 8 : 11,
+            color: CesiumRuntime.Color.fromCssColorString(style.color).withAlpha(lost ? 0.38 : 1),
             outlineColor: CesiumRuntime.Color.fromCssColorString('#071713'),
             outlineWidth: 2,
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           },
           label: {
-            text: target.model || style.label,
+            text: (lost ? '已丢失 · ' : '') + (track.model || style.label),
             font: '600 12px sans-serif',
             fillColor: CesiumRuntime.Color.fromCssColorString('#fff7df'),
             showBackground: true,
@@ -246,12 +341,14 @@
             pixelOffset: new CesiumRuntime.Cartesian2(0, -22),
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           },
-          description: '来源目标：' + escapeHtml(target.source_target_id) + '；观测时间：' + formatTime(target.observed_at) +
+          description: '来源目标：' + escapeHtml(track.source_target_id) + '；观测时间：' + formatTime(target.observed_at) +
             '；高度：' + (target.altitude_amsl_m == null ? '未知' : target.altitude_amsl_m + ' m AMSL')
         });
       });
       if (summary) summary.innerHTML = realtimeSummaryHtml(payload);
-      if (hint) hint.textContent = formatCount((payload.targets || []).length) + ' 个活动目标';
+      var activeCount = tracks.filter(function (track) { return track.status !== 'lost'; }).length;
+      var pointCount = tracks.reduce(function (total, track) { return total + (track.points || []).length; }, 0);
+      if (hint) hint.textContent = formatCount(activeCount) + ' 目标 · ' + formatCount(pointCount) + ' 尾迹点';
       if (locateButton) locateButton.disabled = !lastBounds;
       if (clearButton) clearButton.disabled = false;
     }
@@ -317,20 +414,35 @@
       loadButton.textContent = active ? '正在加载…' : label;
     }
 
+    function currentLivePayload(generatedAt) {
+      return {
+        generated_at: generatedAt || new Date().toISOString(),
+        tracks: Object.keys(liveTracks).map(function (key) { return liveTracks[key]; }),
+        sources: liveSources
+      };
+    }
+
     function loadRealtime(silent) {
       var sequence = ++requestSequence;
       var sourceTypes = sourceTypeFilter(sourceButtons);
       if (!silent) setLoading(true, '刷新实时态势');
       if (hint && !silent) hint.textContent = '查询中';
-      return rpc('get_detection_situation_snapshot', {
+      return rpc('get_detection_live_tracks', {
         p_station_ids: null,
         p_source_type_codes: sourceTypes,
         p_active_within_seconds: 120,
-        p_limit: 1000
+        p_trail_seconds: 300,
+        p_max_tracks: 1000,
+        p_max_points_per_track: 300
       }).then(function (payload) {
         if (destroyed || sequence !== requestSequence || mode !== 'realtime') return payload;
-        renderRealtime(payload || { targets: [], non_spatial_detections: [], sources: [] });
-        if (!silent) log('实时侦测态势已刷新。', 'success');
+        payload = payload || { tracks: [], sources: [], cursor: 0, trail_seconds: 300 };
+        liveTracks = indexLiveTracks(payload.tracks);
+        liveCursor = Number(payload.cursor || 0);
+        liveSources = payload.sources || [];
+        liveTrailSeconds = Number(payload.trail_seconds || 300);
+        renderRealtime(currentLivePayload(payload.generated_at));
+        if (!silent) log('实时目标及最近 5 分钟尾迹已加载。', 'success');
         return payload;
       }).catch(function (error) {
         if (hint) hint.textContent = '加载失败';
@@ -341,9 +453,44 @@
       });
     }
 
+    function pollRealtimeChanges() {
+      if (livePolling || destroyed || mode !== 'realtime' || !liveCursor) return Promise.resolve();
+      livePolling = true;
+      var acceptedTypes = sourceTypeFilter(sourceButtons);
+      function readPage() {
+        return rpc('get_detection_situation_changes', {
+          p_after_cursor: liveCursor,
+          p_station_ids: null,
+          p_limit: 500
+        }).then(function (page) {
+          if (destroyed || mode !== 'realtime') return page;
+          var generatedAt = new Date().toISOString();
+          applyLiveChanges(liveTracks, page.changes || [], generatedAt, liveTrailSeconds, 60, acceptedTypes);
+          liveCursor = Number(page.next_cursor || liveCursor);
+          var targetChanges = (page.changes || []).filter(function (change) {
+            return change.type === 'target_upsert' || change.type === 'target_remove';
+          });
+          if (targetChanges.length) {
+            var newest = targetChanges.reduce(function (latest, change) {
+              return Date.parse(change.occurred_at) > Date.parse(latest) ? change.occurred_at : latest;
+            }, targetChanges[0].occurred_at);
+            liveSources.forEach(function (source) {
+              if (!source.last_message_at || Date.parse(newest) > Date.parse(source.last_message_at)) source.last_message_at = newest;
+            });
+          }
+          renderRealtime(currentLivePayload(generatedAt));
+          return page.has_more ? readPage() : page;
+        });
+      }
+      return readPage().catch(function (error) {
+        if (hint) hint.textContent = '增量中断';
+        log('实时航迹增量读取失败：' + error.message, 'error');
+      }).finally(function () { livePolling = false; });
+    }
+
     function startRealtimeRefresh() {
       stopRefresh();
-      refreshTimer = setInterval(function () { loadRealtime(true).catch(function () {}); }, 5000);
+      refreshTimer = setInterval(pollRealtimeChanges, 2000);
     }
 
     function loadHistory() {
@@ -407,7 +554,7 @@
       if (loadButton) loadButton.textContent = historyMode ? '查询历史航迹' : '刷新实时态势';
       if (note) note.textContent = historyMode
         ? '选择航迹查看详情；推算速度超过 100 m/s 的相邻点自动断开。'
-        : '实时模式仅显示当前跟踪目标；无坐标侦测单独计数。';
+        : '实时模式按游标每 2 秒补读，显示最近 5 分钟尾迹；异常跳变自动断开。';
       if (summary) summary.innerHTML = '<p class="source-situation-empty">' + (historyMode ? '请选择日期查询历史航迹。' : '点击刷新加载当前侦测态势。') + '</p>';
       if (hint) hint.textContent = '未加载';
     }
@@ -437,7 +584,11 @@
       bind(button, 'click', function () {
         var active = button.getAttribute('aria-pressed') !== 'true';
         button.setAttribute('aria-pressed', String(active));
-        if (dataSources[button.dataset.sourceSituation]) dataSources[button.dataset.sourceSituation].show = active;
+        if (mode === 'realtime' && liveCursor) {
+          loadRealtime(true).then(startRealtimeRefresh).catch(function () {});
+        } else if (dataSources[button.dataset.sourceSituation]) {
+          dataSources[button.dataset.sourceSituation].show = active;
+        }
       });
     });
 
@@ -461,6 +612,8 @@
     sourceState: sourceState,
     realtimeSummaryHtml: realtimeSummaryHtml,
     historySummaryHtml: historySummaryHtml,
+    indexLiveTracks: indexLiveTracks,
+    applyLiveChanges: applyLiveChanges,
     _private: {
       addDays: addDays,
       coordinates: coordinates,

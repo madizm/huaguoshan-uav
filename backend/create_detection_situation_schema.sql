@@ -554,10 +554,73 @@ end;
 $$;
 comment on function api.get_detection_situation_snapshot(text[],smallint[],double precision,double precision,double precision,double precision,integer,integer) is '返回 JSON：generated_at、cursor、targets（有位置活动目标）、non_spatial_detections（无位置侦测）和 sources（来源状态）；支持站点、来源类型、WGS84 bbox、活动窗口和数量上限。';
 
+create or replace function api.get_detection_live_tracks(
+  p_station_ids text[] default null,p_source_type_codes smallint[] default null,
+  p_active_within_seconds integer default 120,p_trail_seconds integer default 300,
+  p_max_tracks integer default 1000,p_max_points_per_track integer default 300
+) returns jsonb language plpgsql stable security definer
+set search_path=pg_catalog,public,equipment,situation,api as $$
+declare v_result jsonb;
+begin
+  if p_active_within_seconds not between 5 and 3600 then raise exception 'active window must be between 5 and 3600 seconds'; end if;
+  if p_trail_seconds not between 30 and 1800 then raise exception 'trail window must be between 30 and 1800 seconds'; end if;
+  if p_max_tracks not between 1 and 5000 then raise exception 'max tracks must be between 1 and 5000'; end if;
+  if p_max_points_per_track not between 2 and 1000 then raise exception 'max points per track must be between 2 and 1000'; end if;
+  with active_tracks as (
+    select t.id track_id,t.track_code,t.target_id,t.status,s.source_target_id,s.source_type_code,
+      dt.name source_type_name,src.external_station_id station_id,t.last_observed_at,
+      o.model,o.frequency_mhz,o.quality_flags
+    from situation.target_track t
+    join situation.source_target_session s on s.id=t.source_session_id
+    join situation.observation_source src on src.id=s.observation_source_id
+    left join situation.detection_source_type dt on dt.vendor_code=s.source_type_code
+    left join situation.target_observation o on o.observation_id=t.current_observation_id
+    where t.status='tracking' and t.last_observed_at>=now()-make_interval(secs=>p_active_within_seconds)
+      and (p_station_ids is null or src.external_station_id=any(p_station_ids))
+      and (p_source_type_codes is null or s.source_type_code=any(p_source_type_codes))
+    order by t.last_observed_at desc,t.id desc limit p_max_tracks
+  ), live_tracks as (
+    select a.*,coalesce(points.items,'[]'::jsonb) points
+    from active_tracks a
+    left join lateral (
+      select jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+        'observation_id',p.id,'observed_at',p.observed_at,'position',ST_AsGeoJSON(p.geom)::jsonb,
+        'altitude_amsl_m',p.height_amsl_m,'source_type_code',p.source_type_code,
+        'speed_mps',p.speed_mps,'quality_flags',p.quality_flags
+      )) order by p.observed_at,p.id) items
+      from (
+        select r.id,r.observed_at,r.geom,r.height_amsl_m,to2.source_type_code,to2.speed_mps,to2.quality_flags
+        from situation.track_observation x
+        join equipment.raw_observation r on r.id=x.observation_id
+        join situation.target_observation to2 on to2.observation_id=r.id
+        where x.track_id=a.track_id and r.geom is not null
+          and r.observed_at>=now()-make_interval(secs=>p_trail_seconds)
+        order by r.observed_at desc,r.id desc limit p_max_points_per_track
+      ) p
+    ) points on true
+  )
+  select jsonb_build_object(
+    'generated_at',now(),'cursor',coalesce((select max(id) from situation.change_event),0),
+    'trail_seconds',p_trail_seconds,
+    'tracks',coalesce((select jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+      'track_id',track_id,'track_code',track_code,'target_id',target_id,'status',status,
+      'station_id',station_id,'source_target_id',source_target_id,'source_type_code',source_type_code,
+      'source_type_name',source_type_name,'model',model,'frequency_mhz',frequency_mhz,
+      'quality_flags',quality_flags,'last_observed_at',last_observed_at,'points',points
+    )) order by last_observed_at desc) from live_tracks),'[]'::jsonb),
+    'sources',coalesce((select jsonb_agg(to_jsonb(v) order by station_id)
+      from api.detection_observation_sources v
+      where p_station_ids is null or station_id=any(p_station_ids)),'[]'::jsonb)
+  ) into v_result;
+  return v_result;
+end;
+$$;
+comment on function api.get_detection_live_tracks(text[],smallint[],integer,integer,integer,integer) is '返回 JSON：generated_at、cursor、trail_seconds、tracks 和 sources；批量返回当前活动目标及最近一段空间尾迹，每条航迹点数有界。';
+
 create or replace function api.get_detection_situation_changes(
   p_after_cursor bigint,p_station_ids text[] default null,p_limit integer default 500
 ) returns jsonb language plpgsql stable security definer
-set search_path=pg_catalog,public,situation as $$
+set search_path=pg_catalog,public,equipment,situation as $$
 declare v_result jsonb;
 begin
   if p_after_cursor is null or p_after_cursor<0 then raise exception 'after cursor must be non-negative'; end if;
@@ -565,15 +628,29 @@ begin
   with filtered as (
     select e.* from situation.change_event e left join situation.observation_source s on s.id=e.observation_source_id
     where e.id>p_after_cursor and (p_station_ids is null or s.external_station_id=any(p_station_ids)) order by e.id limit p_limit+1
-  ), page as (select * from filtered order by id limit p_limit)
+  ), page as (select * from filtered order by id limit p_limit), enriched as (
+    select p.id,p.event_type,p.occurred_at,
+      p.payload||jsonb_strip_nulls(jsonb_build_object(
+        'observation_id',r.id,'observed_at',r.observed_at,
+        'position',case when r.geom is null then null else ST_AsGeoJSON(r.geom)::jsonb end,
+        'altitude_amsl_m',r.height_amsl_m,'source_type_code',o.source_type_code,
+        'speed_mps',o.speed_mps,'quality_flags',o.quality_flags,
+        'track_code',t.track_code,'source_target_id',s.source_target_id,'model',o.model
+      )) payload
+    from page p
+    left join equipment.raw_observation r on r.id=(p.payload->>'observation_id')::bigint
+    left join situation.target_observation o on o.observation_id=r.id
+    left join situation.target_track t on t.id=p.aggregate_id and p.aggregate_type='target_track'
+    left join situation.source_target_session s on s.id=t.source_session_id
+  )
   select jsonb_build_object('from_cursor',p_after_cursor,'next_cursor',coalesce((select max(id) from page),p_after_cursor),
     'has_more',(select count(*)>p_limit from filtered),'changes',coalesce((select jsonb_agg(
-      jsonb_build_object('cursor',id,'type',event_type,'occurred_at',occurred_at,'payload',payload) order by id) from page),'[]'::jsonb))
+      jsonb_build_object('cursor',id,'type',event_type,'occurred_at',occurred_at,'payload',payload) order by id) from enriched),'[]'::jsonb))
   into v_result;
   return v_result;
 end;
 $$;
-comment on function api.get_detection_situation_changes(bigint,text[],integer) is '返回 JSON：from_cursor、next_cursor、has_more 和 changes；按持久化游标补读目标及来源状态增量，单次最多 1000 条。';
+comment on function api.get_detection_situation_changes(bigint,text[],integer) is '返回 JSON：from_cursor、next_cursor、has_more 和 changes；按持久化游标补读目标、来源状态及可用空间观测字段，单次最多 1000 条。';
 
 create or replace function api.list_detection_target_tracks(
   p_start_at timestamptz,p_end_at timestamptz,p_station_ids text[] default null,
@@ -727,12 +804,14 @@ grant execute on function situation.reconcile_detection_targets(text,text,timest
 
 revoke all on api.detection_source_types,api.detection_observation_sources from public,anonymous;
 revoke all on function api.get_detection_situation_snapshot(text[],smallint[],double precision,double precision,double precision,double precision,integer,integer) from public,anonymous;
+revoke all on function api.get_detection_live_tracks(text[],smallint[],integer,integer,integer,integer) from public,anonymous;
 revoke all on function api.get_detection_situation_changes(bigint,text[],integer) from public,anonymous;
 revoke all on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) from public,anonymous;
 revoke all on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) from public,anonymous;
 revoke all on function api.update_detection_observation_source(bigint,text,bigint,text,integer,boolean) from public,anonymous;
 grant select on api.detection_source_types,api.detection_observation_sources to admin;
 grant execute on function api.get_detection_situation_snapshot(text[],smallint[],double precision,double precision,double precision,double precision,integer,integer) to admin;
+grant execute on function api.get_detection_live_tracks(text[],smallint[],integer,integer,integer,integer) to admin;
 grant execute on function api.get_detection_situation_changes(bigint,text[],integer) to admin;
 grant execute on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) to admin;
 grant execute on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) to admin;
