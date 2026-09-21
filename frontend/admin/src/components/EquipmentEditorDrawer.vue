@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import {
@@ -16,6 +16,7 @@ import {
   type RadarModel,
 } from '../api/equipment'
 import { emptyProfile, equipmentProfileFields } from '../equipmentProfiles'
+const CoverageMapDialog = defineAsyncComponent(() => import('./CoverageMapDialog.vue'))
 
 const visible = defineModel<boolean>({ required: true })
 const props = defineProps<{
@@ -48,6 +49,15 @@ interface CoverageDraft extends Omit<AssetCoverageConfiguration, 'coverage_geom'
   coverage_geom_text: string
 }
 const coverages = ref<CoverageDraft[]>([])
+const coverageMapVisible = ref(false)
+const editingCoverageIndex = ref(-1)
+const editingCoverageGeojson = computed({
+  get: () => coverages.value[editingCoverageIndex.value]?.coverage_geom_text ?? '',
+  set: (value: string) => {
+    const coverage = coverages.value[editingCoverageIndex.value]
+    if (coverage) coverage.coverage_geom_text = value
+  },
+})
 const dispatchEnabled = ref(false)
 const dispatchResource = reactive<DispatchResourceConfiguration>({
   resource_role: '', active: true, available_from: null, available_to: null, metadata: {},
@@ -229,6 +239,10 @@ function addCoverage() {
     min_height_amsl_m: null, max_height_amsl_m: null,
     valid_from: null, valid_to: null, metadata: {},
   })
+}
+function openCoverageMap(index: number) {
+  editingCoverageIndex.value = index
+  coverageMapVisible.value = true
 }
 
 function parseCoverages(): AssetCoverageConfiguration[] {
@@ -456,7 +470,12 @@ async function save() {
             <el-option v-for="item in capabilities" :key="item.capability_code" :label="item.capability_name ?? item.capability_code" :value="item.capability_code" />
           </el-select>
         </el-form-item>
-        <el-form-item label="GeoJSON"><el-input v-model="coverage.coverage_geom_text" type="textarea" :rows="4" /></el-form-item>
+        <el-form-item label="覆盖图形">
+          <div class="geometry-editor">
+            <el-input v-model="coverage.coverage_geom_text" type="textarea" :rows="4" />
+            <el-button type="primary" plain @click="openCoverageMap(index)">地图绘制</el-button>
+          </div>
+        </el-form-item>
         <el-form-item label="最低高度（m）"><el-input-number v-model="coverage.min_height_amsl_m" :precision="1" style="width: 100%" /></el-form-item>
         <el-form-item label="最高高度（m）"><el-input-number v-model="coverage.max_height_amsl_m" :precision="1" style="width: 100%" /></el-form-item>
         <el-form-item><el-button type="danger" plain @click="coverages.splice(index, 1)">删除覆盖范围</el-button></el-form-item>
@@ -494,6 +513,12 @@ async function save() {
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </div>
     </el-form>
+    <CoverageMapDialog
+      v-model:visible="coverageMapVisible"
+      v-model:geojson="editingCoverageGeojson"
+      :longitude="form.longitude"
+      :latitude="form.latitude"
+    />
   </el-drawer>
 </template>
 
@@ -503,5 +528,6 @@ async function save() {
 .inline-add { display: flex; gap: 8px; margin-bottom: 12px; }
 .section-add { margin-bottom: 12px; }
 .coverage-card { margin-bottom: 12px; padding: 12px; border: 1px solid #dfe4e1; border-radius: 6px; background: #fafbfa; }
+.geometry-editor { display: grid; width: 100%; gap: 8px; }
 .drawer-footer { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
 </style>

@@ -357,6 +357,12 @@ begin
       if GeometryType(v_coverage_geom) <> 'MULTIPOLYGON' then
         raise exception 'coverage_geom must be Polygon or MultiPolygon GeoJSON';
       end if;
+      if ST_IsEmpty(v_coverage_geom) then
+        raise exception 'coverage_geom cannot be empty';
+      end if;
+      if not ST_IsValid(v_coverage_geom) then
+        raise exception 'coverage_geom is invalid: %', ST_IsValidReason(v_coverage_geom);
+      end if;
 
       if nullif(v_related_item->>'id', '') is null then
         insert into equipment.asset_coverage(
