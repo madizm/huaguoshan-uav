@@ -5,6 +5,7 @@ import LoginView from './views/LoginView.vue'
 import AssetListView from './views/AssetListView.vue'
 import DetectionSourcesView from './views/DetectionSourcesView.vue'
 import EquipmentDictionaryView from './views/EquipmentDictionaryView.vue'
+import EmergencyResourceView from './views/EmergencyResourceView.vue'
 
 export const router = createRouter({
   history: createWebHistory('/admin/'),
@@ -17,6 +18,7 @@ export const router = createRouter({
         { path: '', redirect: '/assets' },
         { path: 'assets', name: 'assets', component: AssetListView, meta: { title: '设备资产' } },
         { path: 'equipment-dictionaries', name: 'equipment-dictionaries', component: EquipmentDictionaryView, meta: { title: '设备字典' } },
+        { path: 'emergency-resources', name: 'emergency-resources', component: EmergencyResourceView, meta: { title: '应急资源' } },
         {
           path: 'detection-sources',
           name: 'detection-sources',
