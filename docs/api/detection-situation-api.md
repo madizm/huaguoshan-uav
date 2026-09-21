@@ -69,7 +69,21 @@ situation.ingest_target_observation(p_observation jsonb) returns jsonb
 
 返回 `status`、`observationId`、`targetId`、`trackId` 和 `changeCursor`。重复幂等键返回 `status=duplicate`，不会重复写入航迹和增量事件。
 
-### 3.2 更新连接器状态
+### 3.2 同步盒子台账和状态
+
+```sql
+situation.sync_detection_source_asset(p_asset jsonb) returns jsonb
+```
+
+连接器将 `prodBox/queryAll` 返回的已配置盒子同步到：
+
+- `equipment.asset`：名称、厂商、型号、WGS84 登记位置和厂商扩展属性；
+- `equipment.asset_status_current`：在线状态、最近心跳、最近观测时间和原始状态载荷；
+- `equipment.asset_status_history`：由当前状态表触发器自动追加历史记录。
+
+厂家字段解释和枚举转换由 `radar_cloud_connector.py` 完成；数据库函数只接收规范化资产字段。函数只允许更新已通过 `situation.observation_source` 配置并启用的资产，不会根据未受信任的厂家响应自动创建资产。返回 JSON：`status`、`assetId`、`sourceAssetId`、`connectivityStatus`。
+
+### 3.3 更新连接器状态
 
 ```sql
 situation.update_detection_connector_status(
@@ -85,7 +99,7 @@ situation.update_detection_connector_status(
 
 状态限定为 `connected`、`disconnected`、`degraded`、`unknown`。
 
-### 3.3 在线目标对账
+### 3.4 在线目标对账
 
 ```sql
 situation.reconcile_detection_targets(
@@ -135,11 +149,12 @@ uv run scripts/radar_cloud_connector.py
 
 1. 连接数据库并切换到 `detection_ingest`。
 2. 建立厂商 WebSocket。
-3. 拉取 `/uav/onlineList?stationId=90` 初始化目标。
-4. 持续接收 WebSocket 消息并按每条记录的 `stationId` 过滤。
-5. 每 30 秒重新拉取在线列表并对账。
-6. 断线后按 1、2、4 秒递增，最长 60 秒重连。
-7. 收到 `SIGINT` 或 `SIGTERM` 后记录断开状态并退出。
+3. 调用 `POST /prodBox/queryAll` 初始化盒子台账和状态，之后每 300 秒同步一次。
+4. 拉取 `/uav/onlineList?stationId=90` 初始化目标。
+5. 持续接收 WebSocket 消息并按每条记录的 `stationId` 过滤。
+6. 每 30 秒重新拉取在线列表并对账。
+7. 断线后按 1、2、4 秒递增，最长 60 秒重连。
+8. 收到 `SIGINT` 或 `SIGTERM` 后记录断开状态并退出。
 
 ## 6. 系统读接口
 

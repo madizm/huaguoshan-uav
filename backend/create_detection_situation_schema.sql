@@ -229,7 +229,8 @@ insert into equipment.asset(
   jsonb_build_object('station_id',90,'vendor_box_code','b260705174118582','counter_device',2)
 )
 on conflict (source_system,source_asset_id) do update set
-  name=excluded.name,geom=excluded.geom,model=excluded.model,metadata=excluded.metadata,updated_at=now();
+  name=excluded.name,geom=excluded.geom,model=excluded.model,
+  metadata=equipment.asset.metadata||excluded.metadata,updated_at=now();
 
 insert into equipment.counter_uas_profile(asset_id,detection_mode,identification_mode,tracking_mode,recommendation_notes)
 select id,'radar_and_radio','vendor_identification','vendor_track','只接收侦测数据，不接入真实控制指令。'
@@ -418,6 +419,97 @@ begin
 end;
 $$;
 comment on function situation.ingest_target_observation(jsonb) is '写入单条版本化规范目标观测，原子维护原始证据、来源会话、目标航迹和增量事件；返回 JSON：status、observationId、targetId、trackId、changeCursor。';
+
+
+drop function if exists situation.sync_detection_box(jsonb);
+
+create or replace function situation.sync_detection_source_asset(p_asset jsonb)
+returns jsonb
+language plpgsql security definer
+set search_path=pg_catalog,public,equipment,situation
+as $$
+declare
+  v_source situation.observation_source%rowtype;
+  v_asset equipment.asset%rowtype;
+  v_source_system text := p_asset->>'sourceSystem';
+  v_station_id text := p_asset->>'stationId';
+  v_source_asset_id text := nullif(btrim(p_asset->>'sourceAssetId'),'');
+  v_connectivity_status text := p_asset->>'connectivityStatus';
+  v_lng numeric := situation.safe_numeric(p_asset->>'longitude');
+  v_lat numeric := situation.safe_numeric(p_asset->>'latitude');
+  v_observed_at timestamptz;
+  v_heartbeat_at timestamptz;
+  v_geom geometry(Point,4326);
+  v_metadata jsonb := p_asset->'metadata';
+  v_status_payload jsonb := p_asset->'statusPayload';
+begin
+  if p_asset is null or jsonb_typeof(p_asset)<>'object' then
+    raise exception 'normalized source asset must be a JSON object';
+  end if;
+  if p_asset->>'schemaVersion' is distinct from '1' then
+    raise exception 'unsupported normalized source asset schemaVersion';
+  end if;
+  if v_source_system is null or v_station_id is null or v_source_asset_id is null then
+    raise exception 'sourceSystem, stationId and sourceAssetId are required';
+  end if;
+  if v_connectivity_status not in ('online','offline','unknown') then
+    raise exception 'connectivityStatus must be online, offline or unknown';
+  end if;
+  if jsonb_typeof(coalesce(v_metadata,'null'::jsonb))<>'object' then
+    raise exception 'metadata must be a JSON object';
+  end if;
+  if jsonb_typeof(coalesce(v_status_payload,'null'::jsonb))<>'object' then
+    raise exception 'statusPayload must be a JSON object';
+  end if;
+  begin
+    v_observed_at := (p_asset->>'observedAt')::timestamptz;
+    v_heartbeat_at := nullif(p_asset->>'heartbeatAt','')::timestamptz;
+  exception when others then
+    raise exception 'observedAt and heartbeatAt must be ISO 8601 timestamps with timezone';
+  end;
+  if v_observed_at is null then raise exception 'observedAt is required'; end if;
+  if (v_lng is null)<>(v_lat is null) or (v_lng is not null and
+      (v_lng not between -180 and 180 or v_lat not between -90 and 90 or (v_lng=0 and v_lat=0))) then
+    raise exception 'longitude and latitude must form a valid non-zero WGS84 position';
+  end if;
+  v_geom := case when v_lng is not null then ST_SetSRID(ST_MakePoint(v_lng,v_lat),4326) end;
+
+  select * into v_source from situation.observation_source
+  where source_system=v_source_system and external_station_id=v_station_id
+    and external_box_code=v_source_asset_id and enabled;
+  if not found then
+    raise exception 'enabled observation source %.%.% is not configured',
+      v_source_system,v_station_id,v_source_asset_id;
+  end if;
+
+  update equipment.asset set
+    name=coalesce(nullif(btrim(p_asset->>'name'),''),name),
+    manufacturer=coalesce(nullif(btrim(p_asset->>'manufacturer'),''),manufacturer),
+    model=coalesce(nullif(btrim(p_asset->>'model'),''),model),
+    geom=coalesce(v_geom,geom),
+    metadata=metadata||jsonb_strip_nulls(v_metadata),
+    updated_at=now()
+  where id=v_source.asset_id
+  returning * into v_asset;
+  if not found then raise exception 'mapped equipment asset does not exist'; end if;
+
+  insert into equipment.asset_status_current(
+    asset_id,connectivity_status,dispatch_status,position_geom,last_heartbeat_at,observed_at,payload
+  ) values(
+    v_asset.id,v_connectivity_status,'unknown',v_asset.geom,v_heartbeat_at,v_observed_at,v_status_payload
+  )
+  on conflict(asset_id) do update set
+    connectivity_status=excluded.connectivity_status,
+    position_geom=excluded.position_geom,
+    last_heartbeat_at=excluded.last_heartbeat_at,
+    observed_at=excluded.observed_at,
+    payload=excluded.payload;
+
+  return jsonb_build_object('status','accepted','assetId',v_asset.id,
+    'sourceAssetId',v_source_asset_id,'connectivityStatus',v_connectivity_status);
+end;
+$$;
+comment on function situation.sync_detection_source_asset(jsonb) is '持久化已规范化且已配置的侦测来源资产台账、WGS84 登记位置和当前状态；返回 JSON：status、assetId、sourceAssetId、connectivityStatus。';
 
 
 create or replace function situation.update_detection_connector_status(
@@ -797,10 +889,12 @@ revoke all on all functions in schema situation from public,anonymous,admin,dete
 revoke all on function situation.ingest_target_observation(jsonb) from public,anonymous,admin,detection_ingest;
 revoke all on function situation.update_detection_connector_status(text,text,text,timestamptz,timestamptz,text,jsonb) from public,anonymous,admin,detection_ingest;
 revoke all on function situation.reconcile_detection_targets(text,text,timestamptz,text[]) from public,anonymous,admin,detection_ingest;
+revoke all on function situation.sync_detection_source_asset(jsonb) from public,anonymous,admin,detection_ingest;
 grant usage on schema situation to detection_ingest;
 grant execute on function situation.ingest_target_observation(jsonb) to detection_ingest;
 grant execute on function situation.update_detection_connector_status(text,text,text,timestamptz,timestamptz,text,jsonb) to detection_ingest;
 grant execute on function situation.reconcile_detection_targets(text,text,timestamptz,text[]) to detection_ingest;
+grant execute on function situation.sync_detection_source_asset(jsonb) to detection_ingest;
 
 revoke all on api.detection_source_types,api.detection_observation_sources from public,anonymous;
 revoke all on function api.get_detection_situation_snapshot(text[],smallint[],double precision,double precision,double precision,double precision,integer,integer) from public,anonymous;

@@ -52,6 +52,7 @@ class DetectionSituationSchemaTests(unittest.TestCase):
             "situation.ingest_target_observation",
             "situation.update_detection_connector_status",
             "situation.reconcile_detection_targets",
+            "situation.sync_detection_source_asset",
         ):
             self.assertIn(f"create or replace function {function}", self.lower)
             self.assertRegex(
@@ -65,6 +66,11 @@ class DetectionSituationSchemaTests(unittest.TestCase):
         self.assertIn("grant execute on function situation.ingest_target_observation", self.lower)
         self.assertIn("to detection_ingest", self.lower)
         self.assertNotIn("grant detection_ingest to authenticator", self.lower)
+        self.assertIn("insert into equipment.asset_status_current", self.lower)
+        self.assertIn("update equipment.asset", self.lower)
+        self.assertIn("grant execute on function situation.sync_detection_source_asset", self.lower)
+        self.assertNotIn("v_raw->>'stationcode'", self.lower)
+        self.assertNotIn("p_asset->>'onlinestatus'", self.lower)
 
     def test_read_rpcs_have_bounded_parameters_and_documented_json(self):
         for function in (

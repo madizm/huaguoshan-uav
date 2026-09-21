@@ -55,6 +55,60 @@ def source_time(value: Any, fallback: datetime) -> tuple[datetime, bool]:
     return parsed.astimezone(timezone.utc), False
 
 
+def optional_source_time(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace(" ", "T").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=SOURCE_TIMEZONE)
+    return parsed.astimezone(timezone.utc)
+
+
+def normalize_vendor_box(item: dict[str, Any], station_id: str,
+                         received_at: datetime) -> dict[str, Any] | None:
+    box_code = item.get("boxCode")
+    if not isinstance(box_code, str) or not box_code.strip():
+        return None
+    longitude, latitude = safe_number(item.get("longitude")), safe_number(item.get("latitude"))
+    if not (longitude is not None and latitude is not None and -180 <= longitude <= 180
+            and -90 <= latitude <= 90 and (longitude != 0 or latitude != 0)):
+        longitude = latitude = None
+    online_status = safe_number(item.get("onlineStatus"))
+    heartbeat_at = optional_source_time(item.get("heartbeatTime"))
+    connectivity_status = {1.0: "online", 0.0: "offline"}.get(online_status, "unknown")
+    return {
+        "schemaVersion": 1,
+        "sourceSystem": SOURCE_SYSTEM,
+        "stationId": station_id,
+        "sourceAssetId": box_code.strip(),
+        "name": item.get("boxName") or None,
+        "manufacturer": item.get("factoryName") or None,
+        "model": item.get("modelName") or None,
+        "longitude": longitude,
+        "latitude": latitude,
+        "connectivityStatus": connectivity_status,
+        "heartbeatAt": heartbeat_at.isoformat() if heartbeat_at else None,
+        "observedAt": received_at.isoformat(),
+        "metadata": {
+            "station_id": int(station_id),
+            "vendor_box_code": box_code.strip(),
+            "station_code": item.get("stationCode"),
+            "factory_code": item.get("factoryCode"),
+            "model_code": item.get("modelCode"),
+            "device_ip": item.get("deviceIp"),
+            "access_time": item.get("accessTime"),
+            "description": item.get("description"),
+            "radius_range": item.get("radiusRange"),
+            "box_type": item.get("boxType"),
+            "counter_device": item.get("counterDevice"),
+        },
+        "statusPayload": item,
+    }
+
+
 def normalize_vendor_item(message_type: str, item: dict[str, Any], station_id: str,
                           received_at: datetime) -> dict[str, Any] | None:
     item_station = str(item.get("stationId", station_id))
@@ -126,6 +180,10 @@ def online_list_url(base_url: str, station_id: str) -> str:
     return f"{base_url.rstrip('/')}/uav/onlineList?{query}"
 
 
+def prod_box_query_url(base_url: str) -> str:
+    return f"{base_url.rstrip('/')}/prodBox/queryAll"
+
+
 def parse_vendor_message(raw: str) -> tuple[str, dict[str, Any]] | None:
     message = json.loads(raw)
     if not isinstance(message, dict):
@@ -164,6 +222,24 @@ def fetch_online_list(base_url: str, station_id: str, timeout: float) -> list[di
     return [item for item in body["data"] if isinstance(item, dict)]
 
 
+def fetch_prod_boxes(base_url: str, station_id: str, timeout: float) -> list[dict[str, Any]]:
+    request = urllib.request.Request(
+        prod_box_query_url(base_url),
+        data=json.dumps({"stationId": int(station_id)}, separators=(",", ":")).encode(),
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": "huaguoshan-detection-connector/1",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        body = json.load(response)
+    if not isinstance(body, dict) or body.get("status") != 200 or not isinstance(body.get("data"), list):
+        raise ValueError("box query response does not contain status=200 and a data array")
+    return [item for item in body["data"] if isinstance(item, dict)]
+
+
 @dataclass(frozen=True)
 class Config:
     database_dsn: str
@@ -172,6 +248,7 @@ class Config:
     websocket_url: str
     station_id: str
     reconcile_seconds: float
+    box_sync_seconds: float
     http_timeout_seconds: float
 
 
@@ -207,6 +284,12 @@ class DetectionStore:
         return await self._execute_value(
             "select situation.ingest_target_observation(%s::jsonb)",
             (json.dumps(observation, ensure_ascii=False, separators=(",", ":")),),
+        )
+
+    async def sync_box(self, box: dict[str, Any]) -> dict[str, Any]:
+        return await self._execute_value(
+            "select situation.sync_detection_source_asset(%s::jsonb)",
+            (json.dumps(box, ensure_ascii=False, separators=(",", ":")),),
         )
 
     async def ingest_vendor_payload(self, message_type: str,
@@ -270,6 +353,40 @@ class Connector:
         reconcile_result = await self.store.reconcile(present_target_ids(items, self.config.station_id))
         logging.info("online list synchronized ingest=%s reconcile=%s", ingest_result, reconcile_result)
 
+    async def synchronize_boxes(self) -> None:
+        items = await asyncio.to_thread(
+            fetch_prod_boxes,
+            self.config.base_url,
+            self.config.station_id,
+            self.config.http_timeout_seconds,
+        )
+        results = []
+        for item in items:
+            normalized = normalize_vendor_box(item, self.config.station_id, utc_now())
+            if normalized is None:
+                logging.warning("box query returned an item without boxCode")
+                continue
+            try:
+                results.append(await self.store.sync_box(normalized))
+            except Exception as error:
+                logging.exception("box synchronization rejected box_code=%s", normalized["sourceAssetId"])
+                results.append({
+                    "status": "rejected",
+                    "boxCode": normalized["sourceAssetId"],
+                    "errorCode": type(error).__name__,
+                })
+        logging.info("box inventory synchronized results=%s", results)
+
+    async def box_sync_loop(self) -> None:
+        while not self.stop_event.is_set():
+            try:
+                await asyncio.wait_for(self.stop_event.wait(), timeout=self.config.box_sync_seconds)
+            except TimeoutError:
+                try:
+                    await self.synchronize_boxes()
+                except Exception:
+                    logging.exception("box inventory synchronization failed")
+
     async def reconciliation_loop(self) -> None:
         while not self.stop_event.is_set():
             try:
@@ -291,8 +408,13 @@ class Connector:
             max_size=2 * 1024 * 1024,
         ) as websocket:
             await self.store.connector_status("connected")
+            try:
+                await self.synchronize_boxes()
+            except Exception:
+                logging.exception("initial box inventory synchronization failed")
             await self.synchronize_online_list()
             reconcile_task = asyncio.create_task(self.reconciliation_loop())
+            box_sync_task = asyncio.create_task(self.box_sync_loop())
             try:
                 while not self.stop_event.is_set():
                     raw = await asyncio.wait_for(websocket.recv(), timeout=30)
@@ -304,7 +426,8 @@ class Connector:
                     logging.debug("message ingested type=%s result=%s", message_type, result)
             finally:
                 reconcile_task.cancel()
-                await asyncio.gather(reconcile_task, return_exceptions=True)
+                box_sync_task.cancel()
+                await asyncio.gather(reconcile_task, box_sync_task, return_exceptions=True)
 
     async def run(self) -> None:
         await self.store.connect()
@@ -346,6 +469,7 @@ def parse_args() -> Config:
     )
     parser.add_argument("--station-id", default=os.getenv("RADAR_CLOUD_STATION_ID", "90"))
     parser.add_argument("--reconcile-seconds", type=float, default=30.0)
+    parser.add_argument("--box-sync-seconds", type=float, default=300.0)
     parser.add_argument("--http-timeout-seconds", type=float, default=10.0)
     args = parser.parse_args()
     if not args.database_dsn:
@@ -354,6 +478,8 @@ def parse_args() -> Config:
         parser.error("station ID must be numeric")
     if args.reconcile_seconds < 5:
         parser.error("reconcile interval must be at least 5 seconds")
+    if args.box_sync_seconds < 30:
+        parser.error("box sync interval must be at least 30 seconds")
     return Config(
         database_dsn=args.database_dsn,
         database_role=args.database_role,
@@ -361,6 +487,7 @@ def parse_args() -> Config:
         websocket_url=args.websocket_url,
         station_id=args.station_id,
         reconcile_seconds=args.reconcile_seconds,
+        box_sync_seconds=args.box_sync_seconds,
         http_timeout_seconds=args.http_timeout_seconds,
     )
 

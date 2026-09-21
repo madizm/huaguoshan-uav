@@ -21,6 +21,47 @@ class RadarCloudConnectorTests(unittest.TestCase):
             "http://47.110.44.5:8003/uav/onlineList?stationId=90",
         )
 
+    def test_builds_the_box_query_path(self):
+        self.assertEqual(
+            connector.prod_box_query_url("http://47.110.44.5:8003/"),
+            "http://47.110.44.5:8003/prodBox/queryAll",
+        )
+
+    def test_normalizes_box_asset_and_status(self):
+        received_at = connector.datetime(2026, 9, 21, 8, tzinfo=connector.timezone.utc)
+        normalized = connector.normalize_vendor_box(
+            {
+                "boxCode": "b260705174118582",
+                "boxName": "边缘盒子",
+                "stationCode": "lianyungang",
+                "factoryName": "边缘盒子",
+                "modelName": "D007-V",
+                "longitude": 119.192932,
+                "latitude": 34.591952,
+                "onlineStatus": 0,
+                "heartbeatTime": "2026-09-21 14:23:37",
+            },
+            "90",
+            received_at,
+        )
+        self.assertEqual(normalized["schemaVersion"], 1)
+        self.assertEqual(normalized["stationId"], "90")
+        self.assertEqual(normalized["sourceAssetId"], "b260705174118582")
+        self.assertEqual(normalized["longitude"], 119.192932)
+        self.assertEqual(normalized["latitude"], 34.591952)
+        self.assertEqual(normalized["connectivityStatus"], "offline")
+        self.assertEqual(normalized["metadata"]["station_code"], "lianyungang")
+        self.assertEqual(normalized["heartbeatAt"], "2026-09-21T06:23:37+00:00")
+
+    def test_rejects_box_without_identity_and_discards_invalid_position(self):
+        received_at = connector.datetime(2026, 9, 21, tzinfo=connector.timezone.utc)
+        self.assertIsNone(connector.normalize_vendor_box({}, "90", received_at))
+        normalized = connector.normalize_vendor_box(
+            {"boxCode": "BOX-1", "longitude": 0, "latitude": 0}, "90", received_at
+        )
+        self.assertIsNone(normalized["longitude"])
+        self.assertIsNone(normalized["latitude"])
+
     def test_accepts_supported_messages_and_ignores_unknown_events(self):
         self.assertEqual(
             connector.parse_vendor_message(
