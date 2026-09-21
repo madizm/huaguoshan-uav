@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Connection, FirstAidKit, List, Setting, SwitchButton } from '@element-plus/icons-vue'
+import { Connection, FirstAidKit, List, Setting, SwitchButton, UserFilled } from '@element-plus/icons-vue'
 import { authStore, logout } from '../api/auth'
 
 const route = useRoute()
@@ -36,6 +36,10 @@ function handleLogout() {
         <el-menu-item index="/emergency-resources">
           <el-icon><FirstAidKit /></el-icon>
           <span>应急资源</span>
+        </el-menu-item>
+        <el-menu-item index="/police-forces">
+          <el-icon><UserFilled /></el-icon>
+          <span>警务力量</span>
         </el-menu-item>
         <el-menu-item index="/detection-sources">
           <el-icon><Connection /></el-icon>

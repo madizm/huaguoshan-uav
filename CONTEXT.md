@@ -112,6 +112,21 @@ A person, material, vehicle, Aircraft Asset, sensor, temporary communication dev
 可被调度参与处置的人员、物资、车辆、无人机资产、传感器或临时通信设备等对象；它回答“有什么”。
 _Avoid_: Inventory, Ledger, 库存、台账
 
+**Police Officer（警员）**:
+A registered police person who may participate in one or more Police Teams and be considered for response dispatch; the officer profile is distinct from a platform login account.
+可参加一个或多个警务编组并参与处置调度的已登记公安人员；警员档案不同于平台登录账号。
+_Avoid_: User Account, Team Member Record, 用户账号、编组成员记录
+
+**Police Team（警务编组）**:
+A named operational grouping led by one Police Officer, composed of Police Officers as members, and optionally attached to one police station at a time; it may be a standing or temporary response grouping.
+由一名警员担任组长、若干警员作为成员组成的有名称业务编组；同一时刻可挂载至一个警务站，也可以暂不挂载，并可表示常设或临时处置力量。
+_Avoid_: Police Station, Organization, Member List, 警务站、组织机构、成员列表
+
+**Police Team Membership（警务编组成员关系）**:
+The time-bounded participation of a Police Officer in a Police Team, including the member role of leader, deputy leader, or member; a team leader is always a team member.
+警员在一段时间内参加警务编组的关系，包含组长、副组长或普通成员角色；组长始终也是本编组成员。
+_Avoid_: Officer Profile, Embedded Member Array, 警员档案、内嵌成员数组
+
 **Emergency Capability（应急能力）**:
 An executable response capability formed by one or more Emergency Resources under specific time-and-space conditions; it answers “what can be done, where, when, and at what cost”.
 由一个或多个应急资源在特定时空条件下形成的可执行处置能力；它回答“能做什么、在哪里、何时可用、代价是什么”。
