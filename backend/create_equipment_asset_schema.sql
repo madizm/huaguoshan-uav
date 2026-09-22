@@ -534,7 +534,16 @@ join equipment.capability c on c.code = ac.capability_code;
 create or replace view api.equipment_asset_coverages as
 select cov.id, ac.asset_id, ac.capability_code, cov.asset_capability_id, cov.coverage_geom,
        cov.min_height_amsl_m, cov.max_height_amsl_m, cov.height_datum,
-       cov.valid_from, cov.valid_to, cov.metadata
+       cov.valid_from, cov.valid_to, cov.metadata,
+       cov.metadata->>'coverage_model' as coverage_model,
+       case when jsonb_typeof(cov.metadata->'radius_m')='number'
+         then (cov.metadata->>'radius_m')::numeric end as radius_m,
+       case when jsonb_typeof(cov.metadata->'azimuth_start_deg')='number'
+         then (cov.metadata->>'azimuth_start_deg')::numeric end as azimuth_start_deg,
+       case when jsonb_typeof(cov.metadata->'azimuth_end_deg')='number'
+         then (cov.metadata->>'azimuth_end_deg')::numeric end as azimuth_end_deg,
+       case when jsonb_typeof(cov.metadata->'generated_from_asset_position')='boolean'
+         then (cov.metadata->>'generated_from_asset_position')::boolean end as generated_from_asset_position
 from equipment.asset_coverage cov
 join equipment.asset_capability ac on ac.id = cov.asset_capability_id;
 create or replace view api.equipment_statistics as
@@ -640,6 +649,11 @@ comment on column api.equipment_raw_observations.is_simulated is '是否为模�
 comment on column api.equipment_asset_capabilities.access_level is '设备能力接入级别。';
 comment on column api.equipment_asset_coverages.coverage_geom is '能力覆盖范围，WGS84 MultiPolygon（EPSG:4326）。';
 comment on column api.equipment_asset_coverages.height_datum is '覆盖高度基准，固定为 AMSL。';
+comment on column api.equipment_asset_coverages.coverage_model is '覆盖生成模型：manual、radial 或 sector。';
+comment on column api.equipment_asset_coverages.radius_m is '全向或扇区覆盖半径，单位米。';
+comment on column api.equipment_asset_coverages.azimuth_start_deg is '扇区起始绝对方位角，正北为 0 度并顺时针增加。';
+comment on column api.equipment_asset_coverages.azimuth_end_deg is '扇区结束绝对方位角，正北为 0 度并顺时针增加。';
+comment on column api.equipment_asset_coverages.generated_from_asset_position is '覆盖图形是否根据设备登记位置生成。';
 comment on column api.equipment_statistics.asset_count is '该类别和状态组合下的设备数量。';
 comment on column api.equipment_online_statistics.category_code is '设备类别编码。';
 comment on column api.equipment_online_statistics.total_count is '该类别的设备总数。';

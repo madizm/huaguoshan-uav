@@ -109,7 +109,13 @@ begin
     'height_datum', cov.height_datum,
     'valid_from', cov.valid_from,
     'valid_to', cov.valid_to,
-    'metadata', cov.metadata
+    'metadata', cov.metadata,
+    'coverage_model', cov.metadata->>'coverage_model',
+    'radius_m', case when jsonb_typeof(cov.metadata->'radius_m')='number' then (cov.metadata->>'radius_m')::numeric end,
+    'azimuth_start_deg', case when jsonb_typeof(cov.metadata->'azimuth_start_deg')='number' then (cov.metadata->>'azimuth_start_deg')::numeric end,
+    'azimuth_end_deg', case when jsonb_typeof(cov.metadata->'azimuth_end_deg')='number' then (cov.metadata->>'azimuth_end_deg')::numeric end,
+    'generated_from_asset_position', case when jsonb_typeof(cov.metadata->'generated_from_asset_position')='boolean'
+      then (cov.metadata->>'generated_from_asset_position')::boolean end
   ) order by cov.id), '[]'::jsonb)
   into v_coverages
   from equipment.asset_coverage cov

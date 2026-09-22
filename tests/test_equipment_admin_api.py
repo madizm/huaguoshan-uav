@@ -48,6 +48,11 @@ class EquipmentAdminApiMigrationTests(unittest.TestCase):
         self.assertIn("insert into equipment.sensor_channel", self.lower)
         self.assertIn("insert into emergency_resource.equipment_resource", self.lower)
         self.assertIn("grant select on api.equipment_capability_catalog to admin", self.lower)
+        for field in (
+            "'coverage_model'", "'radius_m'", "'azimuth_start_deg'", "'azimuth_end_deg'",
+            "'generated_from_asset_position'",
+        ):
+            self.assertIn(field, self.lower)
 
     def test_validates_detection_ranges_and_generated_coverages(self):
         self.assertIn("create or replace function equipment.validate_capability_parameters", self.lower)

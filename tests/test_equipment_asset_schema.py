@@ -94,6 +94,14 @@ class EquipmentAssetSchemaMigrationTests(unittest.TestCase):
         self.assertIn("revoke all on all tables in schema equipment from anonymous", self.sql_lower)
         self.assertNotIn("counter_uas_control", self.sql_lower)
 
+    def test_exposes_normalized_coverage_generation_fields(self):
+        for field in (
+            "coverage_model", "radius_m", "azimuth_start_deg", "azimuth_end_deg",
+            "generated_from_asset_position",
+        ):
+            self.assertIn(f"as {field}", self.sql_lower)
+            self.assertIn(f"comment on column api.equipment_asset_coverages.{field}", self.sql_lower)
+
     def test_exposes_online_statistics_by_category(self):
         self.assertIn("create or replace view api.equipment_online_statistics as", self.sql_lower)
         self.assertIn("count(*)::bigint as total_count", self.sql_lower)

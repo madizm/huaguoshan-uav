@@ -300,7 +300,21 @@ curl -G "$API_BASE/equipment_asset_capabilities" \
 GET /equipment_asset_coverages
 ```
 
-返回字段：`id`、`asset_id`、`capability_code`、`asset_capability_id`、`coverage_geom`、`min_height_amsl_m`、`max_height_amsl_m`、`height_datum`、`valid_from`、`valid_to`、`metadata`。
+返回字段：`id`、`asset_id`、`capability_code`、`asset_capability_id`、`coverage_geom`、`min_height_amsl_m`、`max_height_amsl_m`、`height_datum`、`valid_from`、`valid_to`、`metadata`，以及顶层规范化字段 `coverage_model`、`radius_m`、`azimuth_start_deg`、`azimuth_end_deg`、`generated_from_asset_position`。
+
+业务前端应直接读取顶层规范化字段，不从 Polygon 反推方位角，也不依赖 `metadata` 的内部结构。例如中心方位 180°、左右半角 45° 的扇区返回：
+
+```json
+{
+  "coverage_model": "sector",
+  "radius_m": 5000,
+  "azimuth_start_deg": 135,
+  "azimuth_end_deg": 225,
+  "generated_from_asset_position": true
+}
+```
+
+`metadata` 继续保留用于兼容和记录图形生成依据。
 
 按设备和 AMSL 高度查询：
 

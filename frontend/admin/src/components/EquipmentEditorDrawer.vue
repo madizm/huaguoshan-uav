@@ -205,11 +205,13 @@ watch(visible, async (open) => {
       valid_from: coverage.valid_from,
       valid_to: coverage.valid_to,
       metadata: coverage.metadata ?? {},
-      generation_mode: ['radial', 'sector'].includes(String(coverage.metadata?.coverage_model))
-        ? coverage.metadata?.coverage_model as CoverageGenerationMode : 'manual',
-      radius_m: typeof coverage.metadata?.radius_m === 'number' ? coverage.metadata.radius_m : null,
-      azimuth_start_deg: typeof coverage.metadata?.azimuth_start_deg === 'number' ? coverage.metadata.azimuth_start_deg : null,
-      azimuth_end_deg: typeof coverage.metadata?.azimuth_end_deg === 'number' ? coverage.metadata.azimuth_end_deg : null,
+      generation_mode: ['radial', 'sector'].includes(String(coverage.coverage_model ?? coverage.metadata?.coverage_model))
+        ? (coverage.coverage_model ?? coverage.metadata?.coverage_model) as CoverageGenerationMode : 'manual',
+      radius_m: coverage.radius_m ?? (typeof coverage.metadata?.radius_m === 'number' ? coverage.metadata.radius_m : null),
+      azimuth_start_deg: coverage.azimuth_start_deg
+        ?? (typeof coverage.metadata?.azimuth_start_deg === 'number' ? coverage.metadata.azimuth_start_deg : null),
+      azimuth_end_deg: coverage.azimuth_end_deg
+        ?? (typeof coverage.metadata?.azimuth_end_deg === 'number' ? coverage.metadata.azimuth_end_deg : null),
     }))
     sensorChannels.value = configuration.sensor_channels.map((channel) => ({
       channel_code: channel.channel_code,

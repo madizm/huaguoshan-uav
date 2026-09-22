@@ -42,6 +42,11 @@ export interface AssetCoverageConfiguration {
   valid_from: string | null
   valid_to: string | null
   metadata: Record<string, unknown>
+  coverage_model?: 'manual' | 'radial' | 'sector' | null
+  radius_m?: number | null
+  azimuth_start_deg?: number | null
+  azimuth_end_deg?: number | null
+  generated_from_asset_position?: boolean | null
 }
 
 export interface DispatchResourceConfiguration {
