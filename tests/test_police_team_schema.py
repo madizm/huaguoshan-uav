@@ -101,6 +101,7 @@ class PoliceTeamSchemaMigrationTests(unittest.TestCase):
             "emergency_police_team_roster",
             "emergency_police_team_details",
             "emergency_police_team_member_history",
+            "emergency_police_station_team_details",
         ]:
             self.assertRegex(
                 self.sql,
@@ -111,6 +112,21 @@ class PoliceTeamSchemaMigrationTests(unittest.TestCase):
             r"comment on function api\.assign_police_team_leader\(bigint, bigint\) "
             r"is '[^']*返回[^']*id、team_id[^']*'",
         )
+
+    def test_exposes_station_team_member_tree_with_empty_arrays(self):
+        self.assertIn(
+            "create or replace view api.emergency_police_station_team_details",
+            self.sql_lower,
+        )
+        self.assertIn("coalesce(team_data.teams, '[]'::jsonb) as teams", self.sql_lower)
+        self.assertIn("'members', team_item.members", self.sql_lower)
+        self.assertIn("where tm.team_id = t.id", self.sql_lower)
+        self.assertIn("and tm.left_at is null", self.sql_lower)
+        self.assertIn(
+            "comment on view api.emergency_police_station_team_details is '",
+            self.sql_lower,
+        )
+        self.assertIn("api.emergency_police_station_team_details to admin", self.sql_lower)
 
     def test_supports_admin_workflows_without_partial_team_or_deleted_history(self):
         self.assertGreaterEqual(self.sql_lower.count("is_simulated boolean not null default false"), 2)

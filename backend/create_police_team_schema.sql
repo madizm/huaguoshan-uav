@@ -386,6 +386,102 @@ join emergency_resource.police_team t on t.id = tm.team_id
 join emergency_resource.police_officer o on o.id = tm.officer_id
 left join emergency_resource.police_station s on s.id = t.station_id;
 
+-- 面向前端的一站式层级结构：每行一个警务站，teams 内嵌编组及当前成员。
+create or replace view api.emergency_police_station_team_details as
+select
+  s.id as station_id,
+  s.source_code as station_code,
+  s.name as station_name,
+  s.station_type,
+  s.address,
+  s.county_name,
+  s.contact_phone,
+  s.availability_status,
+  s.geom,
+  coalesce(team_data.team_count, 0)::bigint as team_count,
+  coalesce(team_data.officer_count, 0)::bigint as officer_count,
+  coalesce(team_data.teams, '[]'::jsonb) as teams,
+  s.created_at,
+  s.updated_at
+from emergency_resource.police_station s
+left join lateral (
+  select
+    count(*)::bigint as team_count,
+    coalesce(sum(team_item.member_count), 0)::bigint as officer_count,
+    jsonb_agg(
+      jsonb_build_object(
+        'team_id', team_item.team_id,
+        'team_code', team_item.team_code,
+        'team_name', team_item.team_name,
+        'team_status', team_item.team_status,
+        'is_simulated', team_item.is_simulated,
+        'leader_officer_id', team_item.leader_officer_id,
+        'leader_officer_no', team_item.leader_officer_no,
+        'leader_name', team_item.leader_name,
+        'member_count', team_item.member_count,
+        'members', team_item.members
+      )
+      order by team_item.team_name, team_item.team_id
+    ) as teams
+  from (
+    select
+      t.id as team_id,
+      t.team_code,
+      t.name as team_name,
+      t.team_status,
+      t.is_simulated,
+      leader.officer_id as leader_officer_id,
+      leader.officer_no as leader_officer_no,
+      leader.officer_name as leader_name,
+      coalesce(members.member_count, 0)::bigint as member_count,
+      coalesce(members.members, '[]'::jsonb) as members
+    from emergency_resource.police_team t
+    left join lateral (
+      select
+        tm.officer_id,
+        o.officer_no,
+        o.name as officer_name
+      from emergency_resource.police_team_member tm
+      join emergency_resource.police_officer o on o.id = tm.officer_id
+      where tm.team_id = t.id
+        and tm.member_role = 'leader'
+        and tm.left_at is null
+      limit 1
+    ) leader on true
+    left join lateral (
+      select
+        count(*)::bigint as member_count,
+        jsonb_agg(
+          jsonb_build_object(
+            'membership_id', tm.id,
+            'officer_id', o.id,
+            'officer_no', o.officer_no,
+            'officer_name', o.name,
+            'member_role', tm.member_role,
+            'contact_phone', o.contact_phone,
+            'organization_name', o.organization_name,
+            'availability_status', o.availability_status,
+            'is_active', o.is_active,
+            'is_simulated', o.is_simulated,
+            'joined_at', tm.joined_at
+          )
+          order by
+            case tm.member_role
+              when 'leader' then 1
+              when 'deputy_leader' then 2
+              else 3
+            end,
+            o.officer_no
+        ) as members
+      from emergency_resource.police_team_member tm
+      join emergency_resource.police_officer o on o.id = tm.officer_id
+      where tm.team_id = t.id
+        and tm.left_at is null
+    ) members on true
+    where t.station_id = s.id
+  ) team_item
+) team_data on true;
+
 create or replace function api.assign_police_team_leader(
   p_team_id bigint,
   p_officer_id bigint
@@ -437,6 +533,11 @@ comment on view api.emergency_police_team_members is '编组成员及任职历�
 comment on view api.emergency_police_team_roster is '当前警务编组花名册只读资源，包含编组、警务站、警员和成员角色信息。';
 comment on view api.emergency_police_team_details is '警务编组后台分页列表，只读返回警务站、当前组长和当前成员数量。';
 comment on view api.emergency_police_team_member_history is '警务编组成员任职历史只读资源，包含当前及已离组成员。';
+comment on view api.emergency_police_station_team_details is '警务站、关联警务编组及当前编组人员的只读聚合资源；每行对应一个警务站。';
+comment on column api.emergency_police_station_team_details.station_id is '警务站 ID。';
+comment on column api.emergency_police_station_team_details.team_count is '警务站当前挂载的编组数量。';
+comment on column api.emergency_police_station_team_details.officer_count is '警务站下各编组当前成员关系数量；同一警员兼任多个编组时按成员关系重复计数。';
+comment on column api.emergency_police_station_team_details.teams is '编组及其当前成员的 JSON 数组；无编组时返回空数组。';
 comment on column api.emergency_police_team_roster.membership_id is '当前编组成员关系 ID。';
 comment on column api.emergency_police_team_roster.station_id is '编组当前挂载的警务站 ID。';
 comment on column api.emergency_police_team_roster.member_role is '当前成员角色：leader、deputy_leader 或 member。';
@@ -461,7 +562,8 @@ revoke all on api.emergency_police_officers,
   api.emergency_police_team_members,
   api.emergency_police_team_roster,
   api.emergency_police_team_details,
-  api.emergency_police_team_member_history
+  api.emergency_police_team_member_history,
+  api.emergency_police_station_team_details
 from public, anonymous;
 revoke all on function api.assign_police_team_leader(bigint, bigint),
   api.create_police_team(text, text, bigint, bigint, text, text, boolean, jsonb),
@@ -484,7 +586,8 @@ grant select, insert, update, delete on api.emergency_police_officers,
   api.emergency_police_team_members to admin;
 grant select on api.emergency_police_team_roster,
   api.emergency_police_team_details,
-  api.emergency_police_team_member_history to admin;
+  api.emergency_police_team_member_history,
+  api.emergency_police_station_team_details to admin;
 grant execute on function api.assign_police_team_leader(bigint, bigint) to admin;
 grant execute on function api.create_police_team(text, text, bigint, bigint, text, text, boolean, jsonb) to admin;
 grant execute on function api.remove_police_team_member(bigint, timestamptz) to admin;

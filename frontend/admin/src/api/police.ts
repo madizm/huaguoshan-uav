@@ -88,6 +88,50 @@ export interface PoliceRosterRow {
   joined_at: string
 }
 
+export interface PoliceStationTeamMember {
+  membership_id: number
+  officer_id: number
+  officer_no: string
+  officer_name: string
+  member_role: PoliceMemberRole
+  contact_phone: string | null
+  organization_name: string | null
+  availability_status: PoliceAvailabilityStatus
+  is_active: boolean
+  is_simulated: boolean
+  joined_at: string
+}
+
+export interface PoliceStationTeamItem {
+  team_id: number
+  team_code: string
+  team_name: string
+  team_status: PoliceTeamStatus
+  is_simulated: boolean
+  leader_officer_id: number | null
+  leader_officer_no: string | null
+  leader_name: string | null
+  member_count: number
+  members: PoliceStationTeamMember[]
+}
+
+export interface PoliceStationTeamDetails {
+  station_id: number
+  station_code: string
+  station_name: string
+  station_type: string
+  address: string | null
+  county_name: string | null
+  contact_phone: string | null
+  availability_status: string
+  geom: unknown
+  team_count: number
+  officer_count: number
+  teams: PoliceStationTeamItem[]
+  created_at: string
+  updated_at: string
+}
+
 export interface PoliceMembershipHistoryRow {
   membership_id: number
   team_id: number
@@ -184,6 +228,12 @@ export function listPoliceStations(): Promise<PoliceStationOption[]> {
     select: 'id,source_code,name,address,county_name',
     order: 'name.asc',
     limit: '1000',
+  })
+}
+
+export function getPoliceStationTeamDetails(stationId: number): Promise<PoliceStationTeamDetails[]> {
+  return http.get('/emergency_police_station_team_details', {
+    station_id: `eq.${stationId}`,
   })
 }
 

@@ -29,6 +29,7 @@ police_officer 1 ── N police_team_member
 | 当前花名册 | `/emergency_police_team_roster` | 只读 | 联合查询编组、警务站和当前成员 |
 | 编组管理列表 | `/emergency_police_team_details` | 只读 | 分页查询警务站、组长和当前成员数 |
 | 成员任职历史 | `/emergency_police_team_member_history` | 只读 | 查询当前及已离组成员 |
+| 警务站编组详情 | `/emergency_police_station_team_details` | 只读 | 每个警务站返回内嵌编组和当前成员的最终 JSON 结构 |
 | 原子创建编组 | `/rpc/create_police_team` | RPC | 创建编组并设置首任组长 |
 | 成员离组 | `/rpc/remove_police_team_member` | RPC | 保留任职历史并阻止组长直接离组 |
 | 设置组长 | `/rpc/assign_police_team_leader` | RPC | 原子设置或更换编组组长 |
@@ -219,7 +220,19 @@ curl -G "$API_BASE/emergency_police_team_roster" \
 
 `emergency_police_team_roster` 只返回 `left_at` 为空的当前成员。后台分页列表使用 `/emergency_police_team_details`，任职历史使用 `/emergency_police_team_member_history`。
 
-## 7. 数据约束说明
+## 7. 查询警务站最终层级结构
+
+`/emergency_police_station_team_details` 每行对应一个警务站，`teams` 为编组数组，每个编组的 `members` 为当前成员数组。无编组的警务站仍会返回，且 `teams=[]`。
+
+```bash
+curl -G "$API_BASE/emergency_police_station_team_details" \
+  -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'station_id=eq.1'
+```
+
+可使用 `county_name`、`team_count` 等字段过滤。`officer_count` 按当前成员关系计数，同一警员兼任多个编组时会重复计数。该资源包含警员联系方式，仅授权 `admin`。
+
+## 8. 数据约束说明
 
 - `officer_no` 和 `team_code` 分别唯一。
 - 一个编组最多有一名当前组长。
