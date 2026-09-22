@@ -100,6 +100,7 @@ class RadarCloudConnectorTests(unittest.TestCase):
                 "distance": 0.29,
                 "directSpeed": "15.5",
                 "freq": 5816.5,
+                "pilotGps": "120.779984/31.706631",
             },
             "90",
             received_at,
@@ -112,6 +113,29 @@ class RadarCloudConnectorTests(unittest.TestCase):
         self.assertEqual(normalized["horizontalDistanceM"], 290.0)
         self.assertEqual(normalized["speedMps"], 15.5)
         self.assertEqual(normalized["qualityFlags"], [])
+        self.assertEqual(len(normalized["sourceObservationId"]), 64)
+        self.assertEqual(
+            normalized["remotePilotLocation"],
+            {"longitude": 120.779984, "latitude": 31.706631},
+        )
+
+    def test_invalid_remote_pilot_location_is_omitted_and_flagged(self):
+        received_at = connector.datetime(2026, 9, 20, tzinfo=connector.timezone.utc)
+        normalized = connector.normalize_vendor_item(
+            "uav_online_upsert",
+            {
+                "serial": "A",
+                "stationId": 90,
+                "sourceType": 20,
+                "lng": 119.196,
+                "lat": 34.592,
+                "pilotGps": "181/31.706631",
+            },
+            "90",
+            received_at,
+        )
+        self.assertIsNone(normalized["remotePilotLocation"])
+        self.assertIn("invalid_remote_pilot_position", normalized["qualityFlags"])
         self.assertEqual(len(normalized["sourceObservationId"]), 64)
 
     def test_normalization_marks_missing_fields_and_filters_other_stations(self):

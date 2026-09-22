@@ -52,6 +52,16 @@ class DetectionSituationSchemaTests(unittest.TestCase):
         self.assertIn("detection_method_code", self.lower)
         self.assertIn("p_observation->>'sourceobservationid'", self.lower)
         self.assertNotIn("jsonb_array_elements(v_items)", self.lower)
+        self.assertIn("p_observation#>>'{remotepilotlocation,longitude}'", self.lower)
+        self.assertIn("p_observation#>>'{remotepilotlocation,latitude}'", self.lower)
+        self.assertIn("pilot_geom", self.lower)
+        self.assertIn("raw_payload->>'pilotgps'", self.lower)
+        self.assertIn("update situation.target_observation", self.lower)
+
+    def test_remote_pilot_capability_is_registered_for_verified_device(self):
+        self.assertIn("'remote_pilot_localization'", self.lower)
+        self.assertIn("'coordinate_system','wgs84'", self.lower)
+
 
     def test_write_functions_are_private_and_idempotent(self):
         for function in (
@@ -101,6 +111,12 @@ class DetectionSituationSchemaTests(unittest.TestCase):
         self.assertIn("create or replace function api.get_detection_live_tracks_v2", self.lower)
         self.assertIn("p_detection_method_codes text[] default null", self.lower)
         self.assertIn("grant execute on function api.get_detection_live_tracks_v2", self.lower)
+        self.assertIn("create or replace function api.get_detection_live_tracks_v3", self.lower)
+        self.assertIn("grant execute on function api.get_detection_live_tracks_v3", self.lower)
+        self.assertIn("'target_location'", self.lower)
+        self.assertIn("'remote_pilot_location'", self.lower)
+        self.assertIn("'observations'", self.lower)
+        self.assertIn("'observation',case when", self.lower)
         self.assertIn("'observation_methods'", self.lower)
         self.assertIn("p_max_points integer default 2000", self.lower)
         self.assertIn("p_end_at-p_start_at>interval '7 days'", self.lower)
@@ -131,6 +147,7 @@ class DetectionSituationSchemaTests(unittest.TestCase):
         self.assertIn("asset_lifecycle_status", self.lower)
         self.assertIn("last_error_code", self.lower)
         self.assertIn("lost_timeout_seconds", self.lower)
+        self.assertIn("capability_codes", self.lower)
 
     def test_admin_can_update_observation_source_through_bounded_rpc(self):
         function = "api.update_detection_observation_source"

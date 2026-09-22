@@ -107,9 +107,43 @@
     return selected.map(function (code) { return LEGACY_SOURCE_TYPE[code]; });
   }
 
+  function pointFromObservation(observation, locationField) {
+    var location = observation && observation[locationField];
+    if (!coordinates(location)) return null;
+    return {
+      observation_id: observation.observation_id,
+      observed_at: observation.observed_at,
+      position: location.position,
+      altitude_amsl_m: location.altitude_amsl_m,
+      relative_height_m: location.relative_height_m,
+      detection_method_code: observation.detection_method_code,
+      producer_asset_id: observation.producer_asset_id,
+      speed_mps: observation.speed_mps,
+      quality_flags: observation.quality_flags || [],
+      source: location.source,
+      accuracy_m: location.accuracy_m
+    };
+  }
+
+  function projectObservations(observations) {
+    return (observations || []).reduce(function (result, observation) {
+      var targetPoint = pointFromObservation(observation, 'target_location');
+      var remotePilotPoint = pointFromObservation(observation, 'remote_pilot_location');
+      if (targetPoint) result.points.push(targetPoint);
+      if (remotePilotPoint) result.remotePilotPoints.push(remotePilotPoint);
+      return result;
+    }, { points: [], remotePilotPoints: [] });
+  }
+
   function indexLiveTracks(tracks) {
     return (tracks || []).reduce(function (indexed, track) {
-      indexed[String(track.track_id)] = Object.assign({}, track, { points: (track.points || []).slice() });
+      var observations = (track.observations || []).slice();
+      var projected = projectObservations(observations);
+      indexed[String(track.track_id)] = Object.assign({}, track, {
+        observations: observations,
+        points: projected.points,
+        remotePilotPoints: projected.remotePilotPoints
+      });
       return indexed;
     }, {});
   }
@@ -132,7 +166,21 @@
         return;
       }
       if (change.type !== 'target_upsert') return;
-      if (acceptedSourceTypes && acceptedSourceTypes.indexOf(payload.detection_method_code) < 0) return;
+      var observation = payload.observation || (payload.observation_id == null ? null : {
+        observation_id: payload.observation_id,
+        observed_at: payload.observed_at || change.occurred_at,
+        target_location: payload.position ? {
+          position: payload.position,
+          altitude_amsl_m: payload.altitude_amsl_m
+        } : null,
+        remote_pilot_location: payload.remote_pilot_location || null,
+        detection_method_code: payload.detection_method_code,
+        producer_asset_id: payload.producer_asset_id,
+        speed_mps: payload.speed_mps,
+        quality_flags: payload.quality_flags || []
+      });
+      var methodCode = observation && observation.detection_method_code || payload.detection_method_code;
+      if (acceptedSourceTypes && acceptedSourceTypes.indexOf(methodCode) < 0) return;
       if (!track) {
         track = trackMap[key] = {
           track_id: Number(trackId),
@@ -141,38 +189,30 @@
           source_target_id: payload.source_target_id,
           source_type_code: payload.source_type_code,
           model: payload.model,
-          latest_observation_method_code: payload.detection_method_code,
-          points: []
+          latest_observation_method_code: methodCode,
+          observations: [], points: [], remotePilotPoints: []
         };
       }
       track.status = 'tracking';
-      track.last_observed_at = payload.observed_at || change.occurred_at;
+      track.last_observed_at = observation && observation.observed_at || payload.observed_at || change.occurred_at;
       ['track_code', 'source_target_id', 'source_type_code', 'model'].forEach(function (field) {
         if (payload[field] != null) track[field] = payload[field];
       });
-      if (payload.detection_method_code != null) track.latest_observation_method_code = payload.detection_method_code;
-      if (payload.position && payload.observation_id != null && !track.points.some(function (point) {
-        return String(point.observation_id) === String(payload.observation_id);
-      })) {
-        track.points.push({
-          observation_id: payload.observation_id,
-          observed_at: payload.observed_at || change.occurred_at,
-          position: payload.position,
-          altitude_amsl_m: payload.altitude_amsl_m,
-          source_type_code: payload.source_type_code,
-          speed_mps: payload.speed_mps,
-          detection_method_code: payload.detection_method_code,
-          quality_flags: payload.quality_flags || []
-        });
-      }
+      if (methodCode != null) track.latest_observation_method_code = methodCode;
+      if (observation && observation.observation_id != null && !(track.observations || []).some(function (item) {
+        return String(item.observation_id) === String(observation.observation_id);
+      })) track.observations.push(observation);
     });
     Object.keys(trackMap).forEach(function (key) {
       var track = trackMap[key];
-      track.points = (track.points || []).filter(function (point) {
-        return Date.parse(point.observed_at) >= cutoffMs;
+      track.observations = (track.observations || []).filter(function (observation) {
+        return Date.parse(observation.observed_at) >= cutoffMs;
       }).sort(function (a, b) {
         return Date.parse(a.observed_at) - Date.parse(b.observed_at) || Number(a.observation_id) - Number(b.observation_id);
       });
+      var projected = projectObservations(track.observations);
+      track.points = projected.points;
+      track.remotePilotPoints = projected.remotePilotPoints;
       if (track.status === 'lost' && Date.parse(track.lost_at) < lostCutoffMs) delete trackMap[key];
     });
     return trackMap;
@@ -248,6 +288,7 @@
     var endInput = $('#sourceSituationEnd');
     var sourceToggleContainer = typeof document === 'undefined' ? null : document.querySelector('.source-situation-toggles');
     var sourceButtons = typeof document === 'undefined' ? [] : Array.prototype.slice.call(document.querySelectorAll('[data-detection-method]'));
+    var remotePilotButton = $('[data-situation-layer="remote-pilot"]');
     var modeButtons = typeof document === 'undefined' ? [] : Array.prototype.slice.call(document.querySelectorAll('[data-situation-mode]'));
     var disposers = [];
 
@@ -293,6 +334,16 @@
       return dataSource;
     }
 
+    function addRemotePilotDataSource() {
+      var key = 'remote-pilot';
+      if (dataSources[key]) return dataSources[key];
+      var dataSource = new CesiumRuntime.CustomDataSource('remote-pilot-location');
+      dataSource.show = !remotePilotButton || remotePilotButton.getAttribute('aria-pressed') !== 'false';
+      viewer.dataSources.add(dataSource);
+      dataSources[key] = dataSource;
+      return dataSource;
+    }
+
     function pointPosition(point, fallbackHeight) {
       var values = coordinates(point);
       if (!values) return null;
@@ -322,7 +373,9 @@
         var dataSource = addDataSource(methodCode, style.label);
         var split = splitTrack(points, MAX_TRACK_SPEED_MPS);
         var lost = track.status === 'lost';
+        var remotePilotPoints = track.remotePilotPoints || [];
         points.forEach(extendBounds);
+        remotePilotPoints.forEach(extendBounds);
         split.segments.forEach(function (segment, index) {
           dataSource.entities.add({
             id: 'detection-live-trail-' + track.track_id + '-' + index,
@@ -335,6 +388,44 @@
             }
           });
         });
+        if (remotePilotPoints.length) {
+          var remotePilot = remotePilotPoints[remotePilotPoints.length - 1];
+          var remotePilotDataSource = addRemotePilotDataSource();
+          remotePilotDataSource.entities.add({
+            id: 'detection-remote-pilot-' + track.track_id,
+            name: '飞手位置 · ' + track.source_target_id,
+            position: pointPosition(remotePilot, 5),
+            point: {
+              pixelSize: 10,
+              color: CesiumRuntime.Color.fromCssColorString('#fb7185').withAlpha(lost ? 0.38 : 1),
+              outlineColor: CesiumRuntime.Color.fromCssColorString('#fff7df'),
+              outlineWidth: 2,
+              disableDepthTestDistance: Number.POSITIVE_INFINITY
+            },
+            label: {
+              text: '飞手', font: '600 12px sans-serif',
+              fillColor: CesiumRuntime.Color.fromCssColorString('#fff7df'),
+              showBackground: true,
+              backgroundColor: CesiumRuntime.Color.fromCssColorString('#501724').withAlpha(0.82),
+              pixelOffset: new CesiumRuntime.Cartesian2(0, -20),
+              disableDepthTestDistance: Number.POSITIVE_INFINITY
+            },
+            description: '关联目标：' + escapeHtml(track.source_target_id) + '；定位时间：' + formatTime(remotePilot.observed_at)
+          });
+          var matchingTarget = points.find(function (point) {
+            return String(point.observation_id) === String(remotePilot.observation_id);
+          });
+          if (matchingTarget) remotePilotDataSource.entities.add({
+            id: 'detection-target-pilot-link-' + track.track_id,
+            name: '目标—飞手关联',
+            polyline: {
+              positions: [pointPosition(matchingTarget, 100), pointPosition(remotePilot, 5)],
+              width: 1.5,
+              material: CesiumRuntime.Color.fromCssColorString('#fb7185').withAlpha(lost ? 0.22 : 0.62),
+              clampToGround: false
+            }
+          });
+        }
         if (!points.length) return;
         var target = points[points.length - 1];
         var position = pointPosition(target, 100);
@@ -373,12 +464,15 @@
 
     function renderTrack(detail) {
       removeLayers();
-      var points = detail.points || [];
+      var projectedObservations = projectObservations(detail.observations || []);
+      var points = detail.observations ? projectedObservations.points : (detail.points || []);
+      var remotePilotPoints = projectedObservations.remotePilotPoints;
       var split = splitTrack(points, MAX_TRACK_SPEED_MPS);
-      var sourceTypeCode = points.length ? points[points.length - 1].source_type_code : null;
-      var style = SOURCE_STYLE[sourceTypeCode] || { color: '#9ba8a2', label: '来源待确认' };
-      var dataSource = addDataSource(sourceTypeCode, '历史航迹');
+      var methodCode = points.length ? (points[points.length - 1].detection_method_code || points[points.length - 1].source_type_code) : null;
+      var style = SOURCE_STYLE[methodCode] || { color: '#9ba8a2', label: '来源待确认' };
+      var dataSource = addDataSource(methodCode, '历史航迹');
       points.forEach(extendBounds);
+      remotePilotPoints.forEach(extendBounds);
       split.segments.forEach(function (segment, index) {
         dataSource.entities.add({
           id: 'detection-history-' + detail.track.id + '-' + index,
@@ -391,6 +485,35 @@
           }
         });
       });
+      if (remotePilotPoints.length) {
+        var remotePilotDataSource = addRemotePilotDataSource();
+        var remotePilotSplit = splitTrack(remotePilotPoints, MAX_TRACK_SPEED_MPS);
+        remotePilotSplit.segments.forEach(function (segment, index) {
+          remotePilotDataSource.entities.add({
+            id: 'detection-history-remote-pilot-' + detail.track.id + '-' + index,
+            name: detail.track.track_code + ' 飞手位置轨迹',
+            polyline: {
+              positions: segment.map(function (point) { return pointPosition(point, 5); }),
+              width: 2,
+              material: CesiumRuntime.Color.fromCssColorString('#fb7185').withAlpha(0.72),
+              clampToGround: false
+            }
+          });
+        });
+        var lastRemotePilot = remotePilotPoints[remotePilotPoints.length - 1];
+        remotePilotDataSource.entities.add({
+          id: 'detection-history-remote-pilot-last-' + detail.track.id,
+          name: detail.track.track_code + ' 飞手末次位置',
+          position: pointPosition(lastRemotePilot, 5),
+          point: {
+            pixelSize: 11,
+            color: CesiumRuntime.Color.fromCssColorString('#fb7185'),
+            outlineColor: CesiumRuntime.Color.fromCssColorString('#fff7df'),
+            outlineWidth: 2,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+          }
+        });
+      }
       if (points.length) {
         var last = points[points.length - 1];
         dataSource.entities.add({
@@ -470,7 +593,7 @@
       var detectionMethods = detectionMethodFilter(sourceButtons);
       if (!silent) setLoading(true, '刷新实时态势');
       if (hint && !silent) hint.textContent = '查询中';
-      return rpc('get_detection_live_tracks_v2', {
+      return rpc('get_detection_live_tracks_v3', {
         p_observation_source_ids: null,
         p_producer_asset_ids: null,
         p_detection_method_codes: detectionMethods,
@@ -641,6 +764,11 @@
       bind(button, 'click', function () { setMode(button.dataset.situationMode); });
     });
     sourceButtons.forEach(bindSourceButton);
+    bind(remotePilotButton, 'click', function () {
+      var active = remotePilotButton.getAttribute('aria-pressed') !== 'true';
+      remotePilotButton.setAttribute('aria-pressed', String(active));
+      if (dataSources['remote-pilot']) dataSources['remote-pilot'].show = active;
+    });
 
     return {
       load: function () { return mode === 'history' ? loadHistory() : loadRealtime(false); },

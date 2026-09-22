@@ -341,6 +341,10 @@ comment on column situation.target_observation.frequency_mhz is '侦测频率，
 comment on column situation.target_observation.relative_height_m is '来源相对高度，单位米，不作为 AMSL 高度。';
 comment on column situation.target_observation.horizontal_distance_m is '站点到目标的水平距离，单位米。';
 comment on column situation.target_observation.azimuth_deg is '站点到目标的方位角，单位度，不是目标航向。';
+comment on column situation.target_observation.pilot_geom is '设备随目标观测上报的远程飞手 WGS84 位置；不作为空域目标航迹位置。';
+comment on column situation.target_observation.home_geom is '设备随目标观测上报的起飞点 WGS84 位置；当前厂商未提供时为空。';
+create index if not exists target_observation_pilot_geom_gix
+  on situation.target_observation using gist(pilot_geom) where pilot_geom is not null;
 comment on column situation.target_observation.quality_flags is '规范化过程发现的数据质量标记。';
 create index if not exists target_observation_source_target_idx
   on situation.target_observation(observation_source_id, source_target_id, observation_id desc);
@@ -482,6 +486,19 @@ cross join (values('microwave_detection'),('radio_detection')) v(capability_code
 where a.source_system='radar_cloud' and a.source_asset_id='b260705174118582'
 on conflict (asset_id,capability_code) do nothing;
 
+insert into equipment.capability(code,name,capability_type,description) values
+  ('remote_pilot_localization','远程飞手定位','detection','通过遥控链路、Remote ID 或厂商识别结果获得远程飞手位置。')
+on conflict(code) do update set name=excluded.name,capability_type=excluded.capability_type,description=excluded.description;
+
+insert into equipment.asset_capability(asset_id,capability_code,access_level,enabled,parameters)
+select id,'remote_pilot_localization','observable',true,jsonb_build_object(
+  'position_source','vendor_reported','coordinate_system','WGS84',
+  'supports_realtime',true,'supports_history',true,'accuracy_m',null
+)
+from equipment.asset where source_system='radar_cloud' and source_asset_id='b260705174118582'
+on conflict(asset_id,capability_code) do update set
+  enabled=excluded.enabled,parameters=excluded.parameters;
+
 -- 建立站点 90 的观测来源映射。
 insert into situation.observation_source(
   source_system, external_station_id, external_box_code, asset_id, name, metadata
@@ -503,6 +520,22 @@ exception when invalid_text_representation or numeric_value_out_of_range then re
 end;
 $$;
 comment on function situation.safe_numeric(text) is '将来源字符串安全转换为数值，非法值返回空。';
+
+with remote_pilot_candidates as (
+  select o.observation_id,
+    situation.safe_numeric(split_part(r.raw_payload->>'pilotGps','/',1)) longitude,
+    situation.safe_numeric(split_part(r.raw_payload->>'pilotGps','/',2)) latitude
+  from situation.target_observation o
+  join equipment.raw_observation r on r.id=o.observation_id
+  where o.pilot_geom is null and nullif(btrim(r.raw_payload->>'pilotGps'),'') is not null
+), valid_remote_pilots as (
+  select * from remote_pilot_candidates
+  where longitude between -180 and 180 and latitude between -90 and 90
+    and (longitude<>0 or latitude<>0)
+)
+update situation.target_observation o set
+  pilot_geom=ST_SetSRID(ST_MakePoint(p.longitude,p.latitude),4326)
+from valid_remote_pilots p where p.observation_id=o.observation_id;
 
 drop function if exists situation.source_timestamp(text,text,timestamptz);
 
@@ -529,6 +562,9 @@ declare
   v_received_at timestamptz;
   v_lng numeric := situation.safe_numeric(p_observation->>'longitude');
   v_lat numeric := situation.safe_numeric(p_observation->>'latitude');
+  v_pilot_lng numeric := situation.safe_numeric(p_observation#>>'{remotePilotLocation,longitude}');
+  v_pilot_lat numeric := situation.safe_numeric(p_observation#>>'{remotePilotLocation,latitude}');
+  v_pilot_geom geometry(Point,4326);
   v_geom geometry(Point,4326);
   v_quality text[];
   v_observation_id bigint;
@@ -583,6 +619,18 @@ begin
     raise exception 'longitude and latitude must form a valid non-zero WGS84 position';
   end if;
   v_geom := case when v_lng is not null then ST_SetSRID(ST_MakePoint(v_lng,v_lat),4326) end;
+  if p_observation ? 'remotePilotLocation'
+     and p_observation->'remotePilotLocation' <> 'null'::jsonb
+     and jsonb_typeof(p_observation->'remotePilotLocation') <> 'object' then
+    raise exception 'remotePilotLocation must be an object or null';
+  end if;
+  if (v_pilot_lng is null)<>(v_pilot_lat is null) or (v_pilot_lng is not null and
+      (v_pilot_lng not between -180 and 180 or v_pilot_lat not between -90 and 90
+       or (v_pilot_lng=0 and v_pilot_lat=0))) then
+    raise exception 'remote pilot longitude and latitude must form a valid non-zero WGS84 position';
+  end if;
+  v_pilot_geom := case when v_pilot_lng is not null then
+    ST_SetSRID(ST_MakePoint(v_pilot_lng,v_pilot_lat),4326) end;
   select coalesce(array_agg(value),array[]::text[]) into v_quality
   from jsonb_array_elements_text(coalesce(p_observation->'qualityFlags','[]'::jsonb));
 
@@ -622,13 +670,13 @@ begin
 
   insert into situation.target_observation(
     observation_id,observation_source_id,source_type_code,detection_method_code,producer_asset_id,source_target_id,source_session_id,event_type,
-    model,frequency_mhz,relative_height_m,horizontal_distance_m,azimuth_deg,elevation_deg,speed_mps,list_type,quality_flags
+    model,frequency_mhz,relative_height_m,horizontal_distance_m,azimuth_deg,elevation_deg,speed_mps,list_type,pilot_geom,quality_flags
   ) values(
     v_observation_id,v_source.id,v_source_type,v_detection_method,v_producer_asset_id,v_serial,nullif(p_observation->>'sourceSessionId',''),v_event_type,
     nullif(p_observation->>'model',''),situation.safe_numeric(p_observation->>'frequencyMhz'),
     situation.safe_numeric(p_observation->>'relativeHeightM'),situation.safe_numeric(p_observation->>'horizontalDistanceM'),
     situation.safe_numeric(p_observation->>'azimuthDeg'),situation.safe_numeric(p_observation->>'elevationDeg'),
-    situation.safe_numeric(p_observation->>'speedMps'),situation.safe_numeric(p_observation->>'listType')::smallint,v_quality
+    situation.safe_numeric(p_observation->>'speedMps'),situation.safe_numeric(p_observation->>'listType')::smallint,v_pilot_geom,v_quality
   );
 
   select * into v_session from situation.source_target_session
@@ -1234,16 +1282,22 @@ select s.id,s.source_system,s.external_station_id as station_id,s.external_box_c
   s.name,s.coordinate_system,s.enabled,st.connector_state,st.last_message_at,st.last_snapshot_at,st.updated_at,
   s.asset_id,a.asset_code,a.name as asset_name,a.lifecycle_status as asset_lifecycle_status,
   s.source_timezone,s.lost_timeout_seconds,st.last_connected_at,st.last_disconnected_at,
-  st.last_error_code,st.last_error_at,st.details
+  st.last_error_code,st.last_error_at,st.details,
+  coalesce(cap.capability_codes,array[]::text[]) capability_codes
 from situation.observation_source s
 join equipment.asset a on a.id=s.asset_id
-left join situation.observation_source_status_current st on st.observation_source_id=s.id;
+left join situation.observation_source_status_current st on st.observation_source_id=s.id
+left join lateral (
+  select array_agg(ac.capability_code order by ac.capability_code) capability_codes
+  from equipment.asset_capability ac where ac.asset_id=s.asset_id and ac.enabled
+) cap on true;
 comment on view api.detection_observation_sources is '侦测观测来源、设备资产映射和接入链路状态只读资源。';
 comment on column api.detection_observation_sources.station_id is '来源系统站点 ID。';
 comment on column api.detection_observation_sources.connector_state is '接入连接器状态，不等同于物理设备在线状态。';
 comment on column api.detection_observation_sources.asset_id is '来源映射的统一设备资产 ID。';
 comment on column api.detection_observation_sources.lost_timeout_seconds is '目标未出现在来源快照后判定丢失的宽限秒数。';
 comment on column api.detection_observation_sources.last_error_code is '连接器最近一次错误编码，不包含敏感错误详情。';
+comment on column api.detection_observation_sources.capability_codes is '来源映射设备当前启用的能力编码；仅描述能力，不代表每条观测均有对应结果。';
 
 create or replace function api.get_detection_situation_snapshot(
   p_station_ids text[] default null,p_source_type_codes smallint[] default null,
@@ -1467,6 +1521,119 @@ end;
 $$;
 comment on function api.get_detection_live_tracks_v2(bigint[],bigint[],text[],integer,integer,integer,integer) is '返回 JSON：generated_at、cursor、trail_seconds、detection_methods、tracks 和 sources；按观测来源、实际生产设备及平台稳定侦测方式过滤活动航迹，并返回多方式证据与有界空间尾迹。';
 
+create or replace function api.get_detection_live_tracks_v3(
+  p_observation_source_ids bigint[] default null,p_producer_asset_ids bigint[] default null,
+  p_detection_method_codes text[] default null,p_active_within_seconds integer default 120,
+  p_trail_seconds integer default 300,p_max_tracks integer default 1000,
+  p_max_points_per_track integer default 300
+) returns jsonb language plpgsql stable security definer
+set search_path=pg_catalog,public,equipment,situation,api as $$
+declare v_result jsonb;
+begin
+  if p_active_within_seconds not between 5 and 3600 then raise exception 'active window must be between 5 and 3600 seconds'; end if;
+  if p_trail_seconds not between 30 and 1800 then raise exception 'trail window must be between 30 and 1800 seconds'; end if;
+  if p_max_tracks not between 1 and 5000 then raise exception 'max tracks must be between 1 and 5000'; end if;
+  if p_max_points_per_track not between 2 and 1000 then raise exception 'max observations per track must be between 2 and 1000'; end if;
+  with active_tracks as (
+    select t.id track_id,t.track_code,t.target_id,t.status,s.source_target_id,
+      src.id observation_source_id,src.external_station_id station_id,src.asset_id source_asset_id,
+      t.last_observed_at
+    from situation.target_track t
+    join situation.source_target_session s on s.id=t.source_session_id
+    join situation.observation_source src on src.id=s.observation_source_id
+    where t.status='tracking' and t.last_observed_at>=now()-make_interval(secs=>p_active_within_seconds)
+      and (p_observation_source_ids is null or src.id=any(p_observation_source_ids))
+      and (p_detection_method_codes is null or exists(
+        select 1 from situation.track_observation fx
+        join situation.target_observation fo on fo.observation_id=fx.observation_id
+        join equipment.raw_observation fr on fr.id=fx.observation_id
+        where fx.track_id=t.id and fo.detection_method_code=any(p_detection_method_codes)
+          and fr.observed_at>=now()-make_interval(secs=>p_active_within_seconds)
+      ))
+      and (p_producer_asset_ids is null or exists(
+        select 1 from situation.track_observation px
+        join situation.target_observation po on po.observation_id=px.observation_id
+        join equipment.raw_observation pr on pr.id=px.observation_id
+        where px.track_id=t.id and po.producer_asset_id=any(p_producer_asset_ids)
+          and pr.observed_at>=now()-make_interval(secs=>p_active_within_seconds)
+      ))
+    order by t.last_observed_at desc,t.id desc limit p_max_tracks
+  ), live_tracks as (
+    select a.*,coalesce(observations.items,'[]'::jsonb) observations,
+      coalesce(methods.items,'[]'::jsonb) observation_methods,
+      latest.detection_method_code latest_observation_method_code,
+      latest.detection_method_name latest_observation_method_name,
+      latest.producer_asset_id,latest.model,latest.frequency_mhz,latest.quality_flags
+    from active_tracks a
+    left join lateral (
+      select jsonb_agg(jsonb_build_object('code',q.code,'name',q.name) order by q.sort_order,q.code) items
+      from (
+        select distinct dm.code,dm.name,dm.sort_order
+        from situation.track_observation mx
+        join equipment.raw_observation mr on mr.id=mx.observation_id
+        join situation.target_observation mo on mo.observation_id=mx.observation_id
+        join situation.detection_method dm on dm.code=mo.detection_method_code
+        where mx.track_id=a.track_id and mr.observed_at>=now()-make_interval(secs=>p_trail_seconds)
+      ) q
+    ) methods on true
+    left join lateral (
+      select lo.detection_method_code,dm.name detection_method_name,lo.producer_asset_id,
+        lo.model,lo.frequency_mhz,lo.quality_flags
+      from situation.track_observation lx
+      join equipment.raw_observation lr on lr.id=lx.observation_id
+      join situation.target_observation lo on lo.observation_id=lx.observation_id
+      left join situation.detection_method dm on dm.code=lo.detection_method_code
+      where lx.track_id=a.track_id order by lr.observed_at desc,lr.id desc limit 1
+    ) latest on true
+    left join lateral (
+      select jsonb_agg(jsonb_build_object(
+        'observation_id',p.id,'observed_at',p.observed_at,
+        'target_location',case when p.geom is null then null else jsonb_build_object(
+          'position',ST_AsGeoJSON(p.geom)::jsonb,'altitude_amsl_m',p.height_amsl_m,
+          'relative_height_m',p.relative_height_m) end,
+        'remote_pilot_location',case when p.pilot_geom is null then null else jsonb_build_object(
+          'position',ST_AsGeoJSON(p.pilot_geom)::jsonb,'source','vendor_reported','accuracy_m',null) end,
+        'detection_method_code',p.detection_method_code,
+        'detection_method_name',p.detection_method_name,'producer_asset_id',p.producer_asset_id,
+        'speed_mps',p.speed_mps,'quality_flags',p.quality_flags
+      ) order by p.observed_at,p.id) items
+      from (
+        select r.id,r.observed_at,r.geom,r.height_amsl_m,o.pilot_geom,o.relative_height_m,
+          o.detection_method_code,dm.name detection_method_name,o.producer_asset_id,o.speed_mps,o.quality_flags
+        from situation.track_observation x
+        join equipment.raw_observation r on r.id=x.observation_id
+        join situation.target_observation o on o.observation_id=r.id
+        left join situation.detection_method dm on dm.code=o.detection_method_code
+        where x.track_id=a.track_id and r.observed_at>=now()-make_interval(secs=>p_trail_seconds)
+        order by r.observed_at desc,r.id desc limit p_max_points_per_track
+      ) p
+    ) observations on true
+  )
+  select jsonb_build_object(
+    'generated_at',now(),'cursor',coalesce((select max(id) from situation.change_event),0),
+    'trail_seconds',p_trail_seconds,
+    'detection_methods',coalesce((select jsonb_agg(jsonb_build_object(
+      'code',code,'name',name,'description',description,'display_metadata',display_metadata
+    ) order by sort_order,code) from situation.detection_method where visible),'[]'::jsonb),
+    'tracks',coalesce((select jsonb_agg(jsonb_build_object(
+      'track_id',track_id,'track_code',track_code,'target_id',target_id,'status',status,
+      'observation_source_id',observation_source_id,'station_id',station_id,
+      'source_asset_id',source_asset_id,'source_target_id',source_target_id,
+      'producer_asset_id',producer_asset_id,'observation_methods',observation_methods,
+      'latest_observation_method_code',latest_observation_method_code,
+      'latest_observation_method_name',latest_observation_method_name,'model',model,
+      'frequency_mhz',frequency_mhz,'quality_flags',quality_flags,
+      'last_observed_at',last_observed_at,'observations',observations
+    ) order by last_observed_at desc) from live_tracks),'[]'::jsonb),
+    'sources',coalesce((select jsonb_agg(to_jsonb(v) order by id)
+      from api.detection_observation_sources v
+      where p_observation_source_ids is null or id=any(p_observation_source_ids)),'[]'::jsonb)
+  ) into v_result;
+  return v_result;
+end;
+$$;
+comment on function api.get_detection_live_tracks_v3(bigint[],bigint[],text[],integer,integer,integer,integer) is '返回 JSON：generated_at、cursor、trail_seconds、detection_methods、tracks、observations 和 sources；每条观测分别表达目标位置与远程飞手位置。';
+
 create or replace function api.get_detection_situation_changes(
   p_after_cursor bigint,p_station_ids text[] default null,p_limit integer default 500
 ) returns jsonb language plpgsql stable security definer
@@ -1482,6 +1649,18 @@ begin
     select p.id,p.event_type,p.occurred_at,
       p.payload||jsonb_strip_nulls(jsonb_build_object(
         'observation_id',r.id,'observed_at',r.observed_at,
+        'observation',case when r.id is null then null else jsonb_build_object(
+          'observation_id',r.id,'observed_at',r.observed_at,
+          'target_location',case when r.geom is null then null else jsonb_build_object(
+            'position',ST_AsGeoJSON(r.geom)::jsonb,'altitude_amsl_m',r.height_amsl_m,
+            'relative_height_m',o.relative_height_m) end,
+          'remote_pilot_location',case when o.pilot_geom is null then null else jsonb_build_object(
+            'position',ST_AsGeoJSON(o.pilot_geom)::jsonb,'source','vendor_reported','accuracy_m',null) end,
+          'detection_method_code',o.detection_method_code,'detection_method_name',dm.name,
+          'producer_asset_id',o.producer_asset_id,'speed_mps',o.speed_mps,
+          'quality_flags',o.quality_flags
+        ) end,
+
         'position',case when r.geom is null then null else ST_AsGeoJSON(r.geom)::jsonb end,
         'altitude_amsl_m',r.height_amsl_m,'source_type_code',o.source_type_code,
         'detection_method_code',o.detection_method_code,'detection_method_name',dm.name,
@@ -1570,7 +1749,7 @@ begin
   if p_end_at-p_start_at>interval '7 days' then raise exception 'track detail window cannot exceed 7 days'; end if;
   if p_max_points not between 1 and 5000 then raise exception 'max points must be between 1 and 5000'; end if;
   with observations as (
-    select r.id,r.observed_at,r.geom,r.height_amsl_m,o.source_type_code,o.frequency_mhz,o.relative_height_m,
+    select r.id,r.observed_at,r.geom,r.height_amsl_m,o.pilot_geom,o.source_type_code,o.detection_method_code,o.frequency_mhz,o.relative_height_m,
       o.horizontal_distance_m,o.azimuth_deg,o.elevation_deg,o.speed_mps,o.quality_flags,
       row_number() over(order by r.observed_at,r.id) rn,count(*) over() total
     from situation.track_observation x join equipment.raw_observation r on r.id=x.observation_id
@@ -1579,6 +1758,14 @@ begin
   ), sampled as (select * from observations where total<=p_max_points or mod(rn-1,ceil(total::numeric/p_max_points)::bigint)=0 limit p_max_points)
   select jsonb_build_object('track',(select jsonb_build_object('id',t.id,'track_code',t.track_code,'status',t.status,
       'first_observed_at',t.first_observed_at,'last_observed_at',t.last_observed_at,'lost_at',t.lost_at) from situation.target_track t where t.id=p_track_id),
+    'observations',coalesce((select jsonb_agg(jsonb_build_object(
+      'observation_id',id,'observed_at',observed_at,
+      'target_location',case when geom is null then null else jsonb_build_object(
+        'position',ST_AsGeoJSON(geom)::jsonb,'altitude_amsl_m',height_amsl_m,'relative_height_m',relative_height_m) end,
+      'remote_pilot_location',case when pilot_geom is null then null else jsonb_build_object(
+        'position',ST_AsGeoJSON(pilot_geom)::jsonb,'source','vendor_reported','accuracy_m',null) end,
+      'detection_method_code',detection_method_code,'quality_flags',quality_flags
+    ) order by observed_at,id) from sampled),'[]'::jsonb),
     'points',coalesce((select jsonb_agg(jsonb_strip_nulls(jsonb_build_object('observation_id',id,'observed_at',observed_at,
       'position',ST_AsGeoJSON(geom)::jsonb,'altitude_amsl_m',height_amsl_m,'source_type_code',source_type_code,
       'frequency_mhz',frequency_mhz,'relative_height_m',relative_height_m,'horizontal_distance_m',horizontal_distance_m,
@@ -1593,7 +1780,7 @@ begin
   return v_result;
 end;
 $$;
-comment on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) is '返回 JSON：track、points、non_spatial_observations 和 evidence；查询半开时间区间内航迹证据，窗口最大 7 天，最多返回 5000 个抽样点。';
+comment on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) is '返回 JSON：track、observations、兼容 points、non_spatial_observations 和 evidence；观测分别包含目标位置与远程飞手位置，窗口最大 7 天，最多返回 5000 条抽样观测。';
 
 create or replace function api.update_detection_observation_source(
   p_source_id bigint,p_name text,p_asset_id bigint,p_source_timezone text,
@@ -1663,6 +1850,8 @@ revoke all on api.detection_source_types,api.detection_methods,api.detection_met
 revoke all on function api.get_detection_situation_snapshot(text[],smallint[],double precision,double precision,double precision,double precision,integer,integer) from public,anonymous;
 revoke all on function api.get_detection_live_tracks(text[],smallint[],integer,integer,integer,integer) from public,anonymous;
 revoke all on function api.get_detection_live_tracks_v2(bigint[],bigint[],text[],integer,integer,integer,integer) from public,anonymous;
+revoke all on function api.get_detection_live_tracks_v3(bigint[],bigint[],text[],integer,integer,integer,integer) from public,anonymous;
+
 revoke all on function api.get_detection_situation_changes(bigint,text[],integer) from public,anonymous;
 revoke all on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) from public,anonymous;
 revoke all on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) from public,anonymous;
@@ -1674,6 +1863,7 @@ grant select on api.detection_source_types,api.detection_methods,api.detection_m
 grant execute on function api.get_detection_situation_snapshot(text[],smallint[],double precision,double precision,double precision,double precision,integer,integer) to admin;
 grant execute on function api.get_detection_live_tracks(text[],smallint[],integer,integer,integer,integer) to admin;
 grant execute on function api.get_detection_live_tracks_v2(bigint[],bigint[],text[],integer,integer,integer,integer) to admin;
+grant execute on function api.get_detection_live_tracks_v3(bigint[],bigint[],text[],integer,integer,integer,integer) to admin;
 grant execute on function api.get_detection_situation_changes(bigint,text[],integer) to admin;
 grant execute on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) to admin;
 grant execute on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) to admin;

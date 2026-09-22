@@ -2,13 +2,19 @@ const fs = require('fs');
 const assert = require('assert');
 const SourceSituation = require('../frontend/src/features/source-situation/source-situation-module');
 
+const pageHtml = fs.readFileSync(require.resolve('../frontend/tianditu-3d.html'), 'utf8');
+assert(pageHtml.includes('data-situation-layer="remote-pilot"'));
+
 const sourceModuleText = fs.readFileSync(
   require.resolve('../frontend/src/features/source-situation/source-situation-module'),
   'utf8',
 );
-assert(sourceModuleText.includes("rpc('get_detection_live_tracks_v2'"));
+assert(sourceModuleText.includes("rpc('get_detection_live_tracks_v3'"));
 assert(sourceModuleText.includes('p_detection_method_codes: detectionMethods'));
 assert(!sourceModuleText.includes("rpc('get_detection_live_tracks',"));
+assert(sourceModuleText.includes("data-situation-layer"));
+assert(sourceModuleText.includes("detection-remote-pilot-"));
+assert(sourceModuleText.includes("detection-target-pilot-link-"));
 
 assert.deepStrictEqual(
   SourceSituation.buildHistoryPayload('2026-09-21', '2026-09-21', [20]),
@@ -80,10 +86,11 @@ const liveTracks = SourceSituation.indexLiveTracks([{
   track_id: 7,
   status: 'tracking',
   source_type_code: 20,
-  points: [{
+  observations: [{
     observation_id: 1,
     observed_at: '2026-09-21T10:00:00+08:00',
-    position: { coordinates: [119.19, 34.59] },
+    target_location: { position: { coordinates: [119.19, 34.59] }, altitude_amsl_m: 100 },
+    remote_pilot_location: { position: { coordinates: [119.18, 34.58] }, source: 'vendor_reported' },
   }],
 }]);
 SourceSituation.applyLiveChanges(liveTracks, [{
@@ -91,18 +98,31 @@ SourceSituation.applyLiveChanges(liveTracks, [{
   occurred_at: '2026-09-21T10:01:00+08:00',
   payload: {
     track_id: 7,
-    observation_id: 2,
-    observed_at: '2026-09-21T10:01:00+08:00',
-    position: { coordinates: [119.191, 34.59] },
-    source_type_code: 20,
-    detection_method_code: 'radio_detection',
+    observation: {
+      observation_id: 2,
+      observed_at: '2026-09-21T10:01:00+08:00',
+      target_location: { position: { coordinates: [119.191, 34.59] }, altitude_amsl_m: 101 },
+      remote_pilot_location: { position: { coordinates: [119.181, 34.581] }, source: 'vendor_reported' },
+      detection_method_code: 'radio_detection',
+    },
   },
 }, {
   type: 'target_upsert',
   occurred_at: '2026-09-21T10:01:00+08:00',
-  payload: { track_id: 7, observation_id: 2, position: { coordinates: [119.191, 34.59] }, source_type_code: 20, detection_method_code: 'radio_detection' },
+  payload: {
+    track_id: 7,
+    observation: {
+      observation_id: 2,
+      observed_at: '2026-09-21T10:01:00+08:00',
+      target_location: { position: { coordinates: [119.191, 34.59] } },
+      remote_pilot_location: { position: { coordinates: [119.181, 34.581] } },
+      detection_method_code: 'radio_detection',
+    },
+  },
 }], '2026-09-21T10:01:00+08:00', 300, 60, ['radio_detection']);
 assert.strictEqual(liveTracks['7'].points.length, 2, '增量观测按 observation_id 去重');
+assert.strictEqual(liveTracks['7'].remotePilotPoints.length, 2, '飞手位置按同一 observation_id 合并');
+assert.deepStrictEqual(liveTracks['7'].remotePilotPoints[1].position.coordinates, [119.181, 34.581]);
 
 SourceSituation.applyLiveChanges(liveTracks, [{
   type: 'target_remove',

@@ -62,6 +62,10 @@ situation.ingest_target_observation(p_observation jsonb) returns jsonb
   "latitude": 34.592,
   "altitudeAmslM": 32,
   "horizontalDistanceM": 290,
+  "remotePilotLocation": {
+    "longitude": 119.1812,
+    "latitude": 34.5968
+  },
   "qualityFlags": [],
   "rawPayload": {}
 }
@@ -188,6 +192,7 @@ GET  /postgrest/counter_uas_telemetry_samples
 POST /postgrest/rpc/get_detection_situation_snapshot
 POST /postgrest/rpc/get_detection_live_tracks
 POST /postgrest/rpc/get_detection_live_tracks_v2
+POST /postgrest/rpc/get_detection_live_tracks_v3
 POST /postgrest/rpc/get_detection_situation_changes
 POST /postgrest/rpc/list_detection_target_tracks
 POST /postgrest/rpc/get_target_track_detail
@@ -221,7 +226,7 @@ POST /postgrest/rpc/get_target_track_detail
 
 返回当前活动目标、每条目标最近一段有界空间尾迹、来源状态和增量游标。前端随后使用游标补读增量，避免重复下载完整尾迹。
 
-新接入应使用平台稳定侦测方式版本：
+新接入应使用同时表达目标位置和远程飞手位置的观测版本：
 
 ```json
 {
@@ -235,7 +240,9 @@ POST /postgrest/rpc/get_target_track_detail
 }
 ```
 
-`get_detection_live_tracks_v2` 按平台稳定侦测方式过滤关联观测，不再按航迹会话上的厂商数值类型过滤。三个数组参数均遵循：`null` 表示不过滤，`[]` 表示空集。响应中的 `observation_methods` 表示尾迹窗口内出现过的全部侦测方式，`latest_observation_method_code` 表示最新观测方式；每个空间点也携带自己的 `detection_method_code`。旧接口仅用于兼容现有调用方。
+`get_detection_live_tracks_v3` 沿用 v2 的参数，但将每条航迹的 `points` 升级为 `observations`。每条观测分别包含可空的 `target_location` 和 `remote_pilot_location`，两者通过同一个 `observation_id` 保持关联；没有目标坐标但有飞手坐标的观测也会返回。v2 和更早接口仅用于兼容现有调用方。
+
+`remote_pilot_location.position` 是 WGS84 GeoJSON Point，`source=vendor_reported` 表示位置由厂商设备上报。飞手位置不参与目标航迹位置、速度或跳点计算。
 
 ### 6.3 态势增量
 
@@ -247,7 +254,7 @@ POST /postgrest/rpc/get_target_track_detail
 }
 ```
 
-`target_upsert` 增量在有空间观测时包含 `observation_id`、`observed_at`、GeoJSON `position`、高度、速度、来源类型和质量标记；`target_remove` 用于将目标标记为丢失。
+`target_upsert` 增量保留原有平铺字段，并增加与 v3 相同结构的 `observation`；其中分别包含 `target_location` 和 `remote_pilot_location`。`target_remove` 用于将目标标记为丢失。
 
 ### 6.4 历史航迹摘要
 

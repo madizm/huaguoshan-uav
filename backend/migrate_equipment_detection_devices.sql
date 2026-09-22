@@ -165,6 +165,7 @@ insert into equipment.capability(code, name, capability_type, description) value
   ('radio_jamming', '无线电干扰', 'countermeasure', '提供无线电干扰能力，仅用于能力展示和处置方案推荐。'),
   ('aoa_measurement', '到达角测向', 'detection', '估计无线电信号到达方向。'),
   ('radio_detection', '无线电侦测', 'detection', '通过无线电信号发现目标；不要求具备到达角测向能力。'),
+  ('remote_pilot_localization', '远程飞手定位', 'detection', '通过遥控链路、Remote ID 或厂商识别结果获得远程飞手位置。'),
   ('microwave_detection', '微波探测', 'detection', '通过微波感知低空目标。'),
   ('range_measurement', '距离测量', 'detection', '提供目标距离估计。'),
   ('velocity_measurement', '速度测量', 'detection', '提供目标速度估计。'),

@@ -20,7 +20,7 @@
 登录取得 admin JWT
         │
         ▼
-get_detection_live_tracks_v2
+get_detection_live_tracks_v3
 初始化活动目标、最近 5 分钟尾迹、来源状态和 cursor
         │
         ▼
@@ -145,7 +145,7 @@ async function rpc(name, payload, token) {
 ### 5.1 请求
 
 ```http
-POST /postgrest/rpc/get_detection_live_tracks_v2
+POST /postgrest/rpc/get_detection_live_tracks_v3
 ```
 
 ```json
@@ -170,9 +170,9 @@ POST /postgrest/rpc/get_detection_live_tracks_v2
 | `p_active_within_seconds` | 5–3600 | 最近多久有观测才视为活动航迹 |
 | `p_trail_seconds` | 30–1800 | 每条航迹返回的尾迹时间窗口 |
 | `p_max_tracks` | 1–5000 | 最大活动航迹数 |
-| `p_max_points_per_track` | 2–1000 | 每条航迹最大空间点数 |
+| `p_max_points_per_track` | 2–1000 | 每条航迹最大观测数（参数名为兼容 v2 保留） |
 
-推荐值是 120 秒活动窗口、300 秒尾迹窗口、每条航迹最多 300 点。
+推荐值是 120 秒活动窗口、300 秒尾迹窗口、每条航迹最多 300 条观测。
 
 ### 5.2 响应结构
 
@@ -190,7 +190,8 @@ POST /postgrest/rpc/get_detection_live_tracks_v2
       "connector_state": "connected",
       "last_message_at": "2026-09-21T10:30:31+08:00",
       "last_snapshot_at": "2026-09-21T10:30:40+08:00",
-      "lost_timeout_seconds": 60
+      "lost_timeout_seconds": 60,
+      "capability_codes": ["microwave_detection", "radio_detection", "remote_pilot_localization"]
     }
   ],
   "tracks": [
@@ -207,15 +208,26 @@ POST /postgrest/rpc/get_detection_live_tracks_v2
       "model": "DJI-Matrice 3D/3TD",
       "last_observed_at": "2026-09-21T10:30:31+08:00",
       "quality_flags": [],
-      "points": [
+      "observations": [
         {
           "observation_id": 3135,
           "observed_at": "2026-09-21T10:30:31+08:00",
-          "position": {
-            "type": "Point",
-            "coordinates": [119.179627433, 34.597603822]
+          "target_location": {
+            "position": {
+              "type": "Point",
+              "coordinates": [119.179627433, 34.597603822]
+            },
+            "altitude_amsl_m": 116.0,
+            "relative_height_m": 32.0
           },
-          "altitude_amsl_m": 116.0,
+          "remote_pilot_location": {
+            "position": {
+              "type": "Point",
+              "coordinates": [119.1812, 34.5968]
+            },
+            "source": "vendor_reported",
+            "accuracy_m": null
+          },
           "detection_method_code": "radio_detection",
           "detection_method_name": "电侦",
           "quality_flags": []
@@ -230,7 +242,7 @@ POST /postgrest/rpc/get_detection_live_tracks_v2
 
 - `cursor`：下一次增量请求的起点；
 - `trail_seconds`：本地尾迹裁剪窗口；
-- 以 `track_id` 为键的航迹映射；
+- 以 `track_id` 为键的航迹映射及其有界观测数组；
 - 来源状态列表。
 
 ## 6. 游标增量
@@ -277,7 +289,28 @@ POST /postgrest/rpc/get_detection_situation_changes
           "coordinates": [119.1797, 34.5975]
         },
         "altitude_amsl_m": 115.0,
-        "quality_flags": []
+        "quality_flags": [],
+        "observation": {
+          "observation_id": 3136,
+          "observed_at": "2026-09-21T10:30:32+08:00",
+          "target_location": {
+            "position": {
+              "type": "Point",
+              "coordinates": [119.1797, 34.5975]
+            },
+            "altitude_amsl_m": 115.0
+          },
+          "remote_pilot_location": {
+            "position": {
+              "type": "Point",
+              "coordinates": [119.1812, 34.5968]
+            },
+            "source": "vendor_reported",
+            "accuracy_m": null
+          },
+          "detection_method_code": "radio_detection",
+          "quality_flags": []
+        }
       }
     }
   ]
@@ -294,21 +327,20 @@ POST /postgrest/rpc/get_detection_situation_changes
 
 ### 6.4 增量合并
 
-`target_upsert` 可能没有 `position`。这种消息表示目标仍被侦测到，但不能更新地图坐标。增量中的 `detection_method_code` 使用平台稳定编码，与初始化响应一致。
+`target_upsert.payload.observation` 中的两个位置均可为空。没有 `target_location` 时不能更新空域目标坐标；存在 `remote_pilot_location` 时仍可更新飞手图层。`detection_method_code` 使用平台稳定编码，与初始化响应一致。
 
 建议的合并逻辑：
 
 ```js
 function applyTargetUpsert(track, payload) {
+  const observation = payload.observation;
   track.status = 'tracking';
-  track.lastObservedAt = payload.observed_at;
+  track.lastObservedAt = observation.observed_at;
+  if (track.observationIds.has(observation.observation_id)) return;
 
-  if (!payload.position) return;
-  if (track.observationIds.has(payload.observation_id)) return;
-
-  track.observationIds.add(payload.observation_id);
-  track.points.push(payload);
-  track.points.sort((a, b) =>
+  track.observationIds.add(observation.observation_id);
+  track.observations.push(observation);
+  track.observations.sort((a, b) =>
     Date.parse(a.observed_at) - Date.parse(b.observed_at) ||
     Number(a.observation_id) - Number(b.observation_id)
   );
@@ -328,8 +360,8 @@ function applyTargetUpsert(track, payload) {
 
 推荐规则：
 
-- 只保留最近 5 分钟空间点；
-- 每条航迹最多保留 300 点；
+- 只保留最近 5 分钟观测；
+- 每条航迹最多保留 300 条观测；
 - 使用 `observation_id` 去重；
 - 按 `observed_at`、`observation_id` 排序；
 - 删除窗口外点时同步删除其去重集合记录；
@@ -355,6 +387,8 @@ const position = Cesium.Cartesian3.fromDegrees(longitude, latitude, height);
 ```
 
 当 `altitude_amsl_m` 缺失时，上例中的 `100` 仅是视觉抬升，不是业务高度。
+
+远程飞手位置使用独立图层和颜色。只有同一 `observation_id` 同时包含目标与飞手位置时才绘制关联线；飞手位置不得加入目标尾迹或目标速度计算。界面提供独立的“飞手位置”开关，末次位置必须显示实际观测时间。
 
 ### 8.2 尾迹切段
 

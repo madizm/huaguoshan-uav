@@ -548,6 +548,8 @@ POST /rpc/save_equipment_configuration
 
 `range_basis` 只允许 `vendor_spec`、`measured`、`estimated`、`manual`。保存 RPC 会校验距离、频率非负以及上下限顺序。通用无线电侦测使用 `radio_detection`；只有明确具备到达角测向能力时才配置 `aoa_measurement`。
 
+经厂家文档确认能够定位远程飞手的设备配置 `remote_pilot_localization` 能力。建议参数包含 `position_source=vendor_reported`、`coordinate_system=WGS84`、`supports_realtime`、`supports_history` 和可空的 `accuracy_m`。能力表示设备具备该功能；每次实际获得的位置保存在目标观测的 `pilot_geom`，不能由能力配置推断观测一定具有飞手位置。
+
 管理后台支持三种覆盖配置：地图绘制、全向半径和方位扇区。后两种根据设备登记位置生成 WGS84 Polygon，并在覆盖 `metadata` 中保存生成依据：
 
 ```json

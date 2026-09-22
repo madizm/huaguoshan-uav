@@ -47,6 +47,21 @@ def safe_number(value: Any) -> float | None:
         return None
 
 
+def delimited_wgs84_position(value: Any) -> tuple[dict[str, float] | None, bool]:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None, False
+    if not isinstance(value, str):
+        return None, True
+    parts = value.strip().split("/", 1)
+    if len(parts) != 2:
+        return None, True
+    longitude, latitude = safe_number(parts[0]), safe_number(parts[1])
+    if not (longitude is not None and latitude is not None and -180 <= longitude <= 180
+            and -90 <= latitude <= 90 and (longitude != 0 or latitude != 0)):
+        return None, True
+    return {"longitude": longitude, "latitude": latitude}, False
+
+
 def source_time(value: Any, fallback: datetime) -> tuple[datetime, bool]:
     if not isinstance(value, str) or not value.strip():
         return fallback, True
@@ -223,6 +238,12 @@ def normalize_vendor_item(message_type: str, item: dict[str, Any], station_id: s
     source_type_code = int(source_type) if source_type in {10.0, 20.0} else None
     detection_method_code = DETECTION_METHOD_BY_SOURCE_TYPE.get(source_type_code)
     quality_flags = []
+    remote_pilot_location, invalid_remote_pilot_position = delimited_wgs84_position(
+        item.get("pilotGps")
+    )
+    if invalid_remote_pilot_position:
+        quality_flags.append("invalid_remote_pilot_position")
+
     if source_type_code is None:
         quality_flags.append("missing_source_type")
     if longitude is None and event_type != "offline_remove":
@@ -249,6 +270,7 @@ def normalize_vendor_item(message_type: str, item: dict[str, Any], station_id: s
         "speedMps": safe_number(item.get("directSpeed")),
         "frequencyMhz": safe_number(item.get("freq")),
         "listType": safe_number(item.get("listType")), "model": item.get("model") or None,
+        "remotePilotLocation": remote_pilot_location,
         "endReason": item.get("reason") or None, "qualityFlags": quality_flags, "rawPayload": item,
     }
 
