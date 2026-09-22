@@ -4,11 +4,14 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   listAssets,
   listCategories,
+  listCounterUasTelemetrySummaries,
   updateAsset,
   type AssetCategory,
+  type CounterUasTelemetrySummary,
   type EquipmentAsset,
 } from '../api/equipment'
 import EquipmentEditorDrawer from '../components/EquipmentEditorDrawer.vue'
+import CounterUasTelemetryDrawer from '../components/CounterUasTelemetryDrawer.vue'
 
 const categories = ref<AssetCategory[]>([])
 const categoryNameMap = reactive<Record<string, string>>({})
@@ -21,6 +24,9 @@ const loading = ref(false)
 
 const drawerVisible = ref(false)
 const editingAsset = ref<EquipmentAsset | null>(null)
+const telemetryDrawerVisible = ref(false)
+const monitoringAsset = ref<EquipmentAsset | null>(null)
+const telemetryByAsset = ref<Record<number, CounterUasTelemetrySummary>>({})
 
 async function loadAssets() {
   loading.value = true
@@ -34,6 +40,16 @@ async function loadAssets() {
     })
     assets.value = result.rows
     total.value = result.total
+    const counterUasIds = result.rows
+      .filter((asset) => asset.category_code === 'counter_uas')
+      .map((asset) => asset.id)
+    try {
+      const telemetry = await listCounterUasTelemetrySummaries(counterUasIds)
+      telemetryByAsset.value = Object.fromEntries(telemetry.map((item) => [item.asset_id, item]))
+    } catch (error) {
+      telemetryByAsset.value = {}
+      ElMessage.warning(`设备运行状态加载失败：${(error as Error).message}`)
+    }
   } catch (error) {
     ElMessage.error((error as Error).message)
   } finally {
@@ -54,6 +70,25 @@ function openCreate() {
 function openEdit(asset: EquipmentAsset) {
   editingAsset.value = asset
   drawerVisible.value = true
+}
+
+function openTelemetry(asset: EquipmentAsset) {
+  monitoringAsset.value = asset
+  telemetryDrawerVisible.value = true
+}
+
+function operationState(asset: EquipmentAsset) {
+  const telemetry = telemetryByAsset.value[asset.id]
+  if (!telemetry) return { label: '尚无遥测', type: 'info' as const }
+  if (telemetry.telemetry_stale) return { label: '数据过期', type: 'warning' as const }
+  if (telemetry.connector_state === 'disconnected' || telemetry.connector_state === 'degraded') {
+    return { label: '接入异常', type: 'warning' as const }
+  }
+  if (telemetry.asset_connectivity_status === 'offline') return { label: '盒子离线', type: 'danger' as const }
+  if (telemetry.detection_device_online === false || telemetry.countermeasure_device_online === false) {
+    return { label: '子系统异常', type: 'danger' as const }
+  }
+  return { label: '运行正常', type: 'success' as const }
 }
 
 async function toggleLifecycle(asset: EquipmentAsset) {
@@ -139,11 +174,22 @@ onMounted(async () => {
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="运行状态" width="120">
+          <template #default="{ row }">
+            <el-tag v-if="row.category_code === 'counter_uas'" :type="operationState(row).type" effect="light">
+              {{ operationState(row).label }}
+            </el-tag>
+            <span v-else>--</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="updated_at" label="更新时间" width="180">
           <template #default="{ row }">{{ new Date(row.updated_at).toLocaleString('zh-CN') }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="160">
+        <el-table-column label="操作" width="230">
           <template #default="{ row }">
+            <el-button v-if="row.category_code === 'counter_uas'" text type="primary" @click="openTelemetry(row)">
+              监控
+            </el-button>
             <el-button text type="primary" @click="openEdit(row)">
               编辑
             </el-button>
@@ -166,6 +212,7 @@ onMounted(async () => {
         @size-change="search"
     />
     <EquipmentEditorDrawer v-model="drawerVisible" :asset="editingAsset" :categories="categories" @saved="loadAssets" />
+    <CounterUasTelemetryDrawer v-model="telemetryDrawerVisible" :asset="monitoringAsset" />
   </section>
 </template>
 

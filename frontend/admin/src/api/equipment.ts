@@ -203,3 +203,121 @@ export function saveEquipmentConfiguration(
     p_expected_updated_at: request.expectedUpdatedAt ?? null,
   })
 }
+
+export type EquipmentRuntimeState = 'online' | 'offline' | 'unknown'
+
+export interface CounterUasTelemetryCurrent {
+  asset_id: number
+  asset_code: string
+  asset_name: string
+  observed_at: string
+  received_at: string
+  unattended: boolean | null
+  detection_device_online: boolean | null
+  countermeasure_device_online: boolean | null
+  counter_voltage_v: number | null
+  counter_current_a: number | null
+  counter_power_w: number | null
+  counter_temperature_c: number | null
+  detection_azimuth_deg: number | null
+  detection_rotating: boolean | null
+  counter_azimuth_deg: number | null
+  counter_rotating: boolean | null
+  active_frequencies_mhz: number[]
+  radar_device_sn: string | null
+  radar_asset_id: number | null
+  radar_online: boolean | null
+  radar_position: { type: 'Point'; coordinates: [number, number] } | null
+  radar_altitude_amsl_m: number | null
+  radar_heading_deg: number | null
+  radar_base_heading_deg: number | null
+  radar_gps_update_enabled: boolean | null
+  quality_flags: string[]
+  raw_payload: Record<string, unknown>
+  updated_at: string
+  asset_connectivity_status: EquipmentRuntimeState
+  observation_source_id: number | null
+  station_id: string | null
+  box_code: string | null
+  connector_state: 'connected' | 'disconnected' | 'degraded' | 'unknown'
+  last_message_at: string | null
+  telemetry_stale_after_seconds: number
+  telemetry_stale: boolean
+}
+
+export interface CounterUasStatusEvent {
+  id: number
+  asset_id: number
+  asset_code: string
+  asset_name: string
+  event_type: 'initialized' | 'status_changed'
+  changed_fields: string[]
+  previous_state: Record<string, unknown> | null
+  current_state: Record<string, unknown>
+  observed_at: string
+  received_at: string
+  created_at: string
+}
+
+export interface CounterUasTelemetrySample {
+  id: number
+  asset_id: number
+  asset_code: string
+  asset_name: string
+  observed_at: string
+  received_at: string
+  counter_voltage_v: number | null
+  counter_current_a: number | null
+  counter_power_w: number | null
+  counter_temperature_c: number | null
+  detection_azimuth_deg: number | null
+  counter_azimuth_deg: number | null
+  active_frequencies_mhz: number[]
+  radar_online: boolean | null
+  radar_heading_deg: number | null
+  quality_flags: string[]
+  raw_payload: Record<string, unknown>
+  sampled_at: string
+}
+
+export type CounterUasTelemetrySummary = Pick<CounterUasTelemetryCurrent,
+  'asset_id' | 'received_at' | 'asset_connectivity_status' | 'detection_device_online'
+  | 'countermeasure_device_online' | 'connector_state' | 'telemetry_stale'
+>
+
+export function listCounterUasTelemetrySummaries(assetIds: number[]): Promise<CounterUasTelemetrySummary[]> {
+  if (assetIds.length === 0) return Promise.resolve([])
+  return http.get('/counter_uas_telemetry_current', {
+    select: 'asset_id,received_at,asset_connectivity_status,detection_device_online,countermeasure_device_online,connector_state,telemetry_stale',
+    asset_id: `in.(${assetIds.join(',')})`,
+    order: 'asset_id.asc',
+  })
+}
+
+export function listCounterUasTelemetryCurrent(assetIds?: number[]): Promise<CounterUasTelemetryCurrent[]> {
+  if (assetIds?.length === 0) return Promise.resolve([])
+  const query: Record<string, string> = { order: 'asset_id.asc' }
+  if (assetIds) query.asset_id = `in.(${assetIds.join(',')})`
+  return http.get('/counter_uas_telemetry_current', query)
+}
+
+export function listCounterUasStatusEvents(assetId: number, limit = 100): Promise<CounterUasStatusEvent[]> {
+  return http.get('/counter_uas_status_events', {
+    asset_id: `eq.${assetId}`,
+    order: 'observed_at.desc,id.desc',
+    limit: String(limit),
+  })
+}
+
+export function listCounterUasTelemetrySamples(
+  assetId: number,
+  startAt: string,
+  limit = 1440,
+): Promise<CounterUasTelemetrySample[]> {
+  return http.get('/counter_uas_telemetry_samples', {
+    asset_id: `eq.${assetId}`,
+    observed_at: `gte.${startAt}`,
+    order: 'observed_at.desc,id.desc',
+    limit: String(limit),
+  })
+}

@@ -192,6 +192,10 @@ class DetectionSituationSchemaTests(unittest.TestCase):
         self.assertIn("on conflict(asset_id) do update", self.lower)
         self.assertIn("grant execute on function situation.ingest_detection_config_status", self.lower)
         self.assertIn("api.counter_uas_telemetry_current,api.counter_uas_status_events", self.lower)
+        self.assertIn("asset_connectivity_status", self.lower)
+        self.assertIn("connector_state", self.lower)
+        self.assertIn("telemetry_stale_after_seconds", self.lower)
+        self.assertIn("t.received_at < now()-interval '15 seconds' as telemetry_stale", self.lower)
         telemetry_columns = (
             "asset_id", "observed_at", "received_at", "unattended",
             "detection_device_online", "countermeasure_device_online",

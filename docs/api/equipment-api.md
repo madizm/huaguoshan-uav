@@ -561,3 +561,29 @@ POST /rpc/save_equipment_configuration
 ```
 
 数据库会校验生成半径、扇区方位角，并确认声明由设备位置生成的覆盖面包含设备位置。水平覆盖与 `min_height_amsl_m`、`max_height_amsl_m` 一起构成可用于空间匹配的能力覆盖；高度仍必须使用 AMSL。
+
+### 14.3 反无设备运行监控
+
+设备资产列表对 `counter_uas` 类别提供只读“监控”入口。后台将接入链路、盒子资产和设备子系统状态分开显示，避免把 WebSocket 已连接误判为物理设备在线。
+
+最新遥测：
+
+```http
+GET /counter_uas_telemetry_current?asset_id=eq.<asset_id>
+```
+
+该资源额外返回 `asset_connectivity_status`、`connector_state`、`last_message_at`、`telemetry_stale_after_seconds` 和 `telemetry_stale`。当前新鲜度阈值为 15 秒；超过阈值时，后台显示“数据已过期”，不继续把最后一次在线值展示为实时在线。
+
+离散状态事件：
+
+```http
+GET /counter_uas_status_events?asset_id=eq.<asset_id>&order=observed_at.desc,id.desc&limit=100
+```
+
+最近 24 小时限频采样：
+
+```http
+GET /counter_uas_telemetry_samples?asset_id=eq.<asset_id>&observed_at=gte.<ISO-8601>&order=observed_at.desc,id.desc&limit=1440
+```
+
+上述资源仅授权管理员读取。运行状态、事件和遥测由设备接入连接器写入，后台不提供修改或补录入口；原始报文只在监控抽屉的诊断区域折叠展示。

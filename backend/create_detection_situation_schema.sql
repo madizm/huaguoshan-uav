@@ -1044,11 +1044,30 @@ select t.asset_id,a.asset_code,a.name as asset_name,t.observed_at,t.received_at,
   t.active_frequencies_mhz,t.radar_device_sn,t.radar_asset_id,t.radar_online,
   case when t.radar_geom is null then null else ST_AsGeoJSON(t.radar_geom)::jsonb end as radar_position,
   t.radar_altitude_amsl_m,t.radar_heading_deg,t.radar_base_heading_deg,
-  t.radar_gps_update_enabled,t.quality_flags,t.raw_payload,t.updated_at
+  t.radar_gps_update_enabled,t.quality_flags,t.raw_payload,t.updated_at,
+  coalesce(ast.connectivity_status,'unknown') as asset_connectivity_status,
+  src.observation_source_id,src.station_id,src.box_code,
+  coalesce(src.connector_state,'unknown') as connector_state,src.last_message_at,
+  15 as telemetry_stale_after_seconds,
+  t.received_at < now()-interval '15 seconds' as telemetry_stale
 from equipment.counter_uas_telemetry_current t
-join equipment.asset a on a.id=t.asset_id;
+join equipment.asset a on a.id=t.asset_id
+left join equipment.asset_status_current ast on ast.asset_id=t.asset_id
+left join lateral (
+  select os.id as observation_source_id,os.external_station_id as station_id,
+    os.external_box_code as box_code,sc.connector_state,sc.last_message_at
+  from situation.observation_source os
+  left join situation.observation_source_status_current sc on sc.observation_source_id=os.id
+  where os.asset_id=t.asset_id and os.enabled
+  order by os.id
+  limit 1
+) src on true;
 comment on view api.counter_uas_telemetry_current is '管理员查询反无综合设备最新 config_status 遥测的只读资源。';
 comment on column api.counter_uas_telemetry_current.radar_position is '厂商上报雷达位置的 WGS84 GeoJSON Point；无有效位置时为空。';
+comment on column api.counter_uas_telemetry_current.asset_connectivity_status is '盒子资产当前连通状态，不等同于接入链路或子系统状态。';
+comment on column api.counter_uas_telemetry_current.connector_state is '绑定观测来源的接入链路状态。';
+comment on column api.counter_uas_telemetry_current.telemetry_stale_after_seconds is '后台判定实时遥测过期的秒数阈值。';
+comment on column api.counter_uas_telemetry_current.telemetry_stale is '最近遥测是否已超过后台展示的新鲜度阈值。';
 
 create or replace view api.counter_uas_status_events as
 select e.id,e.asset_id,a.asset_code,a.name as asset_name,e.event_type,e.changed_fields,
