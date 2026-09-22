@@ -49,6 +49,16 @@ class EquipmentAdminApiMigrationTests(unittest.TestCase):
         self.assertIn("insert into emergency_resource.equipment_resource", self.lower)
         self.assertIn("grant select on api.equipment_capability_catalog to admin", self.lower)
 
+    def test_validates_detection_ranges_and_generated_coverages(self):
+        self.assertIn("create or replace function equipment.validate_capability_parameters", self.lower)
+        self.assertIn("capability minimum range cannot exceed maximum range", self.lower)
+        self.assertIn("capability range_basis is invalid", self.lower)
+        self.assertIn("coverage_model must be manual, radial or sector", self.lower)
+        self.assertIn("generated coverage radius_m must be positive", self.lower)
+        self.assertIn("generated coverage radius_m cannot exceed capability maximum range", self.lower)
+        self.assertIn("st_covers(v_coverage_geom,v_geom)", self.lower)
+        self.assertIn("grant execute on function equipment.validate_capability_parameters", self.lower)
+
     def test_rpc_enforces_category_and_optimistic_locking(self):
         self.assertIn("equipment category is immutable", self.lower)
         self.assertIn("equipment configuration has been modified", self.lower)

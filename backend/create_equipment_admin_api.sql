@@ -136,6 +136,49 @@ end;
 $$;
 comment on function api.get_equipment_configuration(bigint) is '返回单个设备的资产、专业属性、能力、传感通道和调度资源配置 JSON。';
 
+create or replace function equipment.validate_capability_parameters(p_capability_code text,p_parameters jsonb)
+returns void
+language plpgsql
+stable
+set search_path = equipment, public, pg_temp
+as $$
+declare
+  v_min_range numeric;
+  v_max_range numeric;
+  v_min_frequency numeric;
+  v_max_frequency numeric;
+  v_key text;
+begin
+  if p_parameters is null or jsonb_typeof(p_parameters) <> 'object' then
+    raise exception 'capability % parameters must be a JSON object',p_capability_code;
+  end if;
+  foreach v_key in array array['min_range_m','max_range_m','frequency_min_mhz','frequency_max_mhz']
+  loop
+    if p_parameters ? v_key and jsonb_typeof(p_parameters->v_key) not in ('number','null') then
+      raise exception 'capability % parameter % must be numeric or null',p_capability_code,v_key;
+    end if;
+  end loop;
+  v_min_range:=nullif(p_parameters->>'min_range_m','')::numeric;
+  v_max_range:=nullif(p_parameters->>'max_range_m','')::numeric;
+  v_min_frequency:=nullif(p_parameters->>'frequency_min_mhz','')::numeric;
+  v_max_frequency:=nullif(p_parameters->>'frequency_max_mhz','')::numeric;
+  if v_min_range is not null and v_min_range<0 then raise exception 'capability minimum range cannot be negative'; end if;
+  if v_max_range is not null and v_max_range<=0 then raise exception 'capability maximum range must be positive'; end if;
+  if v_min_range is not null and v_max_range is not null and v_min_range>v_max_range then
+    raise exception 'capability minimum range cannot exceed maximum range';
+  end if;
+  if v_min_frequency is not null and v_min_frequency<0 then raise exception 'capability minimum frequency cannot be negative'; end if;
+  if v_max_frequency is not null and v_max_frequency<0 then raise exception 'capability maximum frequency cannot be negative'; end if;
+  if v_min_frequency is not null and v_max_frequency is not null and v_min_frequency>v_max_frequency then
+    raise exception 'capability minimum frequency cannot exceed maximum frequency';
+  end if;
+  if p_parameters ? 'range_basis' and coalesce(p_parameters->>'range_basis','') not in ('vendor_spec','measured','estimated','manual') then
+    raise exception 'capability range_basis is invalid';
+  end if;
+end;
+$$;
+comment on function equipment.validate_capability_parameters(text,jsonb) is '校验设备能力距离、频率和参数依据；校验成功无返回值。';
+
 create or replace function api.save_equipment_configuration(
   p_asset jsonb,
   p_profile jsonb,
@@ -163,6 +206,8 @@ declare
   v_related_item jsonb;
   v_asset_capability_id bigint;
   v_coverage_geom geometry(MultiPolygon, 4326);
+  v_capability_parameters jsonb;
+  v_coverage_metadata jsonb;
 begin
   if p_asset is null or jsonb_typeof(p_asset) <> 'object' then
     raise exception 'asset configuration must be a JSON object';
@@ -314,6 +359,8 @@ begin
       if nullif(v_related_item->>'capability_code', '') is null then
         raise exception 'capability_code is required';
       end if;
+      v_capability_parameters:=coalesce(v_related_item->'parameters','{}'::jsonb);
+      perform equipment.validate_capability_parameters(v_related_item->>'capability_code',v_capability_parameters);
       insert into equipment.asset_capability(
         asset_id, capability_code, access_level, enabled, parameters
       ) values (
@@ -321,7 +368,7 @@ begin
         v_related_item->>'capability_code',
         coalesce(nullif(v_related_item->>'access_level', ''), 'observable'),
         coalesce((v_related_item->>'enabled')::boolean, true),
-        coalesce(v_related_item->'parameters', '{}'::jsonb)
+        v_capability_parameters
       )
       on conflict (asset_id, capability_code) do update set
         access_level = excluded.access_level,
@@ -343,7 +390,7 @@ begin
       );
     for v_related_item in select value from jsonb_array_elements(p_asset->'coverages')
     loop
-      select id into v_asset_capability_id
+      select id,parameters into v_asset_capability_id,v_capability_parameters
       from equipment.asset_capability
       where asset_id = v_asset_id and capability_code = v_related_item->>'capability_code';
       if v_asset_capability_id is null then
@@ -364,6 +411,36 @@ begin
         raise exception 'coverage_geom is invalid: %', ST_IsValidReason(v_coverage_geom);
       end if;
 
+      v_coverage_metadata:=coalesce(v_related_item->'metadata','{}'::jsonb);
+      if jsonb_typeof(v_coverage_metadata)<>'object' then raise exception 'coverage metadata must be a JSON object'; end if;
+      if v_coverage_metadata ? 'coverage_model'
+         and v_coverage_metadata->>'coverage_model' not in ('manual','radial','sector') then
+        raise exception 'coverage_model must be manual, radial or sector';
+      end if;
+      if v_coverage_metadata->>'coverage_model' in ('radial','sector') then
+        if jsonb_typeof(v_coverage_metadata->'radius_m') is distinct from 'number'
+           or (v_coverage_metadata->>'radius_m')::numeric <= 0 then
+          raise exception 'generated coverage radius_m must be positive';
+        end if;
+        if nullif(v_capability_parameters->>'max_range_m','') is not null
+           and (v_coverage_metadata->>'radius_m')::numeric>(v_capability_parameters->>'max_range_m')::numeric then
+          raise exception 'generated coverage radius_m cannot exceed capability maximum range';
+        end if;
+        if coalesce((v_coverage_metadata->>'generated_from_asset_position')::boolean,false)
+           and not ST_Covers(v_coverage_geom,v_geom) then
+          raise exception 'coverage generated from asset position must cover the asset location';
+        end if;
+      end if;
+      if v_coverage_metadata->>'coverage_model'='sector' then
+        if jsonb_typeof(v_coverage_metadata->'azimuth_start_deg') is distinct from 'number'
+           or jsonb_typeof(v_coverage_metadata->'azimuth_end_deg') is distinct from 'number'
+           or (v_coverage_metadata->>'azimuth_start_deg')::numeric not between 0 and 360
+           or (v_coverage_metadata->>'azimuth_end_deg')::numeric not between 0 and 360
+           or (v_coverage_metadata->>'azimuth_start_deg')::numeric=(v_coverage_metadata->>'azimuth_end_deg')::numeric then
+          raise exception 'sector coverage azimuths must be distinct numbers between 0 and 360';
+        end if;
+      end if;
+
       if nullif(v_related_item->>'id', '') is null then
         insert into equipment.asset_coverage(
           asset_capability_id, coverage_geom, min_height_amsl_m, max_height_amsl_m,
@@ -374,7 +451,7 @@ begin
           nullif(v_related_item->>'max_height_amsl_m', '')::numeric, 'AMSL',
           nullif(v_related_item->>'valid_from', '')::timestamptz,
           nullif(v_related_item->>'valid_to', '')::timestamptz,
-          coalesce(v_related_item->'metadata', '{}'::jsonb)
+          v_coverage_metadata
         );
       else
         update equipment.asset_coverage cov set
@@ -384,7 +461,7 @@ begin
           max_height_amsl_m = nullif(v_related_item->>'max_height_amsl_m', '')::numeric,
           valid_from = nullif(v_related_item->>'valid_from', '')::timestamptz,
           valid_to = nullif(v_related_item->>'valid_to', '')::timestamptz,
-          metadata = coalesce(v_related_item->'metadata', '{}'::jsonb)
+          metadata = v_coverage_metadata
         from equipment.asset_capability ac
         where cov.id = (v_related_item->>'id')::bigint
           and cov.asset_capability_id = ac.id and ac.asset_id = v_asset_id;
@@ -511,7 +588,9 @@ $$;
 comment on function api.save_microwave_radar_configuration(jsonb, jsonb, timestamptz) is '兼容雷达管理页面的事务保存接口，返回 asset_id 与 updated_at。';
 
 revoke all on function equipment.profile_table_for_category(text) from public, anonymous;
+revoke all on function equipment.validate_capability_parameters(text,jsonb) from public, anonymous;
 grant execute on function equipment.profile_table_for_category(text) to admin;
+grant execute on function equipment.validate_capability_parameters(text,jsonb) to admin;
 revoke all on function api.get_equipment_configuration(bigint) from public, anonymous;
 revoke all on function api.save_equipment_configuration(jsonb, jsonb, timestamptz) from public, anonymous;
 revoke all on function api.save_microwave_radar_configuration(jsonb, jsonb, timestamptz) from public, anonymous;

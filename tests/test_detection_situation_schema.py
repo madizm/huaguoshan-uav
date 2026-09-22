@@ -162,6 +162,8 @@ class DetectionSituationSchemaTests(unittest.TestCase):
         self.assertIn("'b260705174118582'", self.lower)
         self.assertIn("'radar-cloud-box-90'", self.lower)
         self.assertIn("'counter_uas'", self.lower)
+        self.assertIn("('microwave_detection'),('radio_detection')", self.lower)
+        self.assertIn("'range_pending'", self.lower)
         self.assertIn("st_makepoint(119.1929320,34.5919520)", self.lower)
         self.assertIn("is_simulated", self.lower)
         self.assertIn("from equipment.asset", self.lower)

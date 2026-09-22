@@ -164,6 +164,7 @@ insert into equipment.capability(code, name, capability_type, description) value
   ('network_sensing_6g', '6G 网络感知', 'detection', '基于 6G 网络侧数据提供目标或环境感知。'),
   ('radio_jamming', '无线电干扰', 'countermeasure', '提供无线电干扰能力，仅用于能力展示和处置方案推荐。'),
   ('aoa_measurement', '到达角测向', 'detection', '估计无线电信号到达方向。'),
+  ('radio_detection', '无线电侦测', 'detection', '通过无线电信号发现目标；不要求具备到达角测向能力。'),
   ('microwave_detection', '微波探测', 'detection', '通过微波感知低空目标。'),
   ('range_measurement', '距离测量', 'detection', '提供目标距离估计。'),
   ('velocity_measurement', '速度测量', 'detection', '提供目标速度估计。'),

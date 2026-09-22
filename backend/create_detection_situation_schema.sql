@@ -351,6 +351,14 @@ on conflict (asset_id) do update set detection_mode=excluded.detection_mode,
   identification_mode=excluded.identification_mode,tracking_mode=excluded.tracking_mode,
   recommendation_notes=excluded.recommendation_notes;
 
+insert into equipment.asset_capability(asset_id,capability_code,access_level,enabled,parameters)
+select a.id,v.capability_code,'observable',true,
+  jsonb_build_object('configuration_status','range_pending','parameter_source','vendor_confirmation_required')
+from equipment.asset a
+cross join (values('microwave_detection'),('radio_detection')) v(capability_code)
+where a.source_system='radar_cloud' and a.source_asset_id='b260705174118582'
+on conflict (asset_id,capability_code) do nothing;
+
 -- 建立站点 90 的观测来源映射。
 insert into situation.observation_source(
   source_system, external_station_id, external_box_code, asset_id, name, metadata

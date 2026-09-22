@@ -32,7 +32,7 @@ class DetectionEquipmentMigrationTests(unittest.TestCase):
 
     def test_adds_capabilities_for_observation_and_response(self):
         for capability in (
-            "network_sensing_6g", "radio_jamming", "aoa_measurement", "microwave_detection",
+            "network_sensing_6g", "radio_jamming", "aoa_measurement", "radio_detection", "microwave_detection",
             "range_measurement", "velocity_measurement", "remote_id_identification",
             "electro_optical_observation", "electro_optical_tracking", "directed_energy_response",
         ):

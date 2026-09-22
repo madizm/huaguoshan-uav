@@ -525,3 +525,39 @@ POST /rpc/save_equipment_configuration
 增删和更新，保留未删除能力的主键及覆盖范围关系。`sensor_channels` 只允许用于
 `sensor` 类别。应急资源仍受数据库的可调度设备类别约束。覆盖范围只允许使用
 `Polygon` 或 `MultiPolygon`，且引用的能力必须已配置到当前设备。
+
+### 14.2 侦测能力范围
+
+侦测距离保存在对应 `asset_capability.parameters`，统一使用米和 MHz：
+
+```json
+{
+  "capability_code": "radio_detection",
+  "access_level": "observable",
+  "enabled": true,
+  "parameters": {
+    "min_range_m": 100,
+    "max_range_m": 8000,
+    "range_basis": "vendor_spec",
+    "frequency_min_mhz": 2400,
+    "frequency_max_mhz": 5850,
+    "positioning_mode": "direction_finding"
+  }
+}
+```
+
+`range_basis` 只允许 `vendor_spec`、`measured`、`estimated`、`manual`。保存 RPC 会校验距离、频率非负以及上下限顺序。通用无线电侦测使用 `radio_detection`；只有明确具备到达角测向能力时才配置 `aoa_measurement`。
+
+管理后台支持三种覆盖配置：地图绘制、全向半径和方位扇区。后两种根据设备登记位置生成 WGS84 Polygon，并在覆盖 `metadata` 中保存生成依据：
+
+```json
+{
+  "coverage_model": "sector",
+  "radius_m": 8000,
+  "azimuth_start_deg": 330,
+  "azimuth_end_deg": 30,
+  "generated_from_asset_position": true
+}
+```
+
+数据库会校验生成半径、扇区方位角，并确认声明由设备位置生成的覆盖面包含设备位置。水平覆盖与 `min_height_amsl_m`、`max_height_amsl_m` 一起构成可用于空间匹配的能力覆盖；高度仍必须使用 AMSL。

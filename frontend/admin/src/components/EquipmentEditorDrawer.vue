@@ -16,6 +16,13 @@ import {
   type RadarModel,
 } from '../api/equipment'
 import { emptyProfile, equipmentProfileFields } from '../equipmentProfiles'
+import {
+  generateCapabilityCoverage,
+  readCapabilityRangeParameters,
+  validateCapabilityRangeParameters,
+  type CapabilityRangeParameters,
+  type CoverageGenerationMode,
+} from '../capabilityCoverage'
 const CoverageMapDialog = defineAsyncComponent(() => import('./CoverageMapDialog.vue'))
 
 const visible = defineModel<boolean>({ required: true })
@@ -47,15 +54,33 @@ interface SensorChannelDraft {
 const sensorChannels = ref<SensorChannelDraft[]>([])
 interface CoverageDraft extends Omit<AssetCoverageConfiguration, 'coverage_geom'> {
   coverage_geom_text: string
+  generation_mode: CoverageGenerationMode
+  radius_m: number | null
+  azimuth_start_deg: number | null
+  azimuth_end_deg: number | null
 }
 const coverages = ref<CoverageDraft[]>([])
 const coverageMapVisible = ref(false)
 const editingCoverageIndex = ref(-1)
+const capabilityParameterVisible = ref(false)
+const editingCapabilityIndex = ref(-1)
+const capabilityParameterForm = reactive<CapabilityRangeParameters>({
+  min_range_m: null,
+  max_range_m: null,
+  range_basis: 'vendor_spec',
+  frequency_min_mhz: null,
+  frequency_max_mhz: null,
+  positioning_mode: '',
+})
 const editingCoverageGeojson = computed({
   get: () => coverages.value[editingCoverageIndex.value]?.coverage_geom_text ?? '',
   set: (value: string) => {
     const coverage = coverages.value[editingCoverageIndex.value]
-    if (coverage) coverage.coverage_geom_text = value
+    if (coverage) {
+      coverage.coverage_geom_text = value
+      coverage.generation_mode = 'manual'
+      coverage.metadata = { ...coverage.metadata, coverage_model: 'manual' }
+    }
   },
 })
 const dispatchEnabled = ref(false)
@@ -180,6 +205,11 @@ watch(visible, async (open) => {
       valid_from: coverage.valid_from,
       valid_to: coverage.valid_to,
       metadata: coverage.metadata ?? {},
+      generation_mode: ['radial', 'sector'].includes(String(coverage.metadata?.coverage_model))
+        ? coverage.metadata?.coverage_model as CoverageGenerationMode : 'manual',
+      radius_m: typeof coverage.metadata?.radius_m === 'number' ? coverage.metadata.radius_m : null,
+      azimuth_start_deg: typeof coverage.metadata?.azimuth_start_deg === 'number' ? coverage.metadata.azimuth_start_deg : null,
+      azimuth_end_deg: typeof coverage.metadata?.azimuth_end_deg === 'number' ? coverage.metadata.azimuth_end_deg : null,
     }))
     sensorChannels.value = configuration.sensor_channels.map((channel) => ({
       channel_code: channel.channel_code,
@@ -229,6 +259,46 @@ function addCapability() {
   capabilityToAdd.value = ''
 }
 
+function capabilityHasRange(capability: AssetCapabilityConfiguration): boolean {
+  return capability.capability_type === 'detection'
+    || ['electro_optical_observation', 'remote_id_identification'].includes(capability.capability_code)
+}
+
+function rangeSummary(capability: AssetCapabilityConfiguration): string {
+  const values = readCapabilityRangeParameters(capability.parameters ?? {})
+  if (values.max_range_m === null) return '未配置'
+  const minimum = values.min_range_m === null ? '' : `${values.min_range_m}–`
+  return `${minimum}${values.max_range_m} m`
+}
+
+function openCapabilityParameters(index: number) {
+  const capability = capabilities.value[index]
+  if (!capability) return
+  editingCapabilityIndex.value = index
+  Object.assign(capabilityParameterForm, readCapabilityRangeParameters(capability.parameters ?? {}))
+  capabilityParameterVisible.value = true
+}
+
+function saveCapabilityParameters() {
+  const error = validateCapabilityRangeParameters(capabilityParameterForm)
+  if (error) {
+    ElMessage.warning(error)
+    return
+  }
+  const capability = capabilities.value[editingCapabilityIndex.value]
+  if (!capability) return
+  capability.parameters = {
+    ...(capability.parameters ?? {}),
+    min_range_m: capabilityParameterForm.min_range_m,
+    max_range_m: capabilityParameterForm.max_range_m,
+    range_basis: capabilityParameterForm.range_basis,
+    frequency_min_mhz: capabilityParameterForm.frequency_min_mhz,
+    frequency_max_mhz: capabilityParameterForm.frequency_max_mhz,
+    positioning_mode: capabilityParameterForm.positioning_mode || null,
+  }
+  capabilityParameterVisible.value = false
+}
+
 function addSensorChannel() {
   sensorChannels.value.push({ channel_code: '', metric_code: '', unit: '', warning_threshold_text: '{}' })
 }
@@ -237,7 +307,8 @@ function addCoverage() {
     capability_code: capabilities.value[0]?.capability_code ?? '',
     coverage_geom_text: '{"type":"Polygon","coordinates":[]}',
     min_height_amsl_m: null, max_height_amsl_m: null,
-    valid_from: null, valid_to: null, metadata: {},
+    valid_from: null, valid_to: null, metadata: {}, generation_mode: 'manual',
+    radius_m: null, azimuth_start_deg: null, azimuth_end_deg: null,
   })
 }
 function openCoverageMap(index: number) {
@@ -245,9 +316,54 @@ function openCoverageMap(index: number) {
   coverageMapVisible.value = true
 }
 
+function generateCoverage(index: number) {
+  const coverage = coverages.value[index]
+  if (!coverage || coverage.generation_mode === 'manual') return
+  if (form.longitude === null || form.latitude === null || coverage.radius_m === null) {
+    ElMessage.warning('请先填写设备经纬度和覆盖半径')
+    return
+  }
+  try {
+    coverage.coverage_geom_text = JSON.stringify(generateCapabilityCoverage({
+      longitude: form.longitude,
+      latitude: form.latitude,
+      radiusM: coverage.radius_m,
+      mode: coverage.generation_mode,
+      azimuthStartDeg: coverage.azimuth_start_deg ?? undefined,
+      azimuthEndDeg: coverage.azimuth_end_deg ?? undefined,
+    }))
+    coverage.metadata = {
+      ...coverage.metadata,
+      coverage_model: coverage.generation_mode,
+      radius_m: coverage.radius_m,
+      generated_from_asset_position: true,
+      ...(coverage.generation_mode === 'sector' ? {
+        azimuth_start_deg: coverage.azimuth_start_deg,
+        azimuth_end_deg: coverage.azimuth_end_deg,
+      } : {}),
+    }
+    ElMessage.success('覆盖范围已根据设备位置生成')
+  } catch (error) {
+    ElMessage.warning((error as Error).message)
+  }
+}
+
 function parseCoverages(): AssetCoverageConfiguration[] {
   return coverages.value.map((coverage, index) => {
     if (!coverage.capability_code) throw new Error(`第 ${index + 1} 个覆盖范围未选择能力`)
+    if (coverage.generation_mode !== 'manual') {
+      if (form.longitude === null || form.latitude === null || coverage.radius_m === null) {
+        throw new Error(`第 ${index + 1} 个覆盖范围缺少设备位置或覆盖半径`)
+      }
+      coverage.coverage_geom_text = JSON.stringify(generateCapabilityCoverage({
+        longitude: form.longitude,
+        latitude: form.latitude,
+        radiusM: coverage.radius_m,
+        mode: coverage.generation_mode,
+        azimuthStartDeg: coverage.azimuth_start_deg ?? undefined,
+        azimuthEndDeg: coverage.azimuth_end_deg ?? undefined,
+      }))
+    }
     let geometry: Record<string, unknown>
     try {
       geometry = JSON.parse(coverage.coverage_geom_text)
@@ -259,7 +375,19 @@ function parseCoverages(): AssetCoverageConfiguration[] {
       id: coverage.id, capability_code: coverage.capability_code, coverage_geom: geometry,
       min_height_amsl_m: coverage.min_height_amsl_m,
       max_height_amsl_m: coverage.max_height_amsl_m,
-      valid_from: coverage.valid_from, valid_to: coverage.valid_to, metadata: coverage.metadata,
+      valid_from: coverage.valid_from, valid_to: coverage.valid_to,
+      metadata: {
+        ...coverage.metadata,
+        coverage_model: coverage.generation_mode,
+        ...(coverage.generation_mode === 'manual' ? {} : {
+          radius_m: coverage.radius_m,
+          generated_from_asset_position: true,
+          ...(coverage.generation_mode === 'sector' ? {
+            azimuth_start_deg: coverage.azimuth_start_deg,
+            azimuth_end_deg: coverage.azimuth_end_deg,
+          } : {}),
+        }),
+      },
     }
   })
 }
@@ -456,6 +584,14 @@ async function save() {
         <el-table-column label="启用" width="75">
           <template #default="{ row }"><el-switch v-model="row.enabled" /></template>
         </el-table-column>
+        <el-table-column label="范围参数" width="105">
+          <template #default="{ row, $index }">
+            <el-button v-if="capabilityHasRange(row)" text type="primary" @click="openCapabilityParameters($index)">
+              {{ rangeSummary(row) }}
+            </el-button>
+            <span v-else>--</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" width="70">
           <template #default="{ $index }"><el-button text type="danger" @click="capabilities.splice($index, 1)">移除</el-button></template>
         </el-table-column>
@@ -470,10 +606,33 @@ async function save() {
             <el-option v-for="item in capabilities" :key="item.capability_code" :label="item.capability_name ?? item.capability_code" :value="item.capability_code" />
           </el-select>
         </el-form-item>
+        <el-form-item label="生成方式">
+          <el-radio-group v-model="coverage.generation_mode">
+            <el-radio-button value="manual">地图绘制</el-radio-button>
+            <el-radio-button value="radial">全向半径</el-radio-button>
+            <el-radio-button value="sector">方位扇区</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <template v-if="coverage.generation_mode !== 'manual'">
+          <el-form-item label="覆盖半径（m）">
+            <el-input-number v-model="coverage.radius_m" :min="1" :precision="1" style="width: 100%" />
+          </el-form-item>
+          <template v-if="coverage.generation_mode === 'sector'">
+            <el-form-item label="起始方位（°）">
+              <el-input-number v-model="coverage.azimuth_start_deg" :min="0" :max="360" :precision="1" style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="结束方位（°）">
+              <el-input-number v-model="coverage.azimuth_end_deg" :min="0" :max="360" :precision="1" style="width: 100%" />
+            </el-form-item>
+          </template>
+          <el-form-item>
+            <el-button type="primary" plain @click="generateCoverage(index)">根据设备位置生成覆盖面</el-button>
+          </el-form-item>
+        </template>
         <el-form-item label="覆盖图形">
           <div class="geometry-editor">
-            <el-input v-model="coverage.coverage_geom_text" type="textarea" :rows="4" />
-            <el-button type="primary" plain @click="openCoverageMap(index)">地图绘制</el-button>
+            <el-input v-model="coverage.coverage_geom_text" type="textarea" :rows="4" :readonly="coverage.generation_mode !== 'manual'" />
+            <el-button v-if="coverage.generation_mode === 'manual'" type="primary" plain @click="openCoverageMap(index)">地图绘制</el-button>
           </div>
         </el-form-item>
         <el-form-item label="最低高度（m）"><el-input-number v-model="coverage.min_height_amsl_m" :precision="1" style="width: 100%" /></el-form-item>
@@ -513,6 +672,27 @@ async function save() {
         <el-button type="primary" :loading="saving" @click="save">保存</el-button>
       </div>
     </el-form>
+    <el-dialog v-model="capabilityParameterVisible" title="配置侦测能力参数" width="520px" append-to-body>
+      <el-form label-width="125px">
+        <el-form-item label="最小距离（m）"><el-input-number v-model="capabilityParameterForm.min_range_m" :min="0" :precision="1" style="width: 100%" /></el-form-item>
+        <el-form-item label="最大距离（m）"><el-input-number v-model="capabilityParameterForm.max_range_m" :min="1" :precision="1" style="width: 100%" /></el-form-item>
+        <el-form-item label="参数依据">
+          <el-select v-model="capabilityParameterForm.range_basis" style="width: 100%">
+            <el-option label="厂商规格" value="vendor_spec" />
+            <el-option label="现场测量" value="measured" />
+            <el-option label="业务估算" value="estimated" />
+            <el-option label="人工配置" value="manual" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="最低频率（MHz）"><el-input-number v-model="capabilityParameterForm.frequency_min_mhz" :min="0" :precision="3" style="width: 100%" /></el-form-item>
+        <el-form-item label="最高频率（MHz）"><el-input-number v-model="capabilityParameterForm.frequency_max_mhz" :min="0" :precision="3" style="width: 100%" /></el-form-item>
+        <el-form-item label="定位方式"><el-input v-model="capabilityParameterForm.positioning_mode" placeholder="如 ranging、direction_finding" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="capabilityParameterVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveCapabilityParameters">确定</el-button>
+      </template>
+    </el-dialog>
     <CoverageMapDialog
       v-model:visible="coverageMapVisible"
       v-model:geojson="editingCoverageGeojson"
