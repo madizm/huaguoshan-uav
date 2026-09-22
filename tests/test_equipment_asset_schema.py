@@ -51,6 +51,8 @@ class EquipmentAssetSchemaMigrationTests(unittest.TestCase):
         self.assertIn("confidence >= 0 and confidence <= 1", self.sql_lower)
         self.assertIn("raise exception 'equipment raw observations are append-only'", self.sql_lower)
         self.assertIn("counter-uas capability access level cannot exceed recommendable", self.sql_lower)
+        self.assertIn("new.connectivity_status,new.dispatch_status,new.position_geom", self.sql_lower)
+        self.assertIn("仅心跳和观测时间刷新不重复写历史", self.sql)
 
     def test_limits_emergency_resource_link_to_four_dispatchable_categories(self):
         self.assertIn("create table if not exists emergency_resource.equipment_resource", self.sql_lower)

@@ -184,6 +184,15 @@ create index if not exists asset_status_history_position_gix on equipment.asset_
 create or replace function equipment.record_status_history()
 returns trigger language plpgsql as $$
 begin
+  if tg_op='UPDATE' and row(
+    new.connectivity_status,new.dispatch_status,new.position_geom,
+    new.position_height_amsl_m,new.height_datum,new.payload
+  ) is not distinct from row(
+    old.connectivity_status,old.dispatch_status,old.position_geom,
+    old.position_height_amsl_m,old.height_datum,old.payload
+  ) then
+    return new;
+  end if;
   insert into equipment.asset_status_history(
     asset_id, connectivity_status, dispatch_status, position_geom, position_height_amsl_m,
     height_datum, last_heartbeat_at, observed_at, payload
@@ -194,7 +203,7 @@ begin
   return new;
 end;
 $$;
-comment on function equipment.record_status_history() is '在当前状态写入后追加一条状态历史。返回触发器记录。';
+comment on function equipment.record_status_history() is '设备业务状态、位置或载荷发生变化时追加状态历史；仅心跳和观测时间刷新不重复写历史。返回触发器记录。';
 drop trigger if exists asset_status_history_append on equipment.asset_status_current;
 create trigger asset_status_history_append after insert or update on equipment.asset_status_current
 for each row execute function equipment.record_status_history();

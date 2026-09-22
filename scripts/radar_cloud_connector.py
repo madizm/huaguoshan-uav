@@ -113,6 +113,93 @@ def normalize_vendor_box(item: dict[str, Any], station_id: str,
     }
 
 
+def binary_status(value: Any, flag_name: str, quality_flags: list[str]) -> bool | None:
+    number = safe_number(value)
+    if number == 1.0:
+        return True
+    if number == 0.0:
+        return False
+    if value is not None and value != "":
+        quality_flags.append(f"invalid_{flag_name}")
+    return None
+
+
+def frequency_list(value: Any, quality_flags: list[str]) -> list[float]:
+    if value is None or value == "":
+        return []
+    values = value.split(",") if isinstance(value, str) else value if isinstance(value, list) else [value]
+    result: list[float] = []
+    for item in values:
+        number = safe_number(item.strip() if isinstance(item, str) else item)
+        if number is None or number < 0:
+            quality_flags.append("invalid_active_frequency")
+            continue
+        if number not in result:
+            result.append(number)
+    return result
+
+
+def normalize_config_status(payload: dict[str, Any], station_id: str,
+                            received_at: datetime) -> dict[str, Any] | None:
+    if str(payload.get("stationId", station_id)) != station_id:
+        return None
+    box_code = payload.get("boxCode")
+    if not isinstance(box_code, str) or not box_code.strip():
+        return None
+    quality_flags = ["missing_source_time"]
+    radar_longitude = safe_number(payload.get("radarLng"))
+    radar_latitude = safe_number(payload.get("radarLat"))
+    if not (radar_longitude is not None and radar_latitude is not None
+            and -180 <= radar_longitude <= 180 and -90 <= radar_latitude <= 90
+            and (radar_longitude != 0 or radar_latitude != 0)):
+        if payload.get("radarLng") is not None or payload.get("radarLat") is not None:
+            quality_flags.append("invalid_radar_position")
+        radar_longitude = radar_latitude = None
+    return {
+        "schemaVersion": 1,
+        "sourceSystem": SOURCE_SYSTEM,
+        "stationId": station_id,
+        "sourceAssetId": box_code.strip(),
+        "observedAt": received_at.isoformat(),
+        "receivedAt": received_at.isoformat(),
+        "boxOnline": binary_status(payload.get("online"), "box_online", quality_flags),
+        "unattended": binary_status(payload.get("unattended"), "unattended", quality_flags),
+        "detectionDeviceOnline": binary_status(
+            payload.get("controlStatus"), "detection_device_online", quality_flags
+        ),
+        "countermeasureDeviceOnline": binary_status(
+            payload.get("controlStatus99"), "countermeasure_device_online", quality_flags
+        ),
+        "counterVoltageV": safe_number(payload.get("counterVoltage")),
+        "counterCurrentA": safe_number(payload.get("counterCurrent")),
+        "counterPowerW": safe_number(payload.get("counterPower")),
+        "counterTemperatureC": safe_number(payload.get("temperature99")),
+        "detectionAzimuthDeg": safe_number(payload.get("tableAzimuth")),
+        "detectionRotating": binary_status(
+            payload.get("tableRotating"), "detection_rotating", quality_flags
+        ),
+        "counterAzimuthDeg": safe_number(
+            payload.get("counterAzimuth", payload.get("tableAzimuth99"))
+        ),
+        "counterRotating": binary_status(
+            payload.get("tableRotating99"), "counter_rotating", quality_flags
+        ),
+        "activeFrequenciesMhz": frequency_list(payload.get("freqsOn"), quality_flags),
+        "radarDeviceSn": payload.get("radarDeviceSn") or None,
+        "radarOnline": binary_status(payload.get("radarOnline"), "radar_online", quality_flags),
+        "radarLongitude": radar_longitude,
+        "radarLatitude": radar_latitude,
+        "radarAltitudeAmslM": safe_number(payload.get("radarAlt")),
+        "radarHeadingDeg": safe_number(payload.get("radarHeading")),
+        "radarBaseHeadingDeg": safe_number(payload.get("radarBaseHeading")),
+        "radarGpsUpdateEnabled": binary_status(
+            payload.get("radarGpsUpdateEnabled"), "radar_gps_update_enabled", quality_flags
+        ),
+        "qualityFlags": quality_flags,
+        "rawPayload": payload,
+    }
+
+
 def normalize_vendor_item(message_type: str, item: dict[str, Any], station_id: str,
                           received_at: datetime) -> dict[str, Any] | None:
     item_station = str(item.get("stationId", station_id))
@@ -298,8 +385,27 @@ class DetectionStore:
             (json.dumps(box, ensure_ascii=False, separators=(",", ":")),),
         )
 
+    async def ingest_config_status(self, status: dict[str, Any]) -> dict[str, Any]:
+        return await self._execute_value(
+            "select situation.ingest_detection_config_status(%s::jsonb)",
+            (json.dumps(status, ensure_ascii=False, separators=(",", ":")),),
+        )
+
     async def ingest_vendor_payload(self, message_type: str,
                                     payload: dict[str, Any]) -> list[dict[str, Any]]:
+        if message_type == "config_status":
+            status = normalize_config_status(payload, self.config.station_id, utc_now())
+            if status is None:
+                return []
+            try:
+                return [await self.ingest_config_status(status)]
+            except Exception as error:
+                logging.exception("config status rejected box_code=%s", status["sourceAssetId"])
+                return [{
+                    "status": "rejected",
+                    "sourceAssetId": status["sourceAssetId"],
+                    "errorCode": type(error).__name__,
+                }]
         observations = normalize_vendor_payload(message_type, payload, self.config.station_id, utc_now())
         results = []
         for observation in observations:

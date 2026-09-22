@@ -59,6 +59,7 @@ class DetectionSituationSchemaTests(unittest.TestCase):
             "situation.update_detection_connector_status",
             "situation.reconcile_detection_targets",
             "situation.sync_detection_source_asset",
+            "situation.ingest_detection_config_status",
         ):
             self.assertIn(f"create or replace function {function}", self.lower)
             self.assertRegex(
@@ -116,6 +117,9 @@ class DetectionSituationSchemaTests(unittest.TestCase):
             "detection_method_mappings",
             "detection_method_mapping_history",
             "detection_observation_sources",
+            "counter_uas_telemetry_current",
+            "counter_uas_status_events",
+            "counter_uas_telemetry_samples",
         ):
             self.assertIn(f"create or replace view api.{view}", self.lower)
             self.assertRegex(
@@ -168,6 +172,41 @@ class DetectionSituationSchemaTests(unittest.TestCase):
         self.assertIn("is_simulated", self.lower)
         self.assertIn("from equipment.asset", self.lower)
         self.assertIn("source_system = 'radar_cloud' and source_asset_id = 'b260705174118582'", self.lower)
+
+    def test_config_status_updates_current_state_and_bounded_history(self):
+        for table in (
+            "counter_uas_telemetry_current",
+            "counter_uas_status_event",
+            "counter_uas_telemetry_sample",
+        ):
+            self.assertIn(f"create table if not exists equipment.{table}", self.lower)
+            self.assertRegex(
+                self.lower,
+                rf"comment on table equipment\.{table} is '[^']*[\u4e00-\u9fff]",
+            )
+        self.assertIn("p_status->>'boxonline'", self.lower)
+        self.assertIn("p_status->'activefrequenciesmhz'", self.lower)
+        self.assertIn("missing_source_time", self.lower)
+        self.assertIn("'status_changed'", self.lower)
+        self.assertIn("interval '60 seconds'", self.lower)
+        self.assertIn("on conflict(asset_id) do update", self.lower)
+        self.assertIn("grant execute on function situation.ingest_detection_config_status", self.lower)
+        self.assertIn("api.counter_uas_telemetry_current,api.counter_uas_status_events", self.lower)
+        telemetry_columns = (
+            "asset_id", "observed_at", "received_at", "unattended",
+            "detection_device_online", "countermeasure_device_online",
+            "counter_voltage_v", "counter_current_a", "counter_power_w",
+            "counter_temperature_c", "detection_azimuth_deg", "detection_rotating",
+            "counter_azimuth_deg", "counter_rotating", "active_frequencies_mhz",
+            "radar_device_sn", "radar_asset_id", "radar_online", "radar_geom",
+            "radar_altitude_amsl_m", "radar_heading_deg", "radar_base_heading_deg",
+            "radar_gps_update_enabled", "quality_flags", "raw_payload", "updated_at",
+        )
+        for column in telemetry_columns:
+            self.assertRegex(
+                self.lower,
+                rf"comment on column equipment\.counter_uas_telemetry_current\.{column} is '[^']+';",
+            )
 
 
 if __name__ == "__main__":

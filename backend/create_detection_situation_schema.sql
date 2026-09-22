@@ -185,6 +185,129 @@ comment on column situation.observation_source_status_current.details is '不含
 create index if not exists observation_source_status_message_idx
   on situation.observation_source_status_current(last_message_at desc);
 
+-- config_status 每两秒刷新资产心跳；仅业务状态、位置或载荷变化才应追加通用状态历史。
+create or replace function equipment.record_status_history()
+returns trigger language plpgsql as $$
+begin
+  if tg_op='UPDATE' and row(
+    new.connectivity_status,new.dispatch_status,new.position_geom,
+    new.position_height_amsl_m,new.height_datum,new.payload
+  ) is not distinct from row(
+    old.connectivity_status,old.dispatch_status,old.position_geom,
+    old.position_height_amsl_m,old.height_datum,old.payload
+  ) then
+    return new;
+  end if;
+  insert into equipment.asset_status_history(
+    asset_id, connectivity_status, dispatch_status, position_geom, position_height_amsl_m,
+    height_datum, last_heartbeat_at, observed_at, payload
+  ) values (
+    new.asset_id, new.connectivity_status, new.dispatch_status, new.position_geom,
+    new.position_height_amsl_m, new.height_datum, new.last_heartbeat_at, new.observed_at, new.payload
+  );
+  return new;
+end;
+$$;
+comment on function equipment.record_status_history() is '设备业务状态、位置或载荷发生变化时追加状态历史；仅心跳和观测时间刷新不重复写历史。返回触发器记录。';
+
+create table if not exists equipment.counter_uas_telemetry_current (
+  asset_id bigint primary key references equipment.counter_uas_profile(asset_id) on delete cascade,
+  observed_at timestamptz not null,
+  received_at timestamptz not null,
+  unattended boolean,
+  detection_device_online boolean,
+  countermeasure_device_online boolean,
+  counter_voltage_v numeric,
+  counter_current_a numeric,
+  counter_power_w numeric,
+  counter_temperature_c numeric,
+  detection_azimuth_deg numeric check (detection_azimuth_deg is null or detection_azimuth_deg between 0 and 360),
+  detection_rotating boolean,
+  counter_azimuth_deg numeric check (counter_azimuth_deg is null or counter_azimuth_deg between 0 and 360),
+  counter_rotating boolean,
+  active_frequencies_mhz numeric[] not null default '{}',
+  radar_device_sn text,
+  radar_asset_id bigint references equipment.asset(id) on delete restrict,
+  radar_online boolean,
+  radar_geom geometry(Point,4326),
+  radar_altitude_amsl_m numeric,
+  radar_heading_deg numeric check (radar_heading_deg is null or radar_heading_deg between 0 and 360),
+  radar_base_heading_deg numeric check (radar_base_heading_deg is null or radar_base_heading_deg between 0 and 360),
+  radar_gps_update_enabled boolean,
+  quality_flags text[] not null default '{}',
+  raw_payload jsonb not null,
+  updated_at timestamptz not null default now()
+);
+comment on table equipment.counter_uas_telemetry_current is '反无综合设备最近一条规范化实时遥测快照，每次 config_status 覆盖更新。';
+comment on column equipment.counter_uas_telemetry_current.asset_id is '产生遥测的反无综合设备资产 ID。';
+comment on column equipment.counter_uas_telemetry_current.observed_at is '设备状态观测时间；来源未提供时间时使用平台接收时间。';
+comment on column equipment.counter_uas_telemetry_current.received_at is '平台接收到 config_status 消息的时间。';
+comment on column equipment.counter_uas_telemetry_current.unattended is '设备是否处于无人值守模式。';
+comment on column equipment.counter_uas_telemetry_current.detection_device_online is '厂商 controlStatus 对应的侦测子系统在线状态。';
+comment on column equipment.counter_uas_telemetry_current.countermeasure_device_online is '厂商 controlStatus99 对应的处置子系统在线状态。';
+comment on column equipment.counter_uas_telemetry_current.counter_voltage_v is '处置子系统电压，单位 V。';
+comment on column equipment.counter_uas_telemetry_current.counter_current_a is '处置子系统电流，单位 A。';
+comment on column equipment.counter_uas_telemetry_current.counter_power_w is '处置子系统功率，单位 W。';
+comment on column equipment.counter_uas_telemetry_current.counter_temperature_c is '处置子系统温度，单位摄氏度。';
+comment on column equipment.counter_uas_telemetry_current.detection_azimuth_deg is '侦测转台方位角，单位度，范围 0 至 360。';
+comment on column equipment.counter_uas_telemetry_current.detection_rotating is '侦测转台当前是否正在旋转。';
+comment on column equipment.counter_uas_telemetry_current.counter_azimuth_deg is '处置转台方位角，单位度，范围 0 至 360。';
+comment on column equipment.counter_uas_telemetry_current.counter_rotating is '处置转台当前是否正在旋转。';
+comment on column equipment.counter_uas_telemetry_current.active_frequencies_mhz is '当前开启频段，统一转换为 MHz 数值数组。';
+comment on column equipment.counter_uas_telemetry_current.radar_device_sn is '厂商上报的雷达设备序列号。';
+comment on column equipment.counter_uas_telemetry_current.radar_asset_id is '能够确认独立物理身份时关联的雷达设备资产。';
+comment on column equipment.counter_uas_telemetry_current.radar_online is '厂商上报的雷达设备在线状态。';
+comment on column equipment.counter_uas_telemetry_current.radar_geom is '厂商上报的雷达 WGS84 地理位置。';
+comment on column equipment.counter_uas_telemetry_current.radar_altitude_amsl_m is '厂商雷达海拔，统一按 AMSL 米保存。';
+comment on column equipment.counter_uas_telemetry_current.radar_heading_deg is '雷达当前航向角，单位度，范围 0 至 360。';
+comment on column equipment.counter_uas_telemetry_current.radar_base_heading_deg is '雷达安装基准航向角，单位度，范围 0 至 360。';
+comment on column equipment.counter_uas_telemetry_current.radar_gps_update_enabled is '雷达是否启用 GPS 位置更新。';
+comment on column equipment.counter_uas_telemetry_current.quality_flags is '规范化和数据质量标记数组。';
+comment on column equipment.counter_uas_telemetry_current.raw_payload is '最近一次厂商 config_status 原始载荷。';
+comment on column equipment.counter_uas_telemetry_current.updated_at is '当前遥测快照在平台中的更新时间。';
+
+create table if not exists equipment.counter_uas_status_event (
+  id bigserial primary key,
+  asset_id bigint not null references equipment.counter_uas_profile(asset_id) on delete cascade,
+  event_type text not null check (event_type in ('initialized','status_changed')),
+  changed_fields text[] not null,
+  previous_state jsonb,
+  current_state jsonb not null,
+  observed_at timestamptz not null,
+  received_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+comment on table equipment.counter_uas_status_event is '反无设备离散状态发生变化时追加保存的长期事件历史。';
+comment on column equipment.counter_uas_status_event.changed_fields is '本次发生变化的规范化状态字段列表。';
+comment on column equipment.counter_uas_status_event.previous_state is '变化前离散状态；初始化事件为空。';
+comment on column equipment.counter_uas_status_event.current_state is '变化后的离散状态。';
+create index if not exists counter_uas_status_event_asset_time_idx
+  on equipment.counter_uas_status_event(asset_id,observed_at desc);
+
+create table if not exists equipment.counter_uas_telemetry_sample (
+  id bigserial primary key,
+  asset_id bigint not null references equipment.counter_uas_profile(asset_id) on delete cascade,
+  observed_at timestamptz not null,
+  received_at timestamptz not null,
+  counter_voltage_v numeric,
+  counter_current_a numeric,
+  counter_power_w numeric,
+  counter_temperature_c numeric,
+  detection_azimuth_deg numeric,
+  counter_azimuth_deg numeric,
+  active_frequencies_mhz numeric[] not null default '{}',
+  radar_online boolean,
+  radar_heading_deg numeric,
+  quality_flags text[] not null default '{}',
+  raw_payload jsonb not null,
+  sampled_at timestamptz not null default now()
+);
+comment on table equipment.counter_uas_telemetry_sample is '反无设备连续遥测的限频采样历史，默认每个设备最多每 60 秒一条。';
+comment on column equipment.counter_uas_telemetry_sample.sampled_at is '平台实际写入采样记录的时间。';
+comment on column equipment.counter_uas_telemetry_sample.raw_payload is '采样时对应的厂商原始状态载荷。';
+create index if not exists counter_uas_telemetry_sample_asset_time_idx
+  on equipment.counter_uas_telemetry_sample(asset_id,observed_at desc);
+
 create table if not exists situation.target_observation (
   observation_id bigint primary key references equipment.raw_observation(id) on delete restrict,
   observation_source_id bigint not null references situation.observation_source(id) on delete restrict,
@@ -567,6 +690,197 @@ $$;
 comment on function situation.ingest_target_observation(jsonb) is '写入单条版本化规范目标观测，原子维护原始证据、来源会话、目标航迹和增量事件；返回 JSON：status、observationId、targetId、trackId、changeCursor。';
 
 
+create or replace function situation.ingest_detection_config_status(p_status jsonb)
+returns jsonb
+language plpgsql security definer
+set search_path=pg_catalog,public,equipment,situation
+as $$
+declare
+  v_source situation.observation_source%rowtype;
+  v_old equipment.counter_uas_telemetry_current%rowtype;
+  v_had_old boolean;
+  v_source_system text := p_status->>'sourceSystem';
+  v_station_id text := p_status->>'stationId';
+  v_source_asset_id text := nullif(btrim(p_status->>'sourceAssetId'),'');
+  v_observed_at timestamptz;
+  v_received_at timestamptz;
+  v_box_online boolean := nullif(p_status->>'boxOnline','')::boolean;
+  v_unattended boolean := nullif(p_status->>'unattended','')::boolean;
+  v_detection_online boolean := nullif(p_status->>'detectionDeviceOnline','')::boolean;
+  v_counter_online boolean := nullif(p_status->>'countermeasureDeviceOnline','')::boolean;
+  v_detection_rotating boolean := nullif(p_status->>'detectionRotating','')::boolean;
+  v_counter_rotating boolean := nullif(p_status->>'counterRotating','')::boolean;
+  v_radar_online boolean := nullif(p_status->>'radarOnline','')::boolean;
+  v_radar_gps_enabled boolean := nullif(p_status->>'radarGpsUpdateEnabled','')::boolean;
+  v_active_frequencies numeric[];
+  v_quality text[];
+  v_radar_geom geometry(Point,4326);
+  v_radar_asset_id bigint;
+  v_changed_fields text[];
+  v_previous_state jsonb;
+  v_current_state jsonb;
+  v_event_id bigint;
+  v_sampled boolean := false;
+begin
+  if p_status is null or jsonb_typeof(p_status)<>'object' then raise exception 'normalized config status must be a JSON object'; end if;
+  if p_status->>'schemaVersion' is distinct from '1' then raise exception 'unsupported normalized config status schemaVersion'; end if;
+  if v_source_system is null or v_station_id is null or v_source_asset_id is null then
+    raise exception 'sourceSystem, stationId and sourceAssetId are required';
+  end if;
+  if jsonb_typeof(coalesce(p_status->'rawPayload','null'::jsonb))<>'object' then raise exception 'rawPayload must be a JSON object'; end if;
+  if jsonb_typeof(coalesce(p_status->'activeFrequenciesMhz','[]'::jsonb))<>'array' then
+    raise exception 'activeFrequenciesMhz must be an array';
+  end if;
+  begin
+    v_observed_at:=(p_status->>'observedAt')::timestamptz;
+    v_received_at:=(p_status->>'receivedAt')::timestamptz;
+  exception when others then
+    raise exception 'observedAt and receivedAt must be ISO 8601 timestamps with timezone';
+  end;
+  if v_observed_at is null or v_received_at is null then raise exception 'observedAt and receivedAt are required'; end if;
+  select coalesce(array_agg(value::numeric order by ordinality),array[]::numeric[])
+    into v_active_frequencies
+  from jsonb_array_elements_text(coalesce(p_status->'activeFrequenciesMhz','[]'::jsonb)) with ordinality;
+  select coalesce(array_agg(value),array[]::text[]) into v_quality
+  from jsonb_array_elements_text(coalesce(p_status->'qualityFlags','[]'::jsonb));
+  if not ('missing_source_time'=any(v_quality)) then
+    raise exception 'config status without source timestamp must include missing_source_time';
+  end if;
+  if situation.safe_numeric(p_status->>'radarLongitude') is not null
+     and situation.safe_numeric(p_status->>'radarLatitude') is not null then
+    v_radar_geom:=ST_SetSRID(ST_MakePoint(
+      situation.safe_numeric(p_status->>'radarLongitude'),
+      situation.safe_numeric(p_status->>'radarLatitude')
+    ),4326);
+    if not ST_X(v_radar_geom) between -180 and 180 or not ST_Y(v_radar_geom) between -90 and 90
+       or (ST_X(v_radar_geom)=0 and ST_Y(v_radar_geom)=0) then
+      raise exception 'radar position must be valid non-zero WGS84 coordinates';
+    end if;
+  elsif (p_status->>'radarLongitude') is not null or (p_status->>'radarLatitude') is not null then
+    raise exception 'radar longitude and latitude must be supplied together';
+  end if;
+
+  select * into v_source from situation.observation_source
+  where source_system=v_source_system and external_station_id=v_station_id
+    and external_box_code=v_source_asset_id and enabled;
+  if not found then raise exception 'enabled observation source %.%.% is not configured',v_source_system,v_station_id,v_source_asset_id; end if;
+  if not exists(select 1 from equipment.counter_uas_profile where asset_id=v_source.asset_id) then
+    raise exception 'observation source asset % is not a counter-UAS device',v_source.asset_id;
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended('config-status:'||v_source.asset_id::text,0));
+  select * into v_old from equipment.counter_uas_telemetry_current where asset_id=v_source.asset_id for update;
+  v_had_old:=found;
+
+  if nullif(p_status->>'radarDeviceSn','') is not null then
+    select id into v_radar_asset_id from equipment.asset
+    where source_system=v_source_system and category_code='microwave_radar'
+      and (source_asset_id=p_status->>'radarDeviceSn' or serial_no=p_status->>'radarDeviceSn')
+    order by id limit 1;
+  end if;
+
+  v_previous_state:=case when v_had_old then jsonb_build_object(
+    'unattended',v_old.unattended,'detectionDeviceOnline',v_old.detection_device_online,
+    'countermeasureDeviceOnline',v_old.countermeasure_device_online,
+    'detectionRotating',v_old.detection_rotating,'counterRotating',v_old.counter_rotating,
+    'activeFrequenciesMhz',to_jsonb(v_old.active_frequencies_mhz),'radarOnline',v_old.radar_online,
+    'radarGpsUpdateEnabled',v_old.radar_gps_update_enabled
+  ) end;
+  v_current_state:=jsonb_build_object(
+    'unattended',v_unattended,'detectionDeviceOnline',v_detection_online,
+    'countermeasureDeviceOnline',v_counter_online,
+    'detectionRotating',v_detection_rotating,'counterRotating',v_counter_rotating,
+    'activeFrequenciesMhz',to_jsonb(v_active_frequencies),'radarOnline',v_radar_online,
+    'radarGpsUpdateEnabled',v_radar_gps_enabled
+  );
+  if v_had_old then
+    v_changed_fields:=array_remove(array[
+      case when v_old.unattended is distinct from v_unattended then 'unattended' end,
+      case when v_old.detection_device_online is distinct from v_detection_online then 'detectionDeviceOnline' end,
+      case when v_old.countermeasure_device_online is distinct from v_counter_online then 'countermeasureDeviceOnline' end,
+      case when v_old.detection_rotating is distinct from v_detection_rotating then 'detectionRotating' end,
+      case when v_old.counter_rotating is distinct from v_counter_rotating then 'counterRotating' end,
+      case when v_old.active_frequencies_mhz is distinct from v_active_frequencies then 'activeFrequenciesMhz' end,
+      case when v_old.radar_online is distinct from v_radar_online then 'radarOnline' end,
+      case when v_old.radar_gps_update_enabled is distinct from v_radar_gps_enabled then 'radarGpsUpdateEnabled' end
+    ],null);
+  else
+    v_changed_fields:=array['unattended','detectionDeviceOnline','countermeasureDeviceOnline',
+      'detectionRotating','counterRotating','activeFrequenciesMhz','radarOnline','radarGpsUpdateEnabled'];
+  end if;
+
+  insert into equipment.counter_uas_telemetry_current(
+    asset_id,observed_at,received_at,unattended,detection_device_online,countermeasure_device_online,
+    counter_voltage_v,counter_current_a,counter_power_w,counter_temperature_c,
+    detection_azimuth_deg,detection_rotating,counter_azimuth_deg,counter_rotating,
+    active_frequencies_mhz,radar_device_sn,radar_asset_id,radar_online,radar_geom,
+    radar_altitude_amsl_m,radar_heading_deg,radar_base_heading_deg,radar_gps_update_enabled,
+    quality_flags,raw_payload,updated_at
+  ) values(
+    v_source.asset_id,v_observed_at,v_received_at,v_unattended,v_detection_online,v_counter_online,
+    situation.safe_numeric(p_status->>'counterVoltageV'),situation.safe_numeric(p_status->>'counterCurrentA'),
+    situation.safe_numeric(p_status->>'counterPowerW'),situation.safe_numeric(p_status->>'counterTemperatureC'),
+    situation.safe_numeric(p_status->>'detectionAzimuthDeg'),v_detection_rotating,
+    situation.safe_numeric(p_status->>'counterAzimuthDeg'),v_counter_rotating,v_active_frequencies,
+    nullif(p_status->>'radarDeviceSn',''),v_radar_asset_id,v_radar_online,v_radar_geom,
+    situation.safe_numeric(p_status->>'radarAltitudeAmslM'),situation.safe_numeric(p_status->>'radarHeadingDeg'),
+    situation.safe_numeric(p_status->>'radarBaseHeadingDeg'),v_radar_gps_enabled,v_quality,p_status->'rawPayload',now()
+  ) on conflict(asset_id) do update set
+    observed_at=excluded.observed_at,received_at=excluded.received_at,unattended=excluded.unattended,
+    detection_device_online=excluded.detection_device_online,countermeasure_device_online=excluded.countermeasure_device_online,
+    counter_voltage_v=excluded.counter_voltage_v,counter_current_a=excluded.counter_current_a,
+    counter_power_w=excluded.counter_power_w,counter_temperature_c=excluded.counter_temperature_c,
+    detection_azimuth_deg=excluded.detection_azimuth_deg,detection_rotating=excluded.detection_rotating,
+    counter_azimuth_deg=excluded.counter_azimuth_deg,counter_rotating=excluded.counter_rotating,
+    active_frequencies_mhz=excluded.active_frequencies_mhz,radar_device_sn=excluded.radar_device_sn,
+    radar_asset_id=excluded.radar_asset_id,radar_online=excluded.radar_online,radar_geom=excluded.radar_geom,
+    radar_altitude_amsl_m=excluded.radar_altitude_amsl_m,radar_heading_deg=excluded.radar_heading_deg,
+    radar_base_heading_deg=excluded.radar_base_heading_deg,radar_gps_update_enabled=excluded.radar_gps_update_enabled,
+    quality_flags=excluded.quality_flags,raw_payload=excluded.raw_payload,updated_at=now();
+
+  insert into equipment.asset_status_current(
+    asset_id,connectivity_status,dispatch_status,position_geom,last_heartbeat_at,observed_at,payload
+  ) values(
+    v_source.asset_id,case when v_box_online then 'online' when v_box_online=false then 'offline' else 'unknown' end,
+    'unknown',(select geom from equipment.asset where id=v_source.asset_id),v_received_at,v_observed_at,
+    jsonb_build_object('status_source','config_status')
+  ) on conflict(asset_id) do update set
+    connectivity_status=excluded.connectivity_status,last_heartbeat_at=excluded.last_heartbeat_at,
+    observed_at=excluded.observed_at,payload=excluded.payload,updated_at=now();
+  insert into situation.observation_source_status_current(observation_source_id,connector_state,last_message_at,updated_at)
+  values(v_source.id,'connected',v_received_at,now())
+  on conflict(observation_source_id) do update set connector_state='connected',
+    last_message_at=greatest(situation.observation_source_status_current.last_message_at,excluded.last_message_at),updated_at=now();
+
+  if cardinality(v_changed_fields)>0 then
+    insert into equipment.counter_uas_status_event(
+      asset_id,event_type,changed_fields,previous_state,current_state,observed_at,received_at
+    ) values(v_source.asset_id,case when v_had_old then 'status_changed' else 'initialized' end,
+      v_changed_fields,v_previous_state,v_current_state,v_observed_at,v_received_at)
+    returning id into v_event_id;
+  end if;
+  if not exists(
+    select 1 from equipment.counter_uas_telemetry_sample
+    where asset_id=v_source.asset_id and received_at>v_received_at-interval '60 seconds'
+  ) then
+    insert into equipment.counter_uas_telemetry_sample(
+      asset_id,observed_at,received_at,counter_voltage_v,counter_current_a,counter_power_w,
+      counter_temperature_c,detection_azimuth_deg,counter_azimuth_deg,active_frequencies_mhz,
+      radar_online,radar_heading_deg,quality_flags,raw_payload
+    ) values(
+      v_source.asset_id,v_observed_at,v_received_at,situation.safe_numeric(p_status->>'counterVoltageV'),
+      situation.safe_numeric(p_status->>'counterCurrentA'),situation.safe_numeric(p_status->>'counterPowerW'),
+      situation.safe_numeric(p_status->>'counterTemperatureC'),situation.safe_numeric(p_status->>'detectionAzimuthDeg'),
+      situation.safe_numeric(p_status->>'counterAzimuthDeg'),v_active_frequencies,v_radar_online,
+      situation.safe_numeric(p_status->>'radarHeadingDeg'),v_quality,p_status->'rawPayload'
+    );
+    v_sampled:=true;
+  end if;
+  return jsonb_build_object('status','accepted','assetId',v_source.asset_id,
+    'sourceAssetId',v_source_asset_id,'eventId',v_event_id,'sampled',v_sampled);
+end;
+$$;
+comment on function situation.ingest_detection_config_status(jsonb) is '接收规范化 config_status，更新盒子资产状态和反无设备当前遥测，仅在离散状态变化时追加事件并按 60 秒限频采样；返回 JSON：status、assetId、sourceAssetId、eventId、sampled。';
+
 drop function if exists situation.sync_detection_box(jsonb);
 
 create or replace function situation.sync_detection_source_asset(p_asset jsonb)
@@ -721,6 +1035,36 @@ begin
 end;
 $$;
 comment on function situation.reconcile_detection_targets(text,text,timestamptz,text[]) is '按在线目标快照和来源宽限时间关闭缺失会话；返回 JSON：status、closedSessions、changeCursor。';
+
+create or replace view api.counter_uas_telemetry_current as
+select t.asset_id,a.asset_code,a.name as asset_name,t.observed_at,t.received_at,
+  t.unattended,t.detection_device_online,t.countermeasure_device_online,
+  t.counter_voltage_v,t.counter_current_a,t.counter_power_w,t.counter_temperature_c,
+  t.detection_azimuth_deg,t.detection_rotating,t.counter_azimuth_deg,t.counter_rotating,
+  t.active_frequencies_mhz,t.radar_device_sn,t.radar_asset_id,t.radar_online,
+  case when t.radar_geom is null then null else ST_AsGeoJSON(t.radar_geom)::jsonb end as radar_position,
+  t.radar_altitude_amsl_m,t.radar_heading_deg,t.radar_base_heading_deg,
+  t.radar_gps_update_enabled,t.quality_flags,t.raw_payload,t.updated_at
+from equipment.counter_uas_telemetry_current t
+join equipment.asset a on a.id=t.asset_id;
+comment on view api.counter_uas_telemetry_current is '管理员查询反无综合设备最新 config_status 遥测的只读资源。';
+comment on column api.counter_uas_telemetry_current.radar_position is '厂商上报雷达位置的 WGS84 GeoJSON Point；无有效位置时为空。';
+
+create or replace view api.counter_uas_status_events as
+select e.id,e.asset_id,a.asset_code,a.name as asset_name,e.event_type,e.changed_fields,
+  e.previous_state,e.current_state,e.observed_at,e.received_at,e.created_at
+from equipment.counter_uas_status_event e join equipment.asset a on a.id=e.asset_id;
+comment on view api.counter_uas_status_events is '管理员查询反无设备离散状态变化历史的只读资源。';
+comment on column api.counter_uas_status_events.changed_fields is '本次状态事件发生变化的字段列表。';
+
+create or replace view api.counter_uas_telemetry_samples as
+select s.id,s.asset_id,a.asset_code,a.name as asset_name,s.observed_at,s.received_at,
+  s.counter_voltage_v,s.counter_current_a,s.counter_power_w,s.counter_temperature_c,
+  s.detection_azimuth_deg,s.counter_azimuth_deg,s.active_frequencies_mhz,
+  s.radar_online,s.radar_heading_deg,s.quality_flags,s.raw_payload,s.sampled_at
+from equipment.counter_uas_telemetry_sample s join equipment.asset a on a.id=s.asset_id;
+comment on view api.counter_uas_telemetry_samples is '管理员查询反无设备每 60 秒限频遥测采样的只读资源。';
+comment on column api.counter_uas_telemetry_samples.sampled_at is '平台写入采样记录的时间。';
 
 create or replace view api.detection_methods as
 select m.code,m.name,m.description,m.lifecycle_status,m.visible,m.sort_order,m.display_metadata,
@@ -1256,13 +1600,16 @@ revoke all on function situation.ingest_target_observation(jsonb) from public,an
 revoke all on function situation.update_detection_connector_status(text,text,text,timestamptz,timestamptz,text,jsonb) from public,anonymous,admin,detection_ingest;
 revoke all on function situation.reconcile_detection_targets(text,text,timestamptz,text[]) from public,anonymous,admin,detection_ingest;
 revoke all on function situation.sync_detection_source_asset(jsonb) from public,anonymous,admin,detection_ingest;
+revoke all on function situation.ingest_detection_config_status(jsonb) from public,anonymous,admin,detection_ingest;
+revoke all on equipment.counter_uas_telemetry_current,equipment.counter_uas_status_event,equipment.counter_uas_telemetry_sample from public,anonymous,admin,detection_ingest;
 grant usage on schema situation to detection_ingest;
 grant execute on function situation.ingest_target_observation(jsonb) to detection_ingest;
 grant execute on function situation.update_detection_connector_status(text,text,text,timestamptz,timestamptz,text,jsonb) to detection_ingest;
 grant execute on function situation.reconcile_detection_targets(text,text,timestamptz,text[]) to detection_ingest;
 grant execute on function situation.sync_detection_source_asset(jsonb) to detection_ingest;
+grant execute on function situation.ingest_detection_config_status(jsonb) to detection_ingest;
 
-revoke all on api.detection_source_types,api.detection_methods,api.detection_method_mappings,api.detection_method_mapping_history,api.detection_observation_sources from public,anonymous;
+revoke all on api.detection_source_types,api.detection_methods,api.detection_method_mappings,api.detection_method_mapping_history,api.detection_observation_sources,api.counter_uas_telemetry_current,api.counter_uas_status_events,api.counter_uas_telemetry_samples from public,anonymous;
 revoke all on function api.get_detection_situation_snapshot(text[],smallint[],double precision,double precision,double precision,double precision,integer,integer) from public,anonymous;
 revoke all on function api.get_detection_live_tracks(text[],smallint[],integer,integer,integer,integer) from public,anonymous;
 revoke all on function api.get_detection_live_tracks_v2(bigint[],bigint[],text[],integer,integer,integer,integer) from public,anonymous;
@@ -1273,7 +1620,7 @@ revoke all on function api.update_detection_observation_source(bigint,text,bigin
 revoke all on function api.create_detection_method(text,text,text,boolean,integer,jsonb) from public,anonymous;
 revoke all on function api.update_detection_method(text,jsonb) from public,anonymous;
 revoke all on function api.upsert_detection_method_mapping(text,text,text,boolean,jsonb) from public,anonymous;
-grant select on api.detection_source_types,api.detection_methods,api.detection_method_mappings,api.detection_method_mapping_history,api.detection_observation_sources to admin;
+grant select on api.detection_source_types,api.detection_methods,api.detection_method_mappings,api.detection_method_mapping_history,api.detection_observation_sources,api.counter_uas_telemetry_current,api.counter_uas_status_events,api.counter_uas_telemetry_samples to admin;
 grant execute on function api.get_detection_situation_snapshot(text[],smallint[],double precision,double precision,double precision,double precision,integer,integer) to admin;
 grant execute on function api.get_detection_live_tracks(text[],smallint[],integer,integer,integer,integer) to admin;
 grant execute on function api.get_detection_live_tracks_v2(bigint[],bigint[],text[],integer,integer,integer,integer) to admin;

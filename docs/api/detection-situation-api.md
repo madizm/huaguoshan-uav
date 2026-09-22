@@ -83,7 +83,23 @@ situation.sync_detection_source_asset(p_asset jsonb) returns jsonb
 
 厂家字段解释和枚举转换由 `radar_cloud_connector.py` 完成；数据库函数只接收规范化资产字段。函数只允许更新已通过 `situation.observation_source` 配置并启用的资产，不会根据未受信任的厂家响应自动创建资产。返回 JSON：`status`、`assetId`、`sourceAssetId`、`connectivityStatus`。
 
-### 3.3 更新连接器状态
+### 3.3 写入设备实时状态
+
+```sql
+situation.ingest_detection_config_status(p_status jsonb) returns jsonb
+```
+
+连接器将 WebSocket `config_status` 规范化后写入。该消息没有厂商采集时间，因此 `observedAt` 使用平台接收时间，并强制携带 `missing_source_time` 质量标记。数据按用途分层保存：
+
+- `equipment.counter_uas_telemetry_current`：每次覆盖的最新遥测；
+- `equipment.counter_uas_status_event`：仅无人值守、子系统在线、旋转、启用频段等离散状态变化时追加；
+- `equipment.counter_uas_telemetry_sample`：连续电气量、角度等最多每设备每 60 秒采样一条；
+- `equipment.asset_status_current`：只同步盒子连通状态与心跳；
+- `situation.observation_source_status_current`：只刷新接入链路最近消息时间。
+
+雷达序列号仅在已经登记为 `microwave_radar` 资产时建立 `radar_asset_id` 关联，不根据状态消息自动创建设备。函数返回 `status`、`assetId`、`sourceAssetId`、`eventId` 和 `sampled`。
+
+### 3.4 更新连接器状态
 
 ```sql
 situation.update_detection_connector_status(
@@ -99,7 +115,7 @@ situation.update_detection_connector_status(
 
 状态限定为 `connected`、`disconnected`、`degraded`、`unknown`。
 
-### 3.4 在线目标对账
+### 3.5 在线目标对账
 
 ```sql
 situation.reconcile_detection_targets(
@@ -114,10 +130,10 @@ situation.reconcile_detection_targets(
 
 ## 4. 权限
 
-三个写函数只授权给 `detection_ingest` 组角色。该角色：
+四个写函数只授权给 `detection_ingest` 组角色。该角色：
 
 - 可以使用 `situation` schema；
-- 可以执行三个内部写函数；
+- 可以执行四个内部写函数；
 - 不能直接查询或修改 `situation` 底层表；
 - 没有被授予 PostgREST 的 `authenticator`；
 - 不能通过浏览器管理员 JWT 调用。
@@ -151,7 +167,7 @@ uv run scripts/radar_cloud_connector.py
 2. 建立厂商 WebSocket。
 3. 调用 `POST /prodBox/queryAll` 初始化盒子台账和状态，之后每 300 秒同步一次。
 4. 拉取 `/uav/onlineList?stationId=90` 初始化目标。
-5. 持续接收 WebSocket 消息并按每条记录的 `stationId` 过滤。
+5. 持续接收 WebSocket 目标消息和 `config_status`，按每条记录的 `stationId` 过滤并分别入库。
 6. 每 30 秒重新拉取在线列表并对账。
 7. 断线后按 1、2、4 秒递增，最长 60 秒重连。
 8. 收到 `SIGINT` 或 `SIGTERM` 后记录断开状态并退出。
@@ -166,6 +182,9 @@ GET  /postgrest/detection_methods
 GET  /postgrest/detection_method_mappings
 GET  /postgrest/detection_method_mapping_history
 GET  /postgrest/detection_observation_sources
+GET  /postgrest/counter_uas_telemetry_current
+GET  /postgrest/counter_uas_status_events
+GET  /postgrest/counter_uas_telemetry_samples
 POST /postgrest/rpc/get_detection_situation_snapshot
 POST /postgrest/rpc/get_detection_live_tracks
 POST /postgrest/rpc/get_detection_live_tracks_v2

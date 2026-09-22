@@ -128,6 +128,38 @@ class RadarCloudConnectorTests(unittest.TestCase):
         )
         self.assertIsNone(normalized["detectionMethodCode"])
 
+    def test_normalizes_config_status_telemetry(self):
+        received_at = connector.datetime(2026, 9, 21, 8, tzinfo=connector.timezone.utc)
+        normalized = connector.normalize_config_status({
+            "stationId": 90, "boxCode": "BOX-1", "online": 1, "unattended": 0,
+            "controlStatus": 1, "controlStatus99": 0, "counterVoltage": 220.0,
+            "counterCurrent": 5.0, "counterPower": 1100.0, "temperature99": 45.0,
+            "tableAzimuth": 120, "tableRotating": 0, "counterAzimuth": 300,
+            "tableRotating99": 1, "freqsOn": "433.0,900.0",
+            "radarDeviceSn": "HX500R", "radarOnline": 1,
+            "radarLng": 120.5, "radarLat": 31.6, "radarAlt": 15,
+            "radarHeading": 132.5, "radarBaseHeading": 130,
+            "radarGpsUpdateEnabled": 1,
+        }, "90", received_at)
+        self.assertEqual(normalized["sourceAssetId"], "BOX-1")
+        self.assertTrue(normalized["boxOnline"])
+        self.assertFalse(normalized["unattended"])
+        self.assertEqual(normalized["activeFrequenciesMhz"], [433.0, 900.0])
+        self.assertEqual(normalized["radarLongitude"], 120.5)
+        self.assertEqual(normalized["qualityFlags"], ["missing_source_time"])
+
+    def test_config_status_marks_invalid_enums_and_frequency_values(self):
+        received_at = connector.datetime(2026, 9, 21, 8, tzinfo=connector.timezone.utc)
+        normalized = connector.normalize_config_status({
+            "stationId": 90, "boxCode": "BOX-1", "online": 3,
+            "freqsOn": "433.0,invalid", "radarLng": 0, "radarLat": 0,
+        }, "90", received_at)
+        self.assertIsNone(normalized["boxOnline"])
+        self.assertEqual(normalized["activeFrequenciesMhz"], [433.0])
+        self.assertIsNone(normalized["radarLongitude"])
+        self.assertIn("invalid_box_online", normalized["qualityFlags"])
+        self.assertIn("invalid_active_frequency", normalized["qualityFlags"])
+
     def test_database_rejections_are_isolated_per_observation(self):
         source = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("for observation in observations:", source)
