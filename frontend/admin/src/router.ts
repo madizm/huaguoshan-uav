@@ -9,7 +9,7 @@ import EmergencyResourceView from './views/EmergencyResourceView.vue'
 import PoliceForceView from './views/PoliceForceView.vue'
 
 export const router = createRouter({
-  history: createWebHistory('/admin/'),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/login', name: 'login', component: LoginView, meta: { public: true } },
     {

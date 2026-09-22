@@ -2,6 +2,7 @@ import { reactive } from 'vue'
 
 const TOKEN_KEY = 'postgrest.jwt'
 const USERNAME_KEY = 'postgrest.username'
+const AUTH_BASE = (import.meta.env.VITE_AUTH_BASE || '/auth').replace(/\/$/, '')
 
 // 与主场景 postgrest-client.js 共用同一 storage key，登录态互通。
 export const authStore = reactive({
@@ -24,7 +25,7 @@ export function clearToken() {
 }
 
 export async function login(username: string, password: string): Promise<void> {
-  const response = await fetch('/auth/login', {
+  const response = await fetch(`${AUTH_BASE}/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),

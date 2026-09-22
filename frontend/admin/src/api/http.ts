@@ -1,6 +1,6 @@
 import { authStore, clearToken } from './auth'
 
-const BASE = '/postgrest'
+const BASE = (import.meta.env.VITE_POSTGREST_BASE || '/postgrest').replace(/\/$/, '')
 
 export class ApiError extends Error {
   constructor(
