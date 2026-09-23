@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { Edit, Plus, Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules, TagProps } from 'element-plus'
+import { listCapabilityCatalog, type CapabilityCatalogItem } from '../api/equipment'
 import {
   createDetectionMethod,
   listDetectionMethodMappings,
@@ -17,6 +18,16 @@ import {
 } from '../api/detection'
 
 const methods = ref<DetectionMethod[]>([])
+const capabilities = ref<CapabilityCatalogItem[]>([])
+// 仅供管理员理解术语的示例对照，不用于接入校验或自动配置资产能力。
+const relatedCapabilityCodes: Record<string, string[]> = {
+  radar: ['microwave_detection'],
+  radio_detection: ['radio_detection'],
+}
+
+function relatedCapabilities(code: string): CapabilityCatalogItem[] {
+  return capabilities.value.filter((capability) => relatedCapabilityCodes[code]?.includes(capability.code))
+}
 const mappings = ref<DetectionMethodMapping[]>([])
 const mappingHistory = ref<DetectionMethodMappingHistory[]>([])
 const loading = ref(false)
@@ -69,6 +80,8 @@ async function load() {
       listDetectionMethodMappings(),
       listDetectionMethodMappingHistory(),
     ])
+    // 术语对照为辅助信息；能力字典不可用时不阻断侦测方式管理。
+    capabilities.value = await listCapabilityCatalog().catch(() => [])
   } catch (error) {
     ElMessage.error((error as Error).message)
   } finally {
@@ -178,11 +191,11 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="method-manager">
+  <section id="detection-methods" class="method-manager">
     <div class="section-heading">
       <div>
         <h3>平台侦测方式</h3>
-        <p>稳定编码创建后不可修改；停用不会删除历史观测。</p>
+        <p>侦测方式描述单条目标观测，设备能力描述资产能做什么；稳定编码创建后不可修改，停用不会删除历史观测。</p>
       </div>
       <div>
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
@@ -193,6 +206,16 @@ onMounted(load)
     <el-table v-loading="loading" :data="methods" border>
       <el-table-column prop="code" label="稳定编码" min-width="160" />
       <el-table-column prop="name" label="名称" min-width="130" />
+      <el-table-column label="相关设备能力（示例）" min-width="230">
+        <template #default="{ row }">
+          <template v-if="relatedCapabilities(row.code).length">
+            <div v-for="capability in relatedCapabilities(row.code)" :key="capability.code">
+              {{ capability.name }}（{{ capability.code }}）
+            </div>
+          </template>
+          <span v-else>—</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="description" label="说明" min-width="240" show-overflow-tooltip />
       <el-table-column label="生命周期" width="110">
         <template #default="{ row }">
@@ -212,6 +235,8 @@ onMounted(load)
         </template>
       </el-table-column>
     </el-table>
+
+    <p class="field-help relation-help">仅为术语对照示例，并非完整映射或接入规则；一台设备可有多项能力，实际观测以侦测方式编码为准。<router-link :to="{ name: 'equipment-dictionaries', hash: '#capability-catalog' }">查看设备能力字典</router-link></p>
 
     <div class="section-heading mapping-heading">
       <div>
@@ -267,6 +292,7 @@ onMounted(load)
 
     <el-drawer v-model="methodDrawerVisible" :title="editingMethod ? '配置侦测方式' : '新增侦测方式'" size="480px" destroy-on-close>
       <el-form ref="methodFormRef" :model="methodForm" :rules="methodRules" label-width="110px">
+        <el-alert title="侦测方式描述观测，设备能力描述资产；两者不要求编码相同。下方配置不改变设备能力或接入校验。" type="info" :closable="false" class="method-help" />
         <el-form-item label="稳定编码" prop="code">
           <el-input v-model="methodForm.code" :disabled="Boolean(editingMethod)" placeholder="例如 acoustic_detection" />
           <div class="field-help">编码将用于接口和数据关联，创建后不可修改。</div>
@@ -337,6 +363,7 @@ onMounted(load)
   color: #78827d;
   font-size: 12px;
 }
+.relation-help, .method-help { margin-bottom: 12px; }
 .mapping-heading {
   margin-top: 28px;
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { listCategories, listCapabilityCatalog, listRadarModels, updateCategory, updateCapability, updateRadarModel, type AssetCategory, type CapabilityCatalogItem, type RadarModel } from '../api/equipment'
 
@@ -7,6 +8,11 @@ const categories = ref<AssetCategory[]>([])
 const capabilities = ref<CapabilityCatalogItem[]>([])
 const radarModels = ref<RadarModel[]>([])
 const loading = ref(false)
+const route = useRoute()
+const activeTab = ref(route.hash === '#capability-catalog' ? 'capabilities' : 'categories')
+watch(() => route.hash, (hash) => {
+  if (hash === '#capability-catalog') activeTab.value = 'capabilities'
+})
 
 async function load() {
   loading.value = true
@@ -30,8 +36,8 @@ onMounted(load)
 </script>
 
 <template>
-  <el-tabs v-loading="loading">
-    <el-tab-pane label="设备类别">
+  <el-tabs v-model="activeTab" v-loading="loading">
+    <el-tab-pane name="categories" label="设备类别">
       <el-table :data="categories" border stripe>
         <el-table-column prop="code" label="编码" width="190" />
         <el-table-column label="名称" width="180"><template #default="{ row }"><el-input v-model="row.name" /></template></el-table-column>
@@ -42,7 +48,11 @@ onMounted(load)
         <el-table-column label="操作" width="90"><template #default="{ row }"><el-button type="primary" text @click="saveCategory(row)">保存</el-button></template></el-table-column>
       </el-table>
     </el-tab-pane>
-    <el-tab-pane label="能力字典">
+    <el-tab-pane name="capabilities" label="能力字典">
+      <div id="capability-catalog" class="catalog-note">
+        <el-alert title="设备能力描述资产能做什么；侦测方式描述单条目标观测如何产生。编码不要求相同，也不自动互相约束。例如微波探测能力（microwave_detection）与雷达侦测方式（radar）属于不同字典。" type="info" :closable="false" />
+        <router-link :to="{ name: 'detection-sources', hash: '#detection-methods' }">查看侦测方式与相关设备能力示例</router-link>
+      </div>
       <el-table :data="capabilities" border stripe>
         <el-table-column prop="code" label="编码" width="210" />
         <el-table-column label="名称" width="190"><template #default="{ row }"><el-input v-model="row.name" /></template></el-table-column>
@@ -51,7 +61,7 @@ onMounted(load)
         <el-table-column label="操作" width="90"><template #default="{ row }"><el-button type="primary" text @click="saveCapability(row)">保存</el-button></template></el-table-column>
       </el-table>
     </el-tab-pane>
-    <el-tab-pane label="雷达型号">
+    <el-tab-pane name="radar-models" label="雷达型号">
       <el-alert title="型号规格由所有同型号设备共用，修改前请核对厂商资料。型号编码不可修改。" type="warning" :closable="false" class="model-alert" />
       <el-table :data="radarModels" border stripe>
         <el-table-column prop="model_code" label="型号编码" width="120" fixed />
@@ -70,4 +80,8 @@ onMounted(load)
   </el-tabs>
 </template>
 
-<style scoped>.model-alert { margin-bottom: 12px; }</style>
+<style scoped>
+.model-alert { margin-bottom: 12px; }
+.catalog-note { margin-bottom: 12px; }
+.catalog-note a { display: inline-block; margin-top: 8px; }
+</style>

@@ -114,7 +114,7 @@ async function rpc(name, payload, token) {
 | `20` | 电侦 | `#5eead4` |
 | `null` | 来源类型待确认 | 中性灰 |
 
-不要根据中文名称执行逻辑判断，应使用数值编码。
+`source_type_code` 是厂商来源类型，主要用于旧版快照和历史航迹。实时 v3 请优先使用 `detection_method_code`（如 `radar`、`radio_detection`）决定颜色和筛选，不要用中文名称或将来源类型与侦测方式混用。可从初始化响应的 `detection_methods` 读取 `code`、`name`、`display_metadata` 构建筛选器；历史摘要仍按 `p_source_type_codes` 筛选。
 
 ### 4.2 航迹状态
 
@@ -181,6 +181,10 @@ POST /postgrest/rpc/get_detection_live_tracks_v3
   "generated_at": "2026-09-21T10:31:07.885948+08:00",
   "cursor": 3070,
   "trail_seconds": 300,
+  "detection_methods": [
+    {"code": "radar", "name": "雷达", "display_metadata": {"color": "#f6c85f"}},
+    {"code": "radio_detection", "name": "电侦", "display_metadata": {"color": "#5eead4"}}
+  ],
   "sources": [
     {
       "id": 1,
@@ -243,7 +247,9 @@ POST /postgrest/rpc/get_detection_live_tracks_v3
 - `cursor`：下一次增量请求的起点；
 - `trail_seconds`：本地尾迹裁剪窗口；
 - 以 `track_id` 为键的航迹映射及其有界观测数组；
-- 来源状态列表。
+- 来源状态列表和侦测方式字典。
+
+`observations` 按 `observed_at`、`observation_id` 升序返回；每条观测的 `target_location` 和 `remote_pilot_location` 各自可为 `null`。`p_max_points_per_track` 限制的是观测条数，不是空间点数。筛选条件在 v3 中用于选择活动航迹（最近活动窗口内存在匹配观测），**不保证返回的尾迹观测均符合筛选**；需要逐条按侦测方式/生产设备过滤尾迹时，应在前端另行投影，同时保留原始观测用于去重和关联。
 
 ## 6. 游标增量
 
@@ -322,20 +328,22 @@ POST /postgrest/rpc/get_detection_situation_changes
 1. 成功处理当前页后，将本地游标更新为 `next_cursor`。
 2. `has_more=true` 时立即继续请求下一页，不等待下一个轮询周期。
 3. 不要使用数组下标或时间戳替代游标。
-4. 重复收到同一 `observation_id` 时忽略该空间点。
-5. 页面重新加载或增量失败无法恢复时，重新调用实时初始化接口取得新快照和游标。
+4. 同一航迹重复收到同一 `observation_id` 时不要重复追加观测；目标位置和飞手位置分别从同一条观测投影，不能因目标坐标为空而丢弃飞手位置。
+5. `p_station_ids` 只按站点过滤增量；它不是 v3 的来源 ID、设备 ID 或侦测方式过滤器。侦测方式/设备可按 `observation` 字段在前端过滤；但新航迹的增量不含 `observation_source_id`，无法可靠地实现来源 ID 级过滤（同站点可能有多个来源）。需要严格来源隔离时应先扩展增量接口，不能仅靠前端猜测。改变筛选条件时停止旧轮询、清空缓存并重新初始化。
+6. 页面重新加载或增量失败无法恢复时，重新调用实时初始化接口取得新快照和游标。普通网络故障可先从已成功处理的游标重试，避免直接丢弃未读事件。
+7. `cursor` 是 JSON 数值形式的数据库 bigint；如部署后可能超过 JavaScript 安全整数范围，应调整传输/解析策略，不能静默用 `Number` 舍入。游标为 `0` 也是合法值，不能当作“未初始化”。
 
 ### 6.4 增量合并
 
-`target_upsert.payload.observation` 中的两个位置均可为空。没有 `target_location` 时不能更新空域目标坐标；存在 `remote_pilot_location` 时仍可更新飞手图层。`detection_method_code` 使用平台稳定编码，与初始化响应一致。
+`target_upsert.payload.observation` 中的两个位置均可为空。没有 `target_location` 时不能更新空域目标坐标；存在 `remote_pilot_location` 时仍可更新飞手图层。`detection_method_code` 使用平台稳定编码，与初始化响应一致。增量还保留 `position`、`altitude_amsl_m`、`source_type_code` 等平铺兼容字段；v3 新接入优先读取 `observation`。新航迹可由 `payload.track_id` 建立；`target_remove` 和 `source_status` 不一定携带完整观测，不应按 `target_upsert` 解包。
 
-建议的合并逻辑：
+建议的合并逻辑（`track.observationIds` 应由初始化观测建立，以下仅示意去重和排序；还需按第 7 节裁剪）：
 
 ```js
 function applyTargetUpsert(track, payload) {
   const observation = payload.observation;
   track.status = 'tracking';
-  track.lastObservedAt = observation.observed_at;
+  if (!observation || observation.observation_id == null) return;
   if (track.observationIds.has(observation.observation_id)) return;
 
   track.observationIds.add(observation.observation_id);
@@ -344,6 +352,8 @@ function applyTargetUpsert(track, payload) {
     Date.parse(a.observed_at) - Date.parse(b.observed_at) ||
     Number(a.observation_id) - Number(b.observation_id)
   );
+  // 迟到观测不可覆盖较新的当前位置或末次观测时间。
+  track.lastObservedAt = track.observations.at(-1).observed_at;
 }
 ```
 
@@ -354,13 +364,15 @@ function applyTargetUpsert(track, payload) {
 - 尾迹和末次位置降低透明度；
 - 建议保留 60 秒后从实时图层移除。
 
+`source_status` 只刷新来源状态，不新增目标点；可重新初始化取得完整 `sources`，但应避免每次状态事件都触发并发初始化。
+
 ## 7. 前端尾迹缓冲区
 
 每条航迹应使用有界缓冲区，避免页面长时间运行后内存持续增长。
 
 推荐规则：
 
-- 只保留最近 5 分钟观测；
+- 只保留最近 5 分钟观测（包括无目标坐标但有飞手坐标的观测）；
 - 每条航迹最多保留 300 条观测；
 - 使用 `observation_id` 去重；
 - 按 `observed_at`、`observation_id` 排序；
@@ -458,7 +470,7 @@ POST /postgrest/rpc/get_detection_situation_snapshot
 - `sources`：来源状态；
 - `cursor`：当前增量游标。
 
-实时尾迹页面使用 `get_detection_live_tracks_v2`，不应再同时调用旧版 `get_detection_live_tracks`。旧版只保留给尚未迁移的调用方。
+实时尾迹页面使用 `get_detection_live_tracks_v3`，不应与 v2 或旧版 `get_detection_live_tracks` 同时加载同一批目标。v2 和旧版仅供尚未迁移的调用方使用；快照接口不提供 v3 的目标—飞手关联观测。
 
 ## 11. 历史航迹
 
@@ -507,9 +519,10 @@ POST /postgrest/rpc/get_target_track_detail
 响应包含：
 
 - `track`：航迹基本信息；
-- `points`：有坐标的观测点；
-- `non_spatial_observations`：无坐标观测；
-- `evidence`：原始数量、返回数量和是否抽样。
+- `observations`：按时间排序的抽样观测，包含可空的 `target_location` 和 `remote_pilot_location`；优先使用此字段绘制目标与飞手；
+- `points`：兼容字段，仅包含有目标坐标的观测；
+- `non_spatial_observations`：兼容字段，仅包含无目标坐标的观测（可能仍有飞手坐标）；
+- `evidence`：窗口内原始观测数量、返回的抽样观测数量和是否抽样。`p_max_points` 限制的是抽样观测总数，不是目标空间点数。
 
 历史轨迹同样必须执行异常跳变切段。
 
@@ -552,7 +565,9 @@ POST /postgrest/rpc/get_target_track_detail
 - [ ] 缺失高度不会显示为 `0 m AMSL`。
 - [ ] 异常跳变不会被连成跨越线。
 - [ ] 丢失目标会淡出并最终移除。
-- [ ] 来源过滤变化后重新初始化。
+- [ ] 来源、设备或侦测方式过滤变化后重新初始化；严格来源 ID 过滤需增量接口提供对应字段。
+- [ ] 游标为 `0` 时仍可轮询；超出 JS 安全整数范围时不发生精度损失。
+- [ ] 无目标坐标但有飞手坐标的观测可显示飞手位置；仅同一观测中的目标和飞手绘制关联线。
 - [ ] 切换历史模式或销毁页面时停止轮询。
 - [ ] 401、网络中断和游标恢复路径经过验证。
 - [ ] 桌面与移动端均无面板横向溢出。
@@ -570,3 +585,5 @@ POST /postgrest/rpc/get_target_track_detail
 
 - `tests/test_source_situation_module.js`
 - `tests/test_detection_situation_schema.py`
+
+当前实现仍需按本方案核验：`source-situation-module.js` 在 `liveCursor=0` 时不启动轮询；增量读取失败只记录错误，尚无指数退避或明确的重新初始化恢复流程；状态事件没有触发来源状态刷新；过滤切换期间应防止旧请求把新快照覆盖；增量未按生产设备过滤，来源 ID 过滤还受接口字段限制。以上是待完善的前端行为，不能仅凭本文视为已实现。
