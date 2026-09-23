@@ -116,7 +116,22 @@ async function rpc(name, payload, token) {
 
 `source_type_code` 是厂商来源类型，主要用于旧版快照和历史航迹。实时 v3 请优先使用 `detection_method_code`（如 `radar`、`radio_detection`）决定颜色和筛选，不要用中文名称或将来源类型与侦测方式混用。可从初始化响应的 `detection_methods` 读取 `code`、`name`、`display_metadata` 构建筛选器；历史摘要仍按 `p_source_type_codes` 筛选。
 
-### 4.2 航迹状态
+### 4.2 侦测方式
+
+`p_detection_method_codes` 使用平台稳定的**字符串编码**，与上面的数值型 `source_type_code` 不同。当前数据库迁移预置以下取值：
+
+| 编码 | 含义 |
+|---|---|
+| `radar` | 雷达 |
+| `radio_detection` | 电侦 |
+| `electro_optical` | 光电 |
+| `remote_id` | Remote ID |
+| `network_sensing` | 网络感知 |
+| `manual` | 人工上报 |
+
+`null` 表示不过滤，`[]` 表示空集（不匹配任何航迹）。当前雷达云平台只将厂商类型 `10`、`20` 分别映射为 `radar`、`radio_detection`；其他编码已预置，不代表当前已有观测。前端应以 `GET /postgrest/detection_methods` 或实时初始化响应的 `detection_methods` 获取部署环境中的实际字典和展示属性，不要假定只有这两种方式。
+
+### 4.3 航迹状态
 
 | 状态 | 含义 | 前端行为 |
 |---|---|---|
@@ -124,7 +139,7 @@ async function rpc(name, payload, token) {
 | `lost` | 暂时丢失 | 降低透明度，短暂保留后移除 |
 | `closed` | 会话已明确结束 | 历史模式展示，实时模式移除 |
 
-### 4.3 增量类型
+### 4.4 增量类型
 
 | 类型 | 含义 |
 |---|---|
@@ -132,7 +147,7 @@ async function rpc(name, payload, token) {
 | `target_remove` | 目标丢失或来源明确移除 |
 | `source_status` | 来源连接或配置状态变化 |
 
-### 4.4 坐标和高度
+### 4.5 坐标和高度
 
 - `position` 是 WGS84 GeoJSON `Point`，坐标顺序为 `[longitude, latitude]`。
 - `altitude_amsl_m` 是平均海平面高度，单位米。
