@@ -73,9 +73,14 @@ A business assessment zone indicating whether flight is suitable, restricted, un
 _Avoid_: Airspace Class, W/G Class, No-Fly Zone, 空域类别、W/G 类、禁飞区
 
 **Airspace Constraint（空域约束）**:
-A time-and-space restriction on flight, transit, sensing, or emergency dispatch; no-fly zones, temporary control zones, disaster emergency areas, environmental risk areas, and advisory areas are all Airspace Constraints.
-某个时空范围内对飞行、通行、侦察或应急调度的限制条件；禁飞区、临时管控区、灾害应急区、环境风险区和普通业务建议区都属于空域约束。
+A time-and-space restriction on flight, transit, sensing, or emergency dispatch; no-fly and temporary control zones are constraints, but not spatial inputs to Defense Ring entry assessment.
+某个时空范围内对飞行、通行、侦察或应急调度的限制条件；禁飞区、临时管控区等属于空域约束，但不是防御圈进入风险研判的空间输入。
 _Avoid_: No-Fly Zone, Rule, Control Zone, 禁飞区、规则、管控区
+
+**Defense Ring（防御圈）**:
+A graded, two-dimensional circular area defined by a protected-object center and a radius in meters, used to assess the approach or entry risk of an Airspace Target; ring membership informs but does not determine the event Risk Level.
+以保护对象为中心、用米制半径定义的二维分级圆形范围，用于评估空域目标的接近与进入风险；圈层位置是研判因子，不直接等同于风险等级，目标高度不参与判圈。
+_Avoid_: No-Fly Zone, Temporary Control Zone, 禁飞区、临时管控区
 
 **Flight Obstacle（飞行障碍）**:
 A spatial object or range that blocks, restricts, or changes the feasibility of a target track or planned flight path while preserving traceability to its source.
@@ -103,8 +108,8 @@ A data factor that can change Airspace Event risk assessment, response feasibili
 _Avoid_: Background Layer, Display Data, 背景图层、展示数据
 
 **Risk Level（风险等级）**:
-An explainable risk result produced by assessing an Airspace Event, traceable to causes, evidence, impact area, related targets, related constraints, assessment factors, and recommended actions.
-空域事件经过研判后形成的可解释风险结果，必须能追溯到触发原因、证据、影响范围、相关目标、相关约束、研判因子和建议动作。
+An explainable risk result produced by assessing an Airspace Event, traceable to causes, evidence, impact area, related targets, Defense Rings where applicable, assessment factors, and recommended actions.
+空域事件经过研判后形成的可解释风险结果，必须能追溯到触发原因、证据、影响范围、相关目标、防御圈（若适用）、研判因子和建议动作。
 _Avoid_: Display Color, Alert Color, 展示颜色、告警颜色
 
 **Emergency Resource（应急资源）**:
@@ -192,9 +197,9 @@ The platform's current trusted explanation derived from multiple Raw Observation
 平台基于多个原始观测形成的当前可信解释，必须保留证据、置信度和冲突信息。
 _Avoid_: Overwrite Update, Latest Value, 覆盖更新、最新值
 
-**No-Fly/Control-Zone Intrusion Event Loop（禁飞/管控区入侵事件闭环）**:
-The first-stage minimum viable loop where an Airspace Target entering an Airspace Constraint creates an Airspace Event, receives a Risk Level, displays evidence and impact area, matches available Response Capability Coverage, proposes Response Plan Candidates, and records Event History.
-第一阶段最小可用闭环：当空域目标进入空域约束范围时，平台生成空域事件，计算风险等级，展示证据和影响范围，匹配可用处置能力覆盖，给出处置方案候选集，并记录事件历史。
+**Defense Ring Entry Event Loop（防御圈进入风险事件闭环）**:
+The first-stage minimum viable loop where an Airspace Target entering a Defense Ring can produce an Airspace Event after confirmation, with explainable risk, evidence, response candidates, and Event History.
+第一阶段最小可用闭环：空域目标命中防御圈并满足确认条件后生成空域事件，保留可解释风险、证据、处置方案候选集和事件历史。
 _Avoid_: Full Platform, Comprehensive Demo, 全量平台、综合演示
 
 **Mixed Input（混合输入）**:
@@ -203,13 +208,13 @@ MVP 阶段允许同时使用真实配置、人工录入、模拟轨迹、历史�
 _Avoid_: Fully Simulated Input, Fully Live Integration, 全模拟、全量真实接入
 
 **Height Datum（高度基准）**:
-The vertical reference meaning of height values in Airspace Constraints, targets, route planning, and event evidence, such as AMSL, AGL, or ELLIPSOID.
-解释空域约束、目标高度、航线规划和事件证据中高度数值含义的垂直参考语义，如 AMSL、AGL 或 ELLIPSOID。
+The vertical reference meaning of height values in targets, route planning, and event evidence, such as AMSL, AGL, or ELLIPSOID; Defense Rings have no altitude limits.
+解释目标高度、航线规划和事件证据中高度数值含义的垂直参考语义，如 AMSL、AGL 或 ELLIPSOID；防御圈本身不设置高度。
 _Avoid_: Height, Altitude, Relative Height, 高度、海拔、相对高度
 
-**Intrusion Determination（入侵判定）**:
-The business judgment that decides whether an Airspace Target has entered an Airspace Constraint.
-判断空域目标是否进入空域约束的业务判断。
+**Defense Ring Determination（防御圈判定）**:
+The business judgment selecting at most one eligible Defense Ring for an Airspace Target at an assessment instant, or determining that the result is outside or insufficiently observed.
+每次研判对空域目标至多选中一个适用防御圈，或判定为圈外、数据不足的业务判断。
 _Avoid_: Grid Hit, Geometry Intersection, 网格命中、几何相交
 
 **Target Track（目标航迹）**:
@@ -217,19 +222,19 @@ The platform's continuous tracking result for the same Airspace Target over a pe
 平台对同一个空域目标在一段时间内的连续跟踪结果，包含当前状态和历史观测。
 _Avoid_: Track Point, Point Sequence, 轨迹点、点序列
 
-**Intrusion Confirmation Window（入侵确认窗口）**:
-The duration, consecutive observation count, or confidence condition required to upgrade an Airspace Target hitting an Airspace Constraint from a candidate to a formal Airspace Event.
-目标航迹命中空域约束后，从候选事件升级为正式空域事件所需的持续时间、连续观测点数或置信度条件。
+**Defense Ring Confirmation Window（防御圈确认窗口）**:
+The consecutive valid observations or other evidence required to promote a Defense Ring hit from a candidate record to a formal Airspace Event.
+目标航迹命中防御圈后，从候选记录升级为正式空域事件所需的连续有效观测或其他证据条件。
 _Avoid_: Immediate Alert, Single-Point Trigger, 立即告警、单点触发
 
 **Candidate Event Record（候选事件记录）**:
-A lightweight record created when a Target Track hits an Airspace Constraint but has not yet satisfied the Intrusion Confirmation Window.
-目标航迹命中空域约束但尚未满足入侵确认窗口时产生的轻量记录。
+A lightweight record created when a Target Track hits a Defense Ring but has not yet satisfied the Defense Ring Confirmation Window.
+目标航迹命中防御圈但尚未满足防御圈确认窗口时产生的轻量记录。
 _Avoid_: Airspace Event, Alert, 空域事件、告警
 
 **Rule Template（规则模板）**:
-An explainable rule set used in the MVP to produce Response Plan Candidates from event type, Risk Level, constraint type, Response Capability Coverage, and Device Access Level.
-MVP 阶段生成处置方案候选集的可解释规则集合，按事件类型、风险等级、约束类型、处置能力覆盖和设备接入级别组合推荐方案。
+An explainable rule set used in the MVP to produce Response Plan Candidates from event type, Risk Level, Defense Ring level where applicable, Response Capability Coverage, and Device Access Level.
+MVP 阶段生成处置方案候选集的可解释规则集合，按事件类型、风险等级、防御圈圈层（若适用）、处置能力覆盖和设备接入级别组合推荐方案。
 _Avoid_: AI Decision, Automatic Optimization, AI 决策、自动优化
 
 **Simulated Linkage（模拟联动）**:
@@ -310,7 +315,7 @@ _Avoid_: Single-Point Fire Alert, Immediate Confirmation, 单点火警、立即�
 **Forest-Fire Risk Classification Rule（林火风险分级规则）**:
 A fixed, explainable, auditable rule set for Suspected Forest-Fire Warnings that outputs the shared Risk Level and Response Priority.
 用于林火疑似预警的固定、可解释、可审计风险分级规则，输出统一的风险等级与处置优先级。
-_Avoid_: Intrusion Risk Rule, Fire Severity Grade, 入侵风险规则、火灾等级
+_Avoid_: Defense Ring Risk Rule, Fire Severity Grade, 防御圈风险规则、火灾等级
 
 **Forest-Fire Review and Notification（林火复核与通知）**:
 The MVP response boundary for Suspected Forest-Fire Warnings: dispatch Aircraft Assets for secondary review, adjust Inspection Tasks, notify rangers or duty operators, recommend nearby Emergency Capabilities, and escalate to manual emergency handling when needed.
@@ -318,9 +323,9 @@ MVP 中林火疑似预警的处置边界：派无人机资产二次复核、调�
 _Avoid_: Firefighting Dispatch, Fire Command, 灭火调度、消防指挥
 
 **MVP Event Queue（MVP 事件队列）**:
-The shared Airspace Event handling queue used by the MVP for both No-Fly/Control-Zone Intrusion Events and Suspected Forest-Fire Warnings.
-MVP 中禁飞/管控区入侵事件与林火疑似预警共用的空域事件处置队列。
-_Avoid_: Intrusion Module, Forest-Fire Module, Separate Event List, 入侵模块、林火模块、独立事件列表
+The shared Airspace Event handling queue used by the MVP for Defense Ring Entry Events and Suspected Forest-Fire Warnings.
+MVP 中防御圈进入风险事件与林火疑似预警共用的空域事件处置队列。
+_Avoid_: Defense Ring Module, Forest-Fire Module, Separate Event List, 防御圈模块、林火模块、独立事件列表
 
 **Flight Path Plan（飞行路径规划方案）**:
 A planned route request made of start, end, and optional waypoint control points, with planning settings such as cruise height, Height Datum, planning time, and safety buffer.
