@@ -829,6 +829,25 @@ begin
 end;
 $$;
 
+-- The defense-ring module publishes immutable versions only through API RPCs.
+-- Preserve its narrower permissions when this broad role migration is rerun.
+do $$
+begin
+  if to_regclass('airspace.protected_object') is not null then
+    revoke all on airspace.protected_object from admin;
+  end if;
+  if to_regclass('airspace.defense_ring') is not null then
+    revoke all on airspace.defense_ring from admin;
+  end if;
+  if to_regclass('event_response.risk_rule_set') is not null then
+    revoke all on event_response.risk_rule_set,event_response.risk_rule_factor,
+      event_response.risk_rule_parameter from admin;
+  end if;
+  if to_regclass('airspace.protected_object_id_seq') is not null then
+    revoke all on sequence airspace.protected_object_id_seq,airspace.defense_ring_id_seq from admin;
+  end if;
+end $$;
+
 notify pgrst, 'reload schema';
 
 commit;
