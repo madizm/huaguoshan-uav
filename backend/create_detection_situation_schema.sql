@@ -1817,11 +1817,6 @@ begin
       'detection_method_code',detection_method_code,'quality_flags',quality_flags,
       'riskAssessment',event_response.observation_risk_assessment_json(id)
     ) order by observed_at,id) from sampled),'[]'::jsonb),
-    'points',coalesce((select jsonb_agg(jsonb_strip_nulls(jsonb_build_object('observation_id',id,'observed_at',observed_at,
-      'position',ST_AsGeoJSON(geom)::jsonb,'altitude_amsl_m',height_amsl_m,'source_type_code',source_type_code,
-      'frequency_mhz',frequency_mhz,'relative_height_m',relative_height_m,'horizontal_distance_m',horizontal_distance_m,
-      'azimuth_deg',azimuth_deg,'elevation_deg',elevation_deg,'speed_mps',speed_mps,'quality_flags',quality_flags)) order by observed_at,id)
-      from sampled where geom is not null),'[]'::jsonb),
     'non_spatial_observations',coalesce((select jsonb_agg(jsonb_build_object('observation_id',id,'observed_at',observed_at,
       'source_type_code',source_type_code,'frequency_mhz',frequency_mhz,'quality_flags',quality_flags) order by observed_at,id)
       from sampled where geom is null),'[]'::jsonb),
@@ -1831,7 +1826,7 @@ begin
   return v_result;
 end;
 $$;
-comment on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) is '返回 JSON：track、observations、兼容 points、non_spatial_observations 和 evidence；track 包含当前 riskAssessment，每个 observation 包含可空的精简 riskAssessment，窗口最大 7 天，最多返回 5000 条抽样观测。';
+comment on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) is '返回 JSON：track、observations、non_spatial_observations 和 evidence；track 包含当前 riskAssessment，每个 observation 包含可空的精简 riskAssessment，窗口最大 7 天，最多返回 5000 条抽样观测。';
 
 create or replace function api.update_detection_observation_source(
   p_source_id bigint,p_name text,p_asset_id bigint,p_source_timezone text,

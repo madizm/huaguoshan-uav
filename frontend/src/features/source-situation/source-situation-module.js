@@ -621,7 +621,7 @@
       options = options || {};
       removeLayers();
       var projectedObservations = projectObservations(detail.observations || []);
-      var points = detail.observations ? projectedObservations.points : (detail.points || []);
+      var points = projectedObservations.points;
       var remotePilotPoints = projectedObservations.remotePilotPoints;
       var split = splitTrackByRisk(points, MAX_TRACK_SPEED_MPS);
       var methodCode = points.length ? (points[points.length - 1].detection_method_code || points[points.length - 1].source_type_code) : null;
