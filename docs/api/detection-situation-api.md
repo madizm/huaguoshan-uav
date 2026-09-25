@@ -6,6 +6,7 @@
 
 - 数据库迁移：`backend/create_detection_situation_schema.sql`
 - 风险评估迁移：`backend/create_target_risk_assessment.sql`
+- 来源架次统计迁移：`backend/create_source_sortie_statistics.sql`
 - 风险评估服务：`backend/risk_engine/`
 - 云平台连接器：`scripts/radar_cloud_connector.py`
 - 数据库设计：`docs/雷达云平台/云平台侦测接入设计.md`
@@ -22,6 +23,7 @@
 3. `backend/create_detection_situation_schema.sql`
 4. `backend/create_defense_ring_admin.sql`
 5. `backend/create_target_risk_assessment.sql`
+6. `backend/create_source_sortie_statistics.sql`
 
 执行：
 

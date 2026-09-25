@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Aim, Connection, FirstAidKit, List, Odometer, Setting, SwitchButton, UserFilled } from '@element-plus/icons-vue'
+import { Aim, Connection, FirstAidKit, Histogram, List, Odometer, Setting, SwitchButton, UserFilled } from '@element-plus/icons-vue'
 import { authStore, logout } from '../api/auth'
 
 const route = useRoute()
@@ -52,6 +52,10 @@ function handleLogout() {
         <el-menu-item index="/risk-engine">
           <el-icon><Odometer /></el-icon>
           <span>风险评估引擎</span>
+        </el-menu-item>
+        <el-menu-item index="/source-sorties">
+          <el-icon><Histogram /></el-icon>
+          <span>来源架次统计</span>
         </el-menu-item>
       </el-menu>
     </el-aside>
