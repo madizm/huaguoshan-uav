@@ -96,6 +96,17 @@ export interface RadarModel {
   power_w: number | null
 }
 
+export interface UavModel {
+  model_code: string
+  name: string
+  manufacturer: string | null
+  weight_class: 'micro' | 'light' | 'small' | 'medium' | 'large'
+  max_takeoff_weight_kg: number
+  max_speed_kph: number | null
+  max_endurance_min: number | null
+  max_payload_kg: number | null
+}
+
 export interface AssetListParams {
   categoryCode?: string
   keyword?: string
@@ -123,6 +134,27 @@ export function updateRadarModel(modelCode: string, changes: Partial<RadarModel>
 
 export function listRadarModels(): Promise<RadarModel[]> {
   return http.get('/equipment_radar_models', { order: 'model_code.asc' })
+}
+
+export function listUavModels(): Promise<UavModel[]> {
+  return http.get('/equipment_uav_models', { order: 'model_code.asc' })
+}
+
+export function updateUavModel(modelCode: string, changes: Partial<UavModel>): Promise<void> {
+  return http.post('/rpc/update_equipment_uav_model', { p_model_code: modelCode, p_changes: changes })
+}
+
+export function createUavModel(model: UavModel): Promise<string> {
+  return http.post('/rpc/create_equipment_uav_model', {
+    p_model_code: model.model_code,
+    p_name: model.name,
+    p_manufacturer: model.manufacturer,
+    p_weight_class: model.weight_class,
+    p_max_takeoff_weight_kg: model.max_takeoff_weight_kg,
+    p_max_speed_kph: model.max_speed_kph,
+    p_max_endurance_min: model.max_endurance_min,
+    p_max_payload_kg: model.max_payload_kg,
+  })
 }
 
 export function listAssets(params: AssetListParams): Promise<PagedResult<EquipmentAsset>> {
