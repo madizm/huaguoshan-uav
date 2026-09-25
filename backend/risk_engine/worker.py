@@ -31,6 +31,7 @@ from .detection_adapter import (
 )
 from .domain import RiskAssessment, RuleSet, assess_target
 from .persistence import persist_assessment
+from .uav_model import UavModelMatcher
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_WORKER_NAME = "defense-assessment"
@@ -47,13 +48,15 @@ def _json_value(value: Any) -> Any:
     return value
 
 
-def _input_snapshot(row: dict[str, Any]) -> dict[str, Any]:
+def _input_snapshot(row: dict[str, Any], weight_class: str | None = None) -> dict[str, Any]:
     trajectory = row.get("trajectory") or []
     return {
         "longitude": _json_value(row.get("longitude")),
         "latitude": _json_value(row.get("latitude")),
         "speedMps": _json_value(row.get("speed_mps")),
         "identityStatus": _json_value(row.get("identity_status")),
+        "model": _json_value(row.get("model")),
+        "weightClass": weight_class,
         "trajectoryObservationIds": [
             point.get("observation_id") or point.get("observationId")
             for point in trajectory if isinstance(point, dict)
@@ -77,7 +80,7 @@ def _failed_assessment(row: dict[str, Any], rules: RuleSet, assessed_at: datetim
     )
 
 
-async def process_batch(conn, worker_name: str, batch_size: int) -> int:
+async def process_batch(conn, worker_name: str, batch_size: int, matcher: UavModelMatcher | None = None) -> int:
     """Process one transactionally guarded batch and return the row count."""
     after_id = await lock_worker_cursor(conn, worker_name)
     rows = await fetch_pending_observations(conn, after_id, batch_size)
@@ -90,9 +93,15 @@ async def process_batch(conn, worker_name: str, batch_size: int) -> int:
     failed_count = 0
     for row in rows:
         assessed_at = datetime.now(timezone.utc)
-        snapshot = _input_snapshot(row)
+        # Match model to weight_class
+        weight_class = None
+        if matcher is not None:
+            spec = matcher.match(row.get("model"))
+            if spec is not None:
+                weight_class = spec.weight_class
+        snapshot = _input_snapshot(row, weight_class)
         try:
-            target = target_from_row(row)
+            target = target_from_row(row, weight_class)
             result = assess_target(target, protected_objects, rules, assessed_at)
         except Exception as exc:
             LOGGER.exception(
@@ -121,7 +130,8 @@ async def run_once(database_url: str, worker_name: str, batch_size: int) -> int:
     async with await psycopg.AsyncConnection.connect(database_url, row_factory=dict_row) as conn:
         async with conn.transaction():
             await register_worker_runtime(conn, worker_name, _instance_id(), ENGINE_VERSION)
-            return await process_batch(conn, worker_name, batch_size)
+            matcher = await UavModelMatcher.from_database(conn)
+            return await process_batch(conn, worker_name, batch_size, matcher)
 
 
 def _instance_id() -> str:
@@ -137,12 +147,20 @@ async def _runtime_update(database_url: str, operation, *args) -> None:
 async def run_forever(database_url: str, worker_name: str, batch_size: int, poll_interval: float) -> None:
     instance_id = _instance_id()
     await _runtime_update(database_url, register_worker_runtime, worker_name, instance_id, ENGINE_VERSION)
+    # Load matcher once at startup
+    matcher = None
+    try:
+        async with await psycopg.AsyncConnection.connect(database_url, row_factory=dict_row) as conn:
+            matcher = await UavModelMatcher.from_database(conn)
+            LOGGER.info("loaded UAV model matcher with %d rules and %d specs", len(matcher.rules), len(matcher.specs))
+    except Exception:
+        LOGGER.exception("failed to load UAV model matcher, weight class factor will be unavailable")
     try:
         while True:
             try:
                 async with await psycopg.AsyncConnection.connect(database_url, row_factory=dict_row) as conn:
                     async with conn.transaction():
-                        count = await process_batch(conn, worker_name, batch_size)
+                        count = await process_batch(conn, worker_name, batch_size, matcher)
                 if count:
                     LOGGER.info("assessed %s observations", count)
                     continue

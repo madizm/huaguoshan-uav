@@ -128,7 +128,7 @@ async def fetch_pending_observations(conn: AsyncConnection, after_id: int, limit
         select t.track_id, r.id observation_id, r.observed_at,
           case when r.geom is null then null else st_x(r.geom) end longitude,
           case when r.geom is null then null else st_y(r.geom) end latitude,
-          o.speed_mps,a.identity_status,coalesce(history.trajectory,'[]'::jsonb) trajectory
+          o.speed_mps,a.identity_status,o.model,coalesce(history.trajectory,'[]'::jsonb) trajectory
         from situation.track_observation t
         join situation.target_track tr on tr.id=t.track_id
         join situation.airspace_target a on a.id=tr.target_id
@@ -166,7 +166,7 @@ async def fetch_observation(conn: AsyncConnection, observation_id: int) -> dict[
         select t.track_id, r.id observation_id, r.observed_at,
           case when r.geom is null then null else st_x(r.geom) end longitude,
           case when r.geom is null then null else st_y(r.geom) end latitude,
-          o.speed_mps,a.identity_status,coalesce(history.trajectory,'[]'::jsonb) trajectory
+          o.speed_mps,a.identity_status,o.model,coalesce(history.trajectory,'[]'::jsonb) trajectory
         from situation.track_observation t
         join situation.target_track tr on tr.id=t.track_id
         join situation.airspace_target a on a.id=tr.target_id
@@ -259,7 +259,7 @@ async def fetch_published_configuration(conn: AsyncConnection) -> tuple[list[Pro
     return list(objects.values()), rules
 
 
-def target_from_row(row: dict[str, Any]) -> TargetInput:
+def target_from_row(row: dict[str, Any], weight_class: str | None = None) -> TargetInput:
     trajectory = row.get("trajectory") or []
     if isinstance(trajectory, bytes):
         trajectory = json.loads(trajectory.decode("utf-8"))
@@ -267,5 +267,5 @@ def target_from_row(row: dict[str, Any]) -> TargetInput:
         track_id=int(row["track_id"]), observation_id=int(row["observation_id"]),
         observed_at=row["observed_at"], longitude=row["longitude"], latitude=row["latitude"],
         speed_mps=row["speed_mps"], identity_status=_text(row.get("identity_status", "unverified")),
-        trajectory=trajectory,
+        weight_class=weight_class, trajectory=trajectory,
     )

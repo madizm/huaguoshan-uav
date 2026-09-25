@@ -34,6 +34,7 @@ class TargetInput(BaseModel):
     latitude: float | None = Field(default=None, ge=-90, le=90)
     speed_mps: float | None = Field(default=None, ge=0)
     identity_status: Literal["unverified", "identified", "conflicted"] = "unverified"
+    weight_class: Literal["micro", "light", "small", "medium", "large"] | None = None
     trajectory: list[TrajectoryPoint] = Field(default_factory=list)
 
 
@@ -321,6 +322,25 @@ def assess_target(
         code="identity_unverified", score=rules.scores.get("identity_unverified", 0),
         matched=target.identity_status == "unverified",
     ))
+
+    # Weight class factor
+    if target.weight_class is not None:
+        weight_factor_code = f"weight_class_{target.weight_class}"
+        factors.append(FactorResult(
+            code=weight_factor_code,
+            score=rules.scores.get(weight_factor_code, 0),
+            matched=True,
+            available=True,
+        ))
+    else:
+        # Weight class unknown - no factor contributed
+        factors.append(FactorResult(
+            code="weight_class_unknown",
+            score=0,
+            matched=False,
+            available=False,
+        ))
+
     score = min(100, sum(factor.score for factor in factors if factor.matched))
     return RiskAssessment(
         status="assessed", risk_level=_risk_level(score, rules), risk_score=score,

@@ -131,3 +131,73 @@ def test_risk_levels_use_published_parameters(protected_object):
     )
     assert result.risk_score == 90
     assert result.risk_level == "high"
+
+def test_weight_class_factor_contributes_score(protected_object):
+    """Test that weight_class factor contributes to risk score."""
+    observed_at = datetime(2026, 9, 25, tzinfo=timezone.utc)
+    target = TargetInput(
+        track_id=1, observed_at=observed_at, longitude=119.25, latitude=34.65,
+        weight_class="medium",
+    )
+    rules = RuleSet(
+        3,
+        {"zone_core": 85, "identity_unverified": 5, "weight_class_medium": 12},
+    )
+    result = assess_target(target, [protected_object], rules, observed_at)
+    factors = {factor.code: factor for factor in result.factors}
+    # zone_core(85) + identity_unverified(5) + weight_class_medium(12) = 102, capped to 100
+    assert result.risk_score == 100
+    assert result.risk_level == "critical"
+    assert factors["weight_class_medium"].matched
+    assert factors["weight_class_medium"].score == 12
+
+
+def test_weight_class_unknown_does_not_contribute(protected_object):
+    """Test that unknown weight_class does not contribute to risk score."""
+    observed_at = datetime(2026, 9, 25, tzinfo=timezone.utc)
+    target = TargetInput(
+        track_id=1, observed_at=observed_at, longitude=119.25, latitude=34.65,
+        weight_class=None,
+    )
+    rules = RuleSet(
+        3,
+        {"zone_core": 85, "identity_unverified": 5, "weight_class_medium": 12},
+    )
+    result = assess_target(target, [protected_object], rules, observed_at)
+    factors = {factor.code: factor for factor in result.factors}
+    # zone_core(85) + identity_unverified(5) = 90
+    assert result.risk_score == 90
+    assert "weight_class_unknown" in factors
+    assert not factors["weight_class_unknown"].matched
+    assert not factors["weight_class_unknown"].available
+
+
+def test_weight_class_micro_has_lower_score(protected_object):
+    """Test that micro weight_class has lower score than medium."""
+    observed_at = datetime(2026, 9, 25, tzinfo=timezone.utc)
+    # Position target in sensing zone only (outside tracking and core)
+    # sensing radius is 5000m, so offset by ~4500m
+    offset_deg = 0.053  # ~4800m at latitude 34.65, inside sensing (5000m) but outside tracking (4000m)
+    target_micro = TargetInput(
+        track_id=1, observed_at=observed_at,
+        longitude=119.25 + offset_deg, latitude=34.65,
+        weight_class="micro",
+    )
+    target_medium = TargetInput(
+        track_id=2, observed_at=observed_at,
+        longitude=119.25 + offset_deg, latitude=34.65,
+        weight_class="medium",
+    )
+    rules = RuleSet(
+        3,
+        {
+            "zone_sensing": 20,
+            "weight_class_micro": 2,
+            "weight_class_medium": 12,
+        },
+    )
+    result_micro = assess_target(target_micro, [protected_object], rules, observed_at)
+    result_medium = assess_target(target_medium, [protected_object], rules, observed_at)
+    # Both in sensing zone (20), but different weight scores
+    assert result_micro.risk_score == 22  # 20 + 2
+    assert result_medium.risk_score == 32  # 20 + 12
