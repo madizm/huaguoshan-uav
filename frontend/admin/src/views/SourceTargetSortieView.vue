@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { Close, Refresh, Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import type { TagProps } from 'element-plus'
 import VChart from 'vue-echarts'
@@ -359,6 +359,53 @@ function ringLabel(code?: string): string {
   return { sensing: '感知圈', tracking: '跟踪圈', countermeasure: '反制圈', hard_strike: '硬打击圈', core: '核心圈' }[code ?? ''] ?? '--'
 }
 
+// 图表联动过滤条件标签
+interface FilterTag {
+  key: string
+  type: 'model' | 'riskLevel' | 'sourceTarget'
+  label: string
+  value: string
+}
+
+const chartFilterTags = computed<FilterTag[]>(() => {
+  const tags: FilterTag[] = []
+  const riskLabels: Record<string, string> = {
+    critical: '严重',
+    high: '高',
+    medium: '中',
+    low: '低',
+    none: '正常',
+  }
+  filters.models.forEach((m) => {
+    tags.push({ key: `model:${m}`, type: 'model', label: `机型: ${m}`, value: m })
+  })
+  filters.riskLevels.forEach((l) => {
+    tags.push({ key: `risk:${l}`, type: 'riskLevel', label: `风险: ${riskLabels[l] || l}`, value: l })
+  })
+  filters.sourceTargetIds.forEach((id) => {
+    tags.push({ key: `target:${id}`, type: 'sourceTarget', label: `目标: ${id}`, value: id })
+  })
+  return tags
+})
+
+function removeFilterTag(tag: FilterTag) {
+  if (tag.type === 'model') {
+    filters.models = filters.models.filter((m) => m !== tag.value)
+  } else if (tag.type === 'riskLevel') {
+    filters.riskLevels = filters.riskLevels.filter((l) => l !== tag.value)
+  } else if (tag.type === 'sourceTarget') {
+    filters.sourceTargetIds = filters.sourceTargetIds.filter((id) => id !== tag.value)
+  }
+  search()
+}
+
+function clearAllChartFilters() {
+  filters.models = []
+  filters.riskLevels = []
+  filters.sourceTargetIds = []
+  search()
+}
+
 onMounted(() => {
   loadSources()
   load()
@@ -447,6 +494,24 @@ onMounted(() => {
       show-icon
       :closable="false"
     />
+
+    <!-- 图表联动过滤条件标签 -->
+    <div v-if="chartFilterTags.length" class="filter-tags">
+      <span class="filter-tags-label">当前筛选：</span>
+      <el-tag
+        v-for="tag in chartFilterTags"
+        :key="tag.key"
+        closable
+        :type="tag.type === 'sourceTarget' ? 'primary' : tag.type === 'model' ? 'success' : 'warning'"
+        @close="removeFilterTag(tag)"
+      >
+        {{ tag.label }}
+      </el-tag>
+      <el-button type="danger" link size="small" @click="clearAllChartFilters">
+        <el-icon><Close /></el-icon>
+        清除全部
+      </el-button>
+    </div>
 
     <!-- 概览卡片 -->
     <div class="overview-cards">
@@ -664,6 +729,23 @@ onMounted(() => {
 .expand-loading { display: flex; align-items: center; gap: 8px; color: #87918c; font-size: 13px; padding: 16px 0; }
 .expand-summary { color: #7a8580; font-size: 12px; margin-bottom: 10px; }
 .high-risk { color: #f56c6c; font-weight: 600; }
+
+/* 图表联动过滤标签 */
+.filter-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 6px;
+  flex-wrap: wrap;
+}
+.filter-tags-label {
+  color: #0369a1;
+  font-size: 13px;
+  font-weight: 500;
+}
 .pagination { display: flex; justify-content: flex-end; padding-top: 16px; }
 
 /* 概览卡片 */
