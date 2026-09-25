@@ -10,6 +10,7 @@ import PoliceForceView from './views/PoliceForceView.vue'
 import DefenseRingView from './views/DefenseRingView.vue'
 import RiskEngineView from './views/RiskEngineView.vue'
 import SourceSortieStatisticsView from './views/SourceSortieStatisticsView.vue'
+import SourceTargetSortieView from './views/SourceTargetSortieView.vue'
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -27,6 +28,7 @@ export const router = createRouter({
         { path: 'defense-rings', name: 'defense-rings', component: DefenseRingView, meta: { title: '防御圈配置' } },
         { path: 'risk-engine', name: 'risk-engine', component: RiskEngineView, meta: { title: '风险评估引擎' } },
         { path: 'source-sorties', name: 'source-sorties', component: SourceSortieStatisticsView, meta: { title: '来源架次统计' } },
+        { path: 'source-target-sorties', name: 'source-target-sorties', component: SourceTargetSortieView, meta: { title: '来源目标架次' } },
         {
           path: 'detection-sources',
           name: 'detection-sources',
