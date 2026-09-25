@@ -136,10 +136,28 @@
     #scalarAuthRef,
     #scalarPgrstRef {
       width: 100%;
-      height: clamp(620px, calc(100vh - 220px), 1100px);
-      overflow: auto;
+      min-height: 620px;
       border-radius: 14px;
       background: #fff;
+    }
+    #scalarAuthRef.scalar-collapsed {
+      display: none;
+    }
+    .toggle-btn {
+      margin: 12px 0;
+      padding: 8px 16px;
+      border: 1px solid rgba(244, 236, 216, 0.28);
+      border-radius: 999px;
+      background: rgba(244, 236, 216, 0.08);
+      color: var(--paper-strong);
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 160ms ease, border-color 160ms ease;
+    }
+    .toggle-btn:hover {
+      border-color: var(--gold);
+      background: rgba(215, 168, 70, 0.18);
     }
 
     .card > h2 {
@@ -236,21 +254,6 @@
   </header>
 
   <main>
-    <!-- 认证入口服务 API -->
-    <div class="card" id="authApiCard">
-      <h2><span class="badge">公开</span> 认证入口服务 API</h2>
-      <p>
-        轻量认证入口，负责凭证校验与 JWT 签发。
-        API 文档<strong>匿名可见</strong>，无需认证即可浏览。
-      </p>
-      <ul class="endpoint-list">
-        <li><span class="method post">POST</span> <code>/auth/login</code> — 管理员登录，返回 JWT</li>
-        <li><span class="method get">GET</span> <code>/auth/me</code> — 验证令牌并返回当前用户</li>
-        <li><span class="method get">GET</span> <code>/healthz</code> — 健康检查</li>
-      </ul>
-      <div id="scalarAuthRef"></div>
-    </div>
-
     <!-- PostgREST 业务 API -->
     <div class="card" id="postgrestApiCard">
       <h2>PostgREST 业务 API</h2>
@@ -271,6 +274,22 @@
       <code>localStorage</code> 的 <code>postgrest.jwt</code> 键中，
       与前端工作台共享同一令牌。
     </p>
+
+    <!-- 认证入口服务 API -->
+    <div class="card" id="authApiCard">
+      <h2><span class="badge">公开</span> 认证入口服务 API</h2>
+      <p>
+        轻量认证入口，负责凭证校验与 JWT 签发。
+        API 文档<strong>匿名可见</strong>，无需认证即可浏览。
+      </p>
+      <ul class="endpoint-list">
+        <li><span class="method post">POST</span> <code>/auth/login</code> — 管理员登录，返回 JWT</li>
+        <li><span class="method get">GET</span> <code>/auth/me</code> — 验证令牌并返回当前用户</li>
+        <li><span class="method get">GET</span> <code>/healthz</code> — 健康检查</li>
+      </ul>
+      <button id="toggleAuthDocsBtn" class="toggle-btn">📖 查看认证 API 详细文档</button>
+      <div id="scalarAuthRef" class="scalar-collapsed"></div>
+    </div>
   </main>
 
   <footer>花果山低空空域事件处置平台 · API 文档门户</footer>
@@ -298,8 +317,8 @@
           authStatus.textContent = '未认证';
           authStatus.className = 'status anon';
         }
-        // Re-render Scalar instances so they pick up the new token.
-        renderScalarInstances();
+        // Re-render PostgREST Scalar so it picks up the new token.
+        renderPostgrestReference();
       }
 
       document.getElementById('applyTokenBtn').addEventListener('click', function () {
@@ -347,6 +366,201 @@
         return spec;
       }
 
+      // ── Domain tag grouping ──────────────────────────────────────
+      //
+      // PostgREST exposes every api-schema object as a flat endpoint list.
+      // Scalar renders OpenAPI "tags" as sidebar groups, so we remap each
+      // path into a business-domain tag before handing the spec to Scalar.
+      //
+      // Patterns are tested against the path with leading "/" stripped,
+      // e.g. "no_fly_zone" or "rpc/get_defense_ring_config".
+      // Order matters: first match wins.
+
+      var DOMAIN_TAGS = [
+        {
+          name: '空域约束',
+          description: '禁飞区、临时管控区、适飞基底范围等空域空间配置接口。',
+          patterns: [
+            /^no_fly_zone/,
+            /^temp_control_zone/,
+            /^suitable_fly_zone_footprints/
+          ]
+        },
+        {
+          name: '防御圈与风险研判',
+          description: '保护对象、同心防御圈配置、目标风险评估与风险引擎状态接口。',
+          patterns: [
+            /defense_ring/,
+            /protected_object/,
+            /risk_assessment/,
+            /risk_engine/,
+            /risk_scores/
+          ]
+        },
+        {
+          name: '设施设备管理',
+          description: '设备资产登记、专业属性配置、能力目录、原始观测、在线统计与反无设备遥测接口。',
+          patterns: [
+            /^equipment_/,
+            /^aircraft_assets/,
+            /^counter_uas_/,
+            /^rpc\/get_equipment_configuration/,
+            /^rpc\/save_equipment_configuration/,
+            /^rpc\/save_microwave_radar_configuration/,
+            /^rpc\/update_equipment_/
+          ]
+        },
+        {
+          name: '飞行路径规划',
+          description: '航线规划方案 CRUD、飞行障碍查询、凸包计算与规划结果检索接口。',
+          patterns: [
+            /flight_path/,
+            /flight_obstacles/,
+            /flight_plan/,
+            /convex_hull/
+          ]
+        },
+        {
+          name: '侦测态势',
+          description: '侦测方式与来源配置、目标航迹、态势快照、原始来源态势与架次统计接口。',
+          patterns: [
+            /^detection_/,
+            /^rpc\/(get|list|create|update|upsert)_detection_/,
+            /target_track/,
+            /^rpc\/get_target_track_detail/,
+            /^rpc\/get_detection_/,
+            /^rpc\/get_raw_source_situation/,
+            /source_sortie/,
+            /source_target_model/
+          ]
+        },
+        {
+          name: '应急资源与警务',
+          description: '警务编组、警员管理、应急资源（避难所、物资仓库、医疗资源、水域、着陆点）、救援力量与资源统计接口。',
+          patterns: [
+            /^emergency_/,
+            /^rpc\/(create_police_team|assign_police_team_leader|remove_police_team_member)/,
+            /^rpc\/refresh_emergency_resource/
+          ]
+        },
+        {
+          name: '飞行架次与巡查',
+          description: '报备飞行、巡查任务、飞行活动展示与航线预览接口。',
+          patterns: [
+            /^flight_activit/,
+            /^reported_flights/,
+            /^inspection_tasks/
+          ]
+        },
+        {
+          name: '空间数据查询',
+          description: '3D CityDB 要素属性与 GGER 网格查询接口。',
+          patterns: [
+            /citydb_feature/
+          ]
+        },
+        {
+          name: '系统配置',
+          description: '平台级配置项读写接口。',
+          patterns: [
+            /^system_config/
+          ]
+        }
+      ];
+
+      // ── Read-only endpoint filter ─────────────────────────────────
+      //
+      // PostgREST exposes GET/POST/PATCH/DELETE for every view and table,
+      // but many views are read-only by design (catalogs, statistics,
+      // detail views, history). We prune non-GET methods for these
+      // endpoints to reduce visual noise in the documentation.
+
+      var READONLY_PATTERNS = [
+        // Equipment: catalogs, detail views, statistics, raw observations
+        /^equipment_asset_admin_details/,
+        /^equipment_asset_capabilities/,
+        /^equipment_asset_categories/,
+        /^equipment_asset_coverages/,
+        /^equipment_asset_status/,
+        /^equipment_capability_catalog/,
+        /^equipment_aoa_direction_finder_profiles/,
+        /^equipment_directed_energy_device_profiles/,
+        /^equipment_electro_optical_device_profiles/,
+        /^equipment_jamming_device_profiles/,
+        /^equipment_microwave_radar_assets/,
+        /^equipment_microwave_radar_profiles/,
+        /^equipment_online_statistics/,
+        /^equipment_radar_models/,
+        /^equipment_raw_observations/,
+        /^equipment_remote_id_receiver_profiles/,
+        /^equipment_statistics/,
+        /^counter_uas_/,
+
+        // Detection: method/observation dictionaries, history
+        /^detection_method_mapping_history/,
+        /^detection_observation_sources/,
+        /^detection_source_types/,
+
+        // Emergency: all read-only views (detail, roster, statistics, resources)
+        /^emergency_/,
+
+        // Flight: route preview (computed display)
+        /^flight_activity_route_previews/,
+
+        // System config (read via GET, write via RPC)
+        /^system_config/
+      ];
+
+      function isReadOnlyEndpoint(stripped) {
+        return READONLY_PATTERNS.some(function (re) { return re.test(stripped); });
+      }
+
+      function injectDomainTags(spec) {
+        if (!spec.paths) return spec;
+
+        var matchedTags = {};
+        var prunedMethodCount = 0;
+
+        Object.keys(spec.paths).forEach(function (path) {
+          var stripped = path.replace(/^\//, '');
+          var methods = spec.paths[path];
+          var readOnly = isReadOnlyEndpoint(stripped);
+
+          Object.keys(methods).forEach(function (method) {
+            var op = methods[method];
+            if (!op || typeof op !== 'object') return;
+
+            // Prune non-GET methods for read-only endpoints
+            if (readOnly && method !== 'get') {
+              delete methods[method];
+              prunedMethodCount++;
+              return;
+            }
+
+            for (var i = 0; i < DOMAIN_TAGS.length; i++) {
+              var group = DOMAIN_TAGS[i];
+              var matched = group.patterns.some(function (re) { return re.test(stripped); });
+              if (matched) {
+                op.tags = [group.name];
+                matchedTags[group.name] = group;
+                return;
+              }
+            }
+            // Fallback: keep default tag or assign "其他"
+            op.tags = ['其他'];
+            matchedTags['其他'] = { name: '其他', description: '未归入业务域的接口。' };
+          });
+        });
+
+        // Build the top-level tags array with descriptions for Scalar sidebar.
+        spec.tags = Object.keys(matchedTags).map(function (name) {
+          return { name: name, description: matchedTags[name].description };
+        });
+
+        spec._prunedMethodCount = prunedMethodCount;
+        return spec;
+      }
+
       function injectBearerSecurity(postgrestSpec) {
         postgrestSpec.components = postgrestSpec.components || {};
         postgrestSpec.components.securitySchemes = postgrestSpec.components.securitySchemes || {};
@@ -359,7 +573,20 @@
         return postgrestSpec;
       }
 
+      // ── Auth docs toggle ──────────────────────────────────────────
+      //
+      // Two Scalar instances on the same page interfere with each other
+      // (shared global state, keyboard shortcuts, scroll sync). We keep
+      // the auth Scalar collapsed by default and only instantiate it
+      // when the user explicitly expands it.
+
+      var authDocsExpanded = false;
+      var authDocsLoaded = false;
+
       function renderAuthReference() {
+        if (!authDocsExpanded) return Promise.resolve();
+        if (authDocsLoaded) return Promise.resolve();
+
         var authContainer = document.getElementById('scalarAuthRef');
         if (!authContainer || typeof Scalar === 'undefined') return Promise.resolve();
 
@@ -374,6 +601,7 @@
             Scalar.createApiReference(authContainer, {
               spec: { content: injectServers(authSpec, entrypointUrl('')) }
             });
+            authDocsLoaded = true;
           })
           .catch(function (error) {
             authContainer.innerHTML = '<p class="portal-status error">无法加载认证入口服务 OpenAPI：' + error.message + '</p>';
@@ -398,12 +626,20 @@
             if (token) {
               postgrestSpec = injectBearerSecurity(postgrestSpec);
             }
+            postgrestSpec = injectDomainTags(postgrestSpec);
 
             var pathCount = postgrestSpec.paths ? Object.keys(postgrestSpec.paths).length : 0;
+            var tagCount = postgrestSpec.tags ? postgrestSpec.tags.length : 0;
+            var prunedCount = postgrestSpec._prunedMethodCount || 0;
             if (pathCount === 0) {
               setPostgrestStatus('PostgREST OpenAPI 当前没有暴露业务路径。若未粘贴 admin JWT，这是匿名角色的预期结果；不会授予匿名业务访问。', false);
             } else {
-              setPostgrestStatus('已加载 ' + pathCount + ' 个 PostgREST 业务路径。Scalar Try-It 请求会在令牌存在时携带 Authorization 头。', false);
+              var msg = '已加载 ' + pathCount + ' 个 PostgREST 业务路径，按 ' + tagCount + ' 个业务域分组';
+              if (prunedCount > 0) {
+                msg += '，已隐藏 ' + prunedCount + ' 个只读资源的写操作方法';
+              }
+              msg += '。Scalar Try-It 请求会在令牌存在时携带 Authorization 头。';
+              setPostgrestStatus(msg, false);
             }
 
             Scalar.createApiReference(pgrstContainer, {
@@ -424,8 +660,29 @@
       }
 
       function renderScalarInstances() {
+        // Only render auth Scalar when expanded; PostgREST always renders.
         renderAuthReference();
         renderPostgrestReference();
+      }
+
+      // Toggle button for auth docs
+      var toggleBtn = document.getElementById('toggleAuthDocsBtn');
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', function () {
+          var authContainer = document.getElementById('scalarAuthRef');
+          if (!authContainer) return;
+
+          authDocsExpanded = !authDocsExpanded;
+
+          if (authDocsExpanded) {
+            authContainer.classList.remove('scalar-collapsed');
+            toggleBtn.textContent = '📕 收起认证 API 详细文档';
+            renderAuthReference();
+          } else {
+            authContainer.classList.add('scalar-collapsed');
+            toggleBtn.textContent = '📖 查看认证 API 详细文档';
+          }
+        });
       }
 
       // ── Load Scalar lazily ──────────────────────────────────────
@@ -439,7 +696,7 @@
         script.src = 'https://cdn.jsdelivr.net/npm/@scalar/api-reference@latest';
         script.onload = callback;
         script.onerror = function () {
-          document.getElementById('scalarAuthRef').innerHTML = '<p style="color:var(--cinnabar)">无法加载 Scalar CDN，请检查网络连接。</p>';
+          // Only show CDN error in PostgREST container (auth is collapsed by default)
           document.getElementById('scalarPgrstRef').innerHTML = '<p style="color:var(--cinnabar)">无法加载 Scalar CDN，请检查网络连接。</p>';
         };
         document.head.appendChild(script);
