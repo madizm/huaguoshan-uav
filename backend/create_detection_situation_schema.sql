@@ -1746,6 +1746,13 @@ end;
 $$;
 comment on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) is '返回 JSON：start_at、end_at_exclusive、limit 和 tracks；每条航迹包含当前 riskAssessment，窗口最大 7 天，最多 1000 条。';
 
+create or replace function event_response.observation_risk_assessment_json(p_observation_id bigint) returns jsonb
+language sql stable security definer set search_path=pg_catalog,public,event_response as $$
+select null::jsonb;
+$$;
+comment on function event_response.observation_risk_assessment_json(bigint) is '返回单条观测的精简风险属性；风险评估迁移安装前返回 null。';
+revoke all on function event_response.observation_risk_assessment_json(bigint) from public,anonymous;
+
 create or replace function api.get_target_track_detail(
   p_track_id bigint,p_start_at timestamptz,p_end_at timestamptz,p_max_points integer default 2000
 ) returns jsonb language plpgsql stable security definer
@@ -1772,7 +1779,8 @@ begin
         'position',ST_AsGeoJSON(geom)::jsonb,'altitude_amsl_m',height_amsl_m,'relative_height_m',relative_height_m) end,
       'remote_pilot_location',case when pilot_geom is null then null else jsonb_build_object(
         'position',ST_AsGeoJSON(pilot_geom)::jsonb,'source','vendor_reported','accuracy_m',null) end,
-      'detection_method_code',detection_method_code,'quality_flags',quality_flags
+      'detection_method_code',detection_method_code,'quality_flags',quality_flags,
+      'riskAssessment',event_response.observation_risk_assessment_json(id)
     ) order by observed_at,id) from sampled),'[]'::jsonb),
     'points',coalesce((select jsonb_agg(jsonb_strip_nulls(jsonb_build_object('observation_id',id,'observed_at',observed_at,
       'position',ST_AsGeoJSON(geom)::jsonb,'altitude_amsl_m',height_amsl_m,'source_type_code',source_type_code,
@@ -1788,7 +1796,7 @@ begin
   return v_result;
 end;
 $$;
-comment on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) is '返回 JSON：track、observations、兼容 points、non_spatial_observations 和 evidence；track 包含当前 riskAssessment，窗口最大 7 天，最多返回 5000 条抽样观测。';
+comment on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) is '返回 JSON：track、observations、兼容 points、non_spatial_observations 和 evidence；track 包含当前 riskAssessment，每个 observation 包含可空的精简 riskAssessment，窗口最大 7 天，最多返回 5000 条抽样观测。';
 
 create or replace function api.update_detection_observation_source(
   p_source_id bigint,p_name text,p_asset_id bigint,p_source_timezone text,

@@ -45,6 +45,22 @@
 
   function formatCount(value) { return Number(value || 0).toLocaleString('zh-CN'); }
 
+  var RISK_STATUS_LABEL = {
+    assessed: '已评估',
+    pending: '待评估',
+    target_location_unavailable: '缺少目标位置',
+    outside_protected_objects: '保护范围外',
+    failed: '评估失败'
+  };
+
+  var RING_LABEL = {
+    sensing: '感知圈',
+    tracking: '跟踪圈',
+    countermeasure: '反制圈',
+    hard_strike: '硬打击圈',
+    core: '核心圈'
+  };
+
   var RISK_STYLE = {
     critical: { color: '#fb7185', label: '严重' },
     high: { color: '#f97316', label: '高' },
@@ -119,6 +135,33 @@
     return { segments: segments, jumpCount: jumpCount };
   }
 
+  function riskSegmentKey(assessment) {
+    if (!assessment) return 'pending';
+    return assessment.status === 'assessed' ? (assessment.riskLevel || 'none') : (assessment.status || 'pending');
+  }
+
+  function splitTrackByRisk(points, maximumSpeedMps) {
+    var segments = [];
+    var current = [];
+    var currentRisk = null;
+    var jumpCount = 0;
+    (points || []).filter(coordinates).forEach(function (point) {
+      var pointRisk = point.riskAssessment;
+      var jumped = current.length && groundSpeed(current[current.length - 1], point) > maximumSpeedMps;
+      var changed = current.length && riskSegmentKey(pointRisk) !== riskSegmentKey(currentRisk);
+      if (jumped || changed) {
+        if (changed && !jumped) current.push(point);
+        if (current.length > 1) segments.push({ points: current, riskAssessment: currentRisk });
+        current = changed && !jumped ? [point] : [];
+        if (jumped) jumpCount += 1;
+      }
+      if (!current.length || current[current.length - 1] !== point) current.push(point);
+      currentRisk = pointRisk;
+    });
+    if (current.length > 1) segments.push({ points: current, riskAssessment: currentRisk });
+    return { segments: segments, jumpCount: jumpCount };
+  }
+
   function selectedDetectionMethods(buttons) {
     return (buttons || []).filter(function (button) {
       return button.getAttribute('aria-pressed') === 'true';
@@ -150,6 +193,7 @@
       producer_asset_id: observation.producer_asset_id,
       speed_mps: observation.speed_mps,
       quality_flags: observation.quality_flags || [],
+      riskAssessment: observation.riskAssessment,
       source: location.source,
       accuracy_m: location.accuracy_m
     };
@@ -297,6 +341,53 @@
     return sourceCards;
   }
 
+  function riskAssessmentsFromObservations(observations) {
+    return (observations || []).filter(function (observation) {
+      return observation.riskAssessment;
+    }).map(function (observation) {
+      return Object.assign({
+        observationId: observation.observation_id,
+        observedAt: observation.observed_at
+      }, observation.riskAssessment);
+    });
+  }
+
+  function riskHistoryHtml(history) {
+    var assessments = history && history.assessments || [];
+    if (!assessments.length) return '<section class="risk-history"><header><strong>风险评估历史</strong><span>0 条</span></header><p class="source-situation-empty">该时间区间没有风险评估记录。</p></section>';
+    var rows = assessments.map(function (assessment, index) {
+      var previous = assessments[index - 1];
+      var changed = previous && (previous.riskLevel !== assessment.riskLevel || previous.riskScore !== assessment.riskScore || previous.ringCode !== assessment.ringCode);
+      var style = riskStyle(assessment);
+      return '<li class="risk-history-item ' + (changed ? 'risk-history-change' : '') + '" style="--risk-color:' + style.color + '">' +
+        '<i aria-hidden="true"></i><div class="risk-history-main"><time>' + escapeHtml(formatTime(assessment.observedAt)) + '</time>' +
+        '<div>' + riskBadgeHtml(assessment) + (changed ? '<strong class="risk-change-label">风险变化</strong>' : '') + '</div></div>' +
+        '<dl><div><dt>防御圈</dt><dd>' + escapeHtml(RING_LABEL[assessment.ringCode] || assessment.ringCode || '未命中') + '</dd></div>' +
+        '<div><dt>状态</dt><dd>' + escapeHtml(RISK_STATUS_LABEL[assessment.status] || assessment.status || '未知') + '</dd></div></dl></li>';
+    }).join('');
+    return '<section class="risk-history"><header><strong>风险评估历史</strong><span>' + formatCount(assessments.length) + ' 条</span></header>' +
+      '<button type="button" class="risk-history-play" data-risk-action="replay">▶ 播放轨迹与风险变化</button>' +
+      '<ol class="risk-history-list">' + rows + '</ol></section>';
+  }
+
+  function riskTrackDetailHtml(detail, history) {
+    var track = detail && detail.track || {};
+    var assessments = history && history.assessments || [];
+    var latest = assessments.length ? assessments[assessments.length - 1] : track.riskAssessment;
+    var changes = assessments.reduce(function (count, assessment, index) {
+      var previous = assessments[index - 1];
+      return count + (previous && riskSegmentKey(previous) !== riskSegmentKey(assessment) ? 1 : 0);
+    }, 0);
+    var observations = detail && detail.observations || [];
+    return '<article class="risk-track-detail"><section class="risk-track-hero" style="--risk-color:' + riskStyle(latest).color + '">' +
+      '<div><span>目标航迹</span><strong>' + escapeHtml(track.track_code || track.id || '--') + '</strong>' +
+      '<small>' + escapeHtml(formatTime(observations[0] && observations[0].observed_at)) + ' — ' + escapeHtml(formatTime(observations[observations.length - 1] && observations[observations.length - 1].observed_at)) + '</small></div>' +
+      '<div class="risk-track-current"><span>区间末风险</span>' + riskBadgeHtml(latest) + '</div></section>' +
+      '<dl class="risk-track-metrics"><div><dt>观测点</dt><dd>' + formatCount(observations.length) + '</dd></div>' +
+      '<div><dt>已评估</dt><dd>' + formatCount(assessments.length) + '</dd></div><div><dt>风险变化</dt><dd>' + formatCount(changes) + '</dd></div></dl>' +
+      riskHistoryHtml(history) + '</article>';
+  }
+
   function historySummaryHtml(tracks) {
     if (!tracks || !tracks.length) return '<p class="source-situation-empty">所选时间区间没有航迹。</p>';
     return '<div class="detection-track-list">' + tracks.map(function (track) {
@@ -317,6 +408,7 @@
     var viewer = options.viewer;
     var rpc = options.rpc;
     var log = options.log || function () {};
+    var showDetail = options.showDetail || function (html) { if (summary) summary.innerHTML = html; };
     var dataSources = {};
     var mode = 'realtime';
     var lastBounds = null;
@@ -329,10 +421,13 @@
     var liveTrailSeconds = 300;
     var liveDetectionMethods = [];
     var livePolling = false;
+    var replayTimer = null;
+    var replayDetail = null;
     var loadButton = $('#sourceSituationLoad');
     var locateButton = $('#sourceSituationLocate');
     var clearButton = $('#sourceSituationClear');
     var summary = $('#sourceSituationSummary');
+    var detailContainer = $('#featureProperties');
     var hint = $('#sourceSituationHint');
     var note = $('#sourceSituationNote');
     var startInput = $('#sourceSituationStart');
@@ -355,6 +450,11 @@
       refreshTimer = null;
     }
 
+    function stopReplay() {
+      if (replayTimer) clearInterval(replayTimer);
+      replayTimer = null;
+    }
+
     function removeLayers() {
       Object.keys(dataSources).forEach(function (key) { viewer.dataSources.remove(dataSources[key], true); });
       dataSources = {};
@@ -365,12 +465,14 @@
 
     function reset() {
       stopRefresh();
+      stopReplay();
       requestSequence += 1;
       removeLayers();
       if (summary) summary.innerHTML = '<p class="source-situation-empty">尚未加载侦测态势。</p>';
       liveTracks = {};
       liveCursor = 0;
       liveSources = [];
+      replayDetail = null;
       if (hint) hint.textContent = '未加载';
     }
 
@@ -515,12 +617,13 @@
       if (clearButton) clearButton.disabled = false;
     }
 
-    function renderTrack(detail) {
+    function renderTrack(detail, options) {
+      options = options || {};
       removeLayers();
       var projectedObservations = projectObservations(detail.observations || []);
       var points = detail.observations ? projectedObservations.points : (detail.points || []);
       var remotePilotPoints = projectedObservations.remotePilotPoints;
-      var split = splitTrack(points, MAX_TRACK_SPEED_MPS);
+      var split = splitTrackByRisk(points, MAX_TRACK_SPEED_MPS);
       var methodCode = points.length ? (points[points.length - 1].detection_method_code || points[points.length - 1].source_type_code) : null;
       var style = SOURCE_STYLE[methodCode] || { color: '#9ba8a2', label: '来源待确认' };
       var dataSource = addDataSource(methodCode, '历史航迹');
@@ -528,13 +631,18 @@
       points.forEach(extendBounds);
       remotePilotPoints.forEach(extendBounds);
       split.segments.forEach(function (segment, index) {
+        var segmentRisk = riskStyle(segment.riskAssessment);
         dataSource.entities.add({
           id: 'detection-history-' + detail.track.id + '-' + index,
           name: detail.track.track_code + ' 历史航迹',
           polyline: {
-            positions: segment.map(function (point) { return pointPosition(point, 100); }),
-            width: 3,
-            material: CesiumRuntime.Color.fromCssColorString(style.color).withAlpha(0.86),
+            positions: segment.points.map(function (point) { return pointPosition(point, 100); }),
+            width: 5,
+            material: new CesiumRuntime.PolylineOutlineMaterialProperty({
+              color: CesiumRuntime.Color.fromCssColorString(style.color).withAlpha(0.9),
+              outlineColor: CesiumRuntime.Color.fromCssColorString(segmentRisk.color).withAlpha(0.95),
+              outlineWidth: 2
+            }),
             clampToGround: false
           }
         });
@@ -586,8 +694,31 @@
       if (locateButton) locateButton.disabled = !lastBounds;
       if (clearButton) clearButton.disabled = false;
       if (hint) hint.textContent = formatCount(points.length) + ' 点 · ' + formatCount(split.jumpCount) + ' 断点 · 风险 ' + riskLabel(detail.track.riskAssessment);
-      locate();
-      log('航迹 ' + detail.track.track_code + ' 已加载；' + split.jumpCount + ' 个异常跳变已断开。', split.jumpCount ? 'warning' : 'success');
+      if (!options.silent) {
+        locate();
+        log('航迹 ' + detail.track.track_code + ' 已加载；' + split.jumpCount + ' 个异常跳变已断开。', split.jumpCount ? 'warning' : 'success');
+      }
+    }
+
+    function startReplay(detail) {
+      stopReplay();
+      var observations = (detail.observations || []).slice().sort(function (a, b) {
+        return Date.parse(a.observed_at) - Date.parse(b.observed_at) || Number(a.observation_id) - Number(b.observation_id);
+      });
+      var index = 0;
+      function frame() {
+        var visible = observations.slice(0, index + 1);
+        var currentRisk = visible.reduce(function (latest, observation) {
+          return observation.riskAssessment || latest;
+        }, null) || { status: 'pending' };
+        renderTrack({ track: Object.assign({}, detail.track, { riskAssessment: currentRisk }), observations: visible }, { silent: true });
+        if (hint) hint.textContent = '回放 ' + (index + 1) + '/' + observations.length + ' · 风险 ' + riskLabel(currentRisk);
+        index += 1;
+        if (index >= observations.length) stopReplay();
+      }
+      if (!observations.length) return;
+      frame();
+      replayTimer = setInterval(frame, 700);
     }
 
     function locate() {
@@ -756,7 +887,13 @@
         p_start_at: payload.p_start_at,
         p_end_at: payload.p_end_at,
         p_max_points: 5000
-      }).then(renderTrack).catch(function (error) {
+      }).then(function (detail) {
+        var riskHistory = { assessments: riskAssessmentsFromObservations(detail.observations) };
+        replayDetail = detail;
+        showDetail(riskTrackDetailHtml(detail, riskHistory));
+        renderTrack(detail);
+        return detail;
+      }).catch(function (error) {
         if (hint) hint.textContent = '加载失败';
         log('航迹详情加载失败：' + error.message, 'error');
         throw error;
@@ -766,6 +903,8 @@
     function setMode(nextMode) {
       mode = nextMode;
       stopRefresh();
+      stopReplay();
+      replayDetail = null;
       removeLayers();
       modeButtons.forEach(function (button) {
         button.setAttribute('aria-pressed', String(button.dataset.situationMode === mode));
@@ -814,6 +953,10 @@
       var button = event.target.closest && event.target.closest('[data-track-id]');
       if (button) loadTrack(button.dataset.trackId).catch(function () {});
     });
+    bind(detailContainer, 'click', function (event) {
+      var action = event.target.closest && event.target.closest('[data-risk-action="replay"]');
+      if (action && replayDetail) startReplay(replayDetail);
+    });
     modeButtons.forEach(function (button) {
       bind(button, 'click', function () { setMode(button.dataset.situationMode); });
     });
@@ -831,6 +974,7 @@
       destroy: function () {
         destroyed = true;
         stopRefresh();
+        stopReplay();
         disposers.splice(0).forEach(function (dispose) { dispose(); });
         removeLayers();
       }
@@ -841,9 +985,13 @@
     createModule: createModule,
     buildHistoryPayload: buildHistoryPayload,
     splitTrack: splitTrack,
+    splitTrackByRisk: splitTrackByRisk,
     sourceState: sourceState,
     realtimeSummaryHtml: realtimeSummaryHtml,
     historySummaryHtml: historySummaryHtml,
+    riskHistoryHtml: riskHistoryHtml,
+    riskTrackDetailHtml: riskTrackDetailHtml,
+    riskAssessmentsFromObservations: riskAssessmentsFromObservations,
     indexLiveTracks: indexLiveTracks,
     applyLiveChanges: applyLiveChanges,
     _private: {

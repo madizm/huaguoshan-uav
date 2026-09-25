@@ -429,6 +429,36 @@
     color: var(--jade);
   }
 
+  .risk-history { display: grid; gap: 12px; padding: 14px; border: 1px solid rgba(255, 247, 223, 0.12); border-radius: 14px; background: rgba(0, 0, 0, 0.18); }
+  .risk-history > header { display: flex; justify-content: space-between; align-items: center; }
+  .risk-history > header strong { color: var(--paper-strong); font-size: 13px; }
+  .risk-history > header span { color: rgba(255, 247, 223, 0.48); font-size: 11px; }
+  .risk-history-play { justify-self: stretch; padding: 8px 10px; border-color: rgba(94, 234, 212, 0.35); color: var(--jade); font-size: 11px; }
+  .risk-history-list { display: grid; gap: 0; max-height: 330px; margin: 0; padding: 0; overflow: auto; list-style: none; }
+  .risk-history-item { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 8px; padding: 8px 4px 8px 0; }
+  .risk-history-item > i { position: relative; width: 9px; height: 9px; margin-top: 5px; border: 2px solid var(--risk-color); border-radius: 50%; background: #10221d; box-shadow: 0 0 8px color-mix(in srgb, var(--risk-color) 55%, transparent); }
+  .risk-history-item:not(:last-child) > i::after { position: absolute; top: 9px; left: 2px; width: 1px; height: calc(100% + 17px); content: ''; background: rgba(255, 247, 223, 0.15); }
+  .risk-history-main { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .risk-history-main time { color: rgba(255, 247, 223, 0.65); font-size: 10px; font-variant-numeric: tabular-nums; }
+  .risk-history-main > div { display: flex; gap: 5px; align-items: center; }
+  .risk-change-label { padding: 2px 5px; border-radius: 999px; color: #fb923c; background: rgba(249, 115, 22, 0.12); font-size: 9px; }
+  .risk-history-item dl { grid-column: 2; display: flex; gap: 14px; margin: 4px 0 0; }
+  .risk-history-item dl div { display: flex; gap: 5px; }
+  .risk-history-item dt { color: rgba(255, 247, 223, 0.38); font-size: 10px; }
+  .risk-history-item dd { margin: 0; color: rgba(255, 247, 223, 0.72); font-size: 10px; }
+  .risk-history-item.risk-history-change { background: linear-gradient(90deg, transparent, rgba(249, 115, 22, 0.06)); }
+
+  .risk-track-detail { display: grid; gap: 12px; }
+  .risk-track-hero { display: flex; justify-content: space-between; gap: 12px; padding: 14px; border: 1px solid color-mix(in srgb, var(--risk-color) 42%, transparent); border-radius: 16px; background: linear-gradient(135deg, color-mix(in srgb, var(--risk-color) 13%, transparent), rgba(0, 0, 0, 0.2)); }
+  .risk-track-hero > div:first-child { display: grid; gap: 3px; min-width: 0; }
+  .risk-track-hero span, .risk-track-hero small { color: rgba(255, 247, 223, 0.48); font-size: 10px; }
+  .risk-track-hero strong { overflow: hidden; color: var(--paper-strong); font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
+  .risk-track-current { display: grid; justify-items: end; align-content: center; gap: 6px; flex: none; }
+  .risk-track-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }
+  .risk-track-metrics div { padding: 10px; border-radius: 12px; background: rgba(255, 247, 223, 0.055); text-align: center; }
+  .risk-track-metrics dt { color: rgba(255, 247, 223, 0.42); font-size: 10px; }
+  .risk-track-metrics dd { margin: 3px 0 0; color: var(--paper-strong); font-size: 16px; font-weight: 700; }
+
   .detection-track-list {
     display: grid;
     gap: 6px;

@@ -292,11 +292,11 @@ POST /postgrest/rpc/list_target_risk_assessments
 }
 ```
 
-详情结果的 `track.riskAssessment` 是航迹当前投影；观测级历史不重复附着到每个观测。
+详情结果的 `track.riskAssessment` 是航迹当前投影。每个抽样 `observation` 还包含可空的精简 `riskAssessment`，仅有 `status`、`riskLevel`、`riskScore`、`ringCode` 中的非空字段，供轨迹分段着色和回放；没有评估记录时为 `null`。
 
 ### 6.6 风险评估历史
 
-`list_target_risk_assessments` 按航迹和半开时间窗口返回追加式评估历史，窗口最大 7 天，最多 5000 条。该接口用于审计、回放和风险变化分析；常规态势查询继续使用航迹级当前投影。部署和状态语义见 `docs/api/target-risk-assessment-engine.md`。
+`list_target_risk_assessments` 按航迹和半开时间窗口返回未受航迹抽样影响的追加式完整评估历史，窗口最大 7 天，最多 5000 条。该接口保留用于审计和完整风险分析；普通地图回放直接使用航迹详情中抽样观测的精简风险，不再额外调用该接口。部署和状态语义见 `docs/api/target-risk-assessment-engine.md`。
 
 ### 6.7 管理侦测来源
 

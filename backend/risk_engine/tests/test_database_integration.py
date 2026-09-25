@@ -138,6 +138,12 @@ async def _exercise_database_contract():
             )
             detail = (await cursor.fetchone())["result"]
             assert detail["track"]["riskAssessment"]["status"] == "failed"
+            assert detail["track"]["riskAssessment"]["status"] == "failed"
+            observation_risks = [item["riskAssessment"] for item in detail["observations"]]
+            assert [item["status"] for item in observation_risks] == [
+                "target_location_unavailable", "target_location_unavailable", "failed",
+            ]
+            assert set(observation_risks[-1]) == {"status", "riskLevel", "riskScore"}
         finally:
             await conn.rollback()
 

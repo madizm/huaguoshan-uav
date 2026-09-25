@@ -20,6 +20,7 @@ const sourceModuleText = fs.readFileSync(
   'utf8',
 );
 assert(sourceModuleText.includes("rpc('get_detection_live_tracks_v3'"));
+assert(!sourceModuleText.includes("rpc('list_target_risk_assessments'"));
 assert(sourceModuleText.includes('p_detection_method_codes: detectionMethods'));
 assert(!sourceModuleText.includes("rpc('get_detection_live_tracks',"));
 assert(sourceModuleText.includes("data-situation-layer"));
@@ -57,6 +58,14 @@ const split = SourceSituation.splitTrack([
 ], 100);
 assert.strictEqual(split.jumpCount, 1);
 assert.strictEqual(split.segments.length, 1);
+
+const riskSplit = SourceSituation.splitTrackByRisk([
+  { observed_at: '2026-09-21T10:00:00+08:00', position: { coordinates: [119.19, 34.59] }, riskAssessment: { status: 'assessed', riskLevel: 'low' } },
+  { observed_at: '2026-09-21T10:01:00+08:00', position: { coordinates: [119.191, 34.59] }, riskAssessment: { status: 'assessed', riskLevel: 'high' } },
+  { observed_at: '2026-09-21T10:02:00+08:00', position: { coordinates: [119.192, 34.59] }, riskAssessment: { status: 'assessed', riskLevel: 'high' } },
+], 100);
+assert.deepStrictEqual(riskSplit.segments.map((segment) => segment.riskAssessment.riskLevel), ['low', 'high']);
+assert.deepStrictEqual(riskSplit.segments.map((segment) => segment.points.length), [2, 2]);
 
 const duplicatePoint = {
   observed_at: '2026-09-21T10:00:00+08:00',
@@ -166,6 +175,41 @@ const html = SourceSituation.historySummaryHtml([{
 assert(html.includes('&lt;DJI&gt;'));
 assert(html.includes('12'));
 assert(html.includes('高 75分'));
+assert(html.includes('高 75分'));
+
+const riskHistoryHtml = SourceSituation.riskHistoryHtml({ assessments: [
+  { observedAt: '2026-09-21T10:00:00+08:00', status: 'assessed', riskLevel: 'low', riskScore: 25, ringCode: 'sensing', ruleVersion: 1 },
+  { observedAt: '2026-09-21T10:01:00+08:00', status: 'assessed', riskLevel: 'high', riskScore: 75, ringCode: 'hard_strike', ruleVersion: 2 },
+] });
+assert(riskHistoryHtml.includes('风险评估历史'));
+assert(riskHistoryHtml.includes('变化'));
+assert(riskHistoryHtml.includes('硬打击圈'));
+assert(riskHistoryHtml.includes('risk-history-list'));
+const riskDetailHtml = SourceSituation.riskTrackDetailHtml({
+  track: { id: 7, track_code: 'TRK-7', riskAssessment: { status: 'assessed', riskLevel: 'high', riskScore: 75 } },
+  observations: [
+    { observation_id: 105, observed_at: '2026-09-21T10:00:00+08:00', riskAssessment: { status: 'assessed', riskLevel: 'low', riskScore: 25 } },
+    { observation_id: 106, observed_at: '2026-09-21T10:01:00+08:00', riskAssessment: { status: 'assessed', riskLevel: 'high', riskScore: 75 } },
+  ],
+}, { assessments: [
+  { observedAt: '2026-09-21T10:00:00+08:00', status: 'assessed', riskLevel: 'low', riskScore: 25 },
+  { observedAt: '2026-09-21T10:01:00+08:00', status: 'assessed', riskLevel: 'high', riskScore: 75 },
+] });
+assert(riskDetailHtml.includes('TRK-7'));
+assert(riskDetailHtml.includes('区间末风险'));
+assert(riskDetailHtml.includes('风险变化'));
+assert.deepStrictEqual(SourceSituation.riskAssessmentsFromObservations([{
+  observation_id: 106,
+  observed_at: '2026-09-21T10:01:00+08:00',
+  riskAssessment: { status: 'assessed', riskLevel: 'high', riskScore: 75, ringCode: 'hard_strike' },
+}])[0], {
+  observationId: 106,
+  observedAt: '2026-09-21T10:01:00+08:00',
+  status: 'assessed',
+  riskLevel: 'high',
+  riskScore: 75,
+  ringCode: 'hard_strike',
+});
 assert(!html.includes('<DJI>'));
 
 console.log('source situation module tests passed');

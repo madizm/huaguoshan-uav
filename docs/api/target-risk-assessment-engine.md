@@ -94,7 +94,7 @@ HTTP 服务应仅暴露在内部网络或服务网关后；生产持续处理仍
 - `api.list_detection_target_tracks`
 - `api.get_target_track_detail`
 
-没有当前结果时返回 `{"status":"pending"}`，不会返回 SQL `NULL`。观测级历史通过下列受限 RPC 查询：
+没有当前结果时返回 `{"status":"pending"}`，不会返回 SQL `NULL`。`get_target_track_detail` 的每个抽样观测包含可空的精简 `riskAssessment`，用于地图着色和回放。未抽样的完整观测级历史通过下列受限 RPC 查询：
 
 ```http
 POST /postgrest/rpc/list_target_risk_assessments

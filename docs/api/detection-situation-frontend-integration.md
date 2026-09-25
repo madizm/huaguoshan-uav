@@ -551,14 +551,14 @@ POST /postgrest/rpc/get_target_track_detail
 响应包含：
 
 - `track`：航迹基本信息及当前 `riskAssessment`；
-- `observations`：按时间排序的抽样观测，包含可空的 `target_location` 和 `remote_pilot_location`；优先使用此字段绘制目标与飞手；
+- `observations`：按时间排序的抽样观测，包含可空的 `target_location`、`remote_pilot_location` 和精简 `riskAssessment`；优先使用此字段绘制目标、飞手及风险分段轨迹；
 - `points`：兼容字段，仅包含有目标坐标的观测；
 - `non_spatial_observations`：兼容字段，仅包含无目标坐标的观测（可能仍有飞手坐标）；
 - `evidence`：窗口内原始观测数量、返回的抽样观测数量和是否抽样。`p_max_points` 限制的是抽样观测总数，不是目标空间点数。
 
 历史轨迹同样必须执行异常跳变切段。
 
-观测级风险历史通过 `list_target_risk_assessments` 单独查询，仅用于审计、回放和风险变化视图，不应默认附着到每条观测。
+地图回放直接使用每条抽样观测上的精简 `riskAssessment`，不再额外调用 `list_target_risk_assessments`。后者仍保留给需要未抽样完整记录、版本、因子和输入快照的审计或分析视图。
 
 ## 12. 错误处理与恢复
 

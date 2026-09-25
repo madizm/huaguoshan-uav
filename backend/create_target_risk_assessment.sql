@@ -114,6 +114,18 @@ grant select,insert,update on event_response.target_risk_current,event_response.
 grant insert on situation.change_event to risk_engine;
 grant usage,select on sequence event_response.target_risk_assessment_id_seq,situation.change_event_id_seq to risk_engine;
 
+create or replace function event_response.observation_risk_assessment_json(p_observation_id bigint) returns jsonb
+language sql stable security definer set search_path=pg_catalog,public,event_response as $$
+select jsonb_strip_nulls(jsonb_build_object(
+  'status',status,'riskLevel',risk_level,'riskScore',risk_score,'ringCode',defense_ring_code
+))
+from event_response.target_risk_assessment
+where observation_id=p_observation_id;
+$$;
+comment on function event_response.observation_risk_assessment_json(bigint) is '按 observation_id 返回地图绘制所需的精简风险属性：status、riskLevel、riskScore、ringCode；无评估记录时返回 null。';
+revoke all on function event_response.observation_risk_assessment_json(bigint) from public,anonymous;
+grant execute on function event_response.observation_risk_assessment_json(bigint) to admin;
+
 create or replace function event_response.risk_assessment_json(p_track_id bigint) returns jsonb
 language sql stable security invoker set search_path=pg_catalog,public,event_response as $$
 select coalesce((select jsonb_strip_nulls(jsonb_build_object(

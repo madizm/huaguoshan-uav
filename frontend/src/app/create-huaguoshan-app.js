@@ -329,7 +329,8 @@
           CesiumRuntime: Cesium,
           viewer: state.viewer,
           rpc: postgrestRpc,
-          log: log
+          log: log,
+          showDetail: panelShow('source-risk', '航迹风险')
         });
       }
 

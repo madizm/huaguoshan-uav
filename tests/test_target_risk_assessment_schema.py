@@ -28,6 +28,9 @@ def test_detection_queries_expose_current_risk_consistently():
     assert "when aggregate_type='target_track' then event_response.risk_assessment_json(aggregate_id)" in DETECTION_SQL
     assert "'aggregate_id',aggregate_id" in DETECTION_SQL
     assert "'riskassessment',event_response.risk_assessment_json(t.id)" in DETECTION_SQL
+    assert "'riskassessment',event_response.observation_risk_assessment_json(id)" in DETECTION_SQL
+    assert "create or replace function event_response.observation_risk_assessment_json" in RISK_SQL
+    assert "'status',status,'risklevel',risk_level,'riskscore',risk_score,'ringcode',defense_ring_code" in RISK_SQL
 
 
 def test_history_rpc_is_bounded_and_admin_only():
