@@ -11,6 +11,7 @@ import DefenseRingView from './views/DefenseRingView.vue'
 import RiskEngineView from './views/RiskEngineView.vue'
 import SourceSortieStatisticsView from './views/SourceSortieStatisticsView.vue'
 import SourceTargetSortieView from './views/SourceTargetSortieView.vue'
+import SystemSettingsView from './views/SystemSettingsView.vue'
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -35,6 +36,7 @@ export const router = createRouter({
           component: DetectionSourcesView,
           meta: { title: '侦测来源' },
         },
+        { path: 'settings', name: 'settings', component: SystemSettingsView, meta: { title: '系统设置' } },
       ],
     },
   ],

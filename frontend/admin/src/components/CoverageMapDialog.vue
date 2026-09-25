@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import Map from 'ol/Map'
 import View from 'ol/View'
 import GeoJSON from 'ol/format/GeoJSON'
-import Draw from 'ol/interaction/Draw'
 import Modify from 'ol/interaction/Modify'
 import Snap from 'ol/interaction/Snap'
+import Draw from 'ol/interaction/Draw'
 import TileLayer from 'ol/layer/Tile'
 import VectorLayer from 'ol/layer/Vector'
 import OSM from 'ol/source/OSM'
@@ -16,6 +16,7 @@ import { fromLonLat } from 'ol/proj'
 import MultiPolygon from 'ol/geom/MultiPolygon'
 import Polygon from 'ol/geom/Polygon'
 import 'ol/ol.css'
+import { useBasemapConfig } from '../api/basemapStore'
 
 const visible = defineModel<boolean>('visible', { required: true })
 const geojson = defineModel<string>('geojson', { required: true })
@@ -23,10 +24,7 @@ const props = defineProps<{ longitude: number | null; latitude: number | null }>
 
 const mapElement = ref<HTMLDivElement>()
 const source = new VectorSource()
-const settingsVisible = ref(false)
-const STORAGE_KEY = 'huaguoshan.admin.coverageBasemap'
-const basemap = reactive({ provider: 'osm', tiandituToken: '', customUrl: '' })
-try { Object.assign(basemap, JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}')) } catch { /* ignore invalid local settings */ }
+const { basemap, load: loadBasemap, save: saveBasemap } = useBasemapConfig()
 const baseLayer = new TileLayer({ source: new OSM() })
 const labelLayer = new TileLayer({ visible: false })
 let map: Map | null = null
@@ -46,18 +44,17 @@ function createMap() {
   })
   map.addInteraction(new Modify({ source }))
   map.addInteraction(new Snap({ source }))
-  applyBasemap(false)
+  applyBasemap()
   startDrawing()
 }
 
-function applyBasemap(persist = true) {
+function applyBasemap() {
   labelLayer.setVisible(false)
   if (basemap.provider === 'none') {
     baseLayer.setVisible(false)
   } else if (basemap.provider === 'tianditu') {
     if (!basemap.tiandituToken) {
-      ElMessage.warning('请先填写天地图访问令牌')
-      settingsVisible.value = true
+      ElMessage.warning('请先在系统设置中配置天地图访问令牌')
       return
     }
     baseLayer.setSource(new XYZ({ url: `https://t0.tianditu.gov.cn/DataServer?T=vec_w&x={x}&y={y}&l={z}&tk=${encodeURIComponent(basemap.tiandituToken)}`, crossOrigin: 'anonymous' }))
@@ -66,8 +63,7 @@ function applyBasemap(persist = true) {
     labelLayer.setVisible(true)
   } else if (basemap.provider === 'custom') {
     if (!basemap.customUrl) {
-      ElMessage.warning('请填写 XYZ 瓦片地址')
-      settingsVisible.value = true
+      ElMessage.warning('请先在系统设置中配置自定义 XYZ 瓦片地址')
       return
     }
     baseLayer.setSource(new XYZ({ url: basemap.customUrl, crossOrigin: 'anonymous' }))
@@ -76,13 +72,12 @@ function applyBasemap(persist = true) {
     baseLayer.setSource(new OSM())
     baseLayer.setVisible(true)
   }
-  if (persist) localStorage.setItem(STORAGE_KEY, JSON.stringify(basemap))
   map?.render()
 }
 
-function saveBasemapSettings() {
+async function onProviderChange() {
+  await saveBasemap({ ...basemap })
   applyBasemap()
-  if ((basemap.provider !== 'tianditu' || basemap.tiandituToken) && (basemap.provider !== 'custom' || basemap.customUrl)) settingsVisible.value = false
 }
 
 function startDrawing() {
@@ -128,6 +123,7 @@ function saveGeometry() {
 
 watch(visible, async (open) => {
   if (!open) return
+  await loadBasemap()
   await nextTick()
   createMap()
   map?.setTarget(mapElement.value)
@@ -142,40 +138,16 @@ onBeforeUnmount(() => { map?.setTarget(undefined); map = null })
     <div class="map-toolbar">
       <span>单击绘制顶点，双击结束；可绘制多个区域并拖动顶点调整。</span>
       <div class="map-actions">
-        <el-select v-model="basemap.provider" size="small" style="width: 120px" @change="applyBasemap()">
+        <el-select v-model="basemap.provider" size="small" style="width: 120px" @change="onProviderChange">
           <el-option label="OpenStreetMap" value="osm" />
           <el-option label="天地图" value="tianditu" />
           <el-option label="自定义 XYZ" value="custom" />
           <el-option label="无底图" value="none" />
         </el-select>
-        <el-button size="small" @click="settingsVisible = true">底图设置</el-button>
         <el-button size="small" type="danger" plain @click="clearAll">清空</el-button>
       </div>
     </div>
     <div ref="mapElement" class="coverage-map" />
-    <el-dialog v-model="settingsVisible" title="底图设置" width="520px" append-to-body>
-      <el-form label-width="120px">
-        <el-form-item label="底图类型">
-          <el-select v-model="basemap.provider" style="width: 100%">
-            <el-option label="OpenStreetMap" value="osm" />
-            <el-option label="天地图矢量" value="tianditu" />
-            <el-option label="自定义 XYZ" value="custom" />
-            <el-option label="无底图" value="none" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="basemap.provider === 'tianditu'" label="天地图令牌">
-          <el-input v-model="basemap.tiandituToken" type="password" show-password placeholder="请输入天地图 tk" />
-        </el-form-item>
-        <el-form-item v-if="basemap.provider === 'custom'" label="XYZ 地址">
-          <el-input v-model="basemap.customUrl" placeholder="https://example.com/{z}/{x}/{y}.png" />
-        </el-form-item>
-        <el-alert title="设置保存在当前浏览器中，不会写入设备业务数据。" type="info" :closable="false" />
-      </el-form>
-      <template #footer>
-        <el-button @click="settingsVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveBasemapSettings">保存并应用</el-button>
-      </template>
-    </el-dialog>
     <template #footer>
       <el-button @click="visible = false">取消</el-button>
       <el-button type="primary" @click="saveGeometry">应用范围</el-button>
