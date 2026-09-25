@@ -146,6 +146,7 @@ async function rpc(name, payload, token) {
 | `target_upsert` | 目标新增或更新，可能带空间位置 |
 | `target_remove` | 目标丢失或来源明确移除 |
 | `source_status` | 来源连接或配置状态变化 |
+| `risk_changed` | 航迹当前风险状态、等级、分数或命中防御圈变化 |
 
 ### 4.5 坐标和高度
 
@@ -227,6 +228,14 @@ POST /postgrest/rpc/get_detection_live_tracks_v3
       "model": "DJI-Matrice 3D/3TD",
       "last_observed_at": "2026-09-21T10:30:31+08:00",
       "quality_flags": [],
+      "riskAssessment": {
+        "status": "assessed",
+        "riskLevel": "high",
+        "riskScore": 75,
+        "ringCode": "hard_strike",
+        "ringVersion": 1,
+        "ruleVersion": 2
+      },
       "observations": [
         {
           "observation_id": 3135,
@@ -262,9 +271,12 @@ POST /postgrest/rpc/get_detection_live_tracks_v3
 - `cursor`：下一次增量请求的起点；
 - `trail_seconds`：本地尾迹裁剪窗口；
 - 以 `track_id` 为键的航迹映射及其有界观测数组；
+- 每条航迹的当前 `riskAssessment`；
 - 来源状态列表和侦测方式字典。
 
 `observations` 按 `observed_at`、`observation_id` 升序返回；每条观测的 `target_location` 和 `remote_pilot_location` 各自可为 `null`。`p_max_points_per_track` 限制的是观测条数，不是空间点数。筛选条件在 v3 中用于选择活动航迹（最近活动窗口内存在匹配观测），**不保证返回的尾迹观测均符合筛选**；需要逐条按侦测方式/生产设备过滤尾迹时，应在前端另行投影，同时保留原始观测用于去重和关联。
+
+`riskAssessment.status=pending` 表示尚无评估结果；`target_location_unavailable`、`outside_protected_objects`、`failed` 和 `assessed` 是不同业务状态。只有 `assessed` 下的 `riskScore=0` 才表示有效零风险。
 
 ## 6. 游标增量
 
@@ -380,6 +392,8 @@ function applyTargetUpsert(track, payload) {
 - 建议保留 60 秒后从实时图层移除。
 
 `source_status` 只刷新来源状态，不新增目标点；可重新初始化取得完整 `sources`，但应避免每次状态事件都触发并发初始化。
+
+`risk_changed` 不追加尾迹点。前端按 `aggregate_id` 找到航迹并直接替换事件顶层的 `riskAssessment`；如果本地尚无该航迹，则重新初始化。
 
 ## 7. 前端尾迹缓冲区
 
@@ -515,6 +529,7 @@ POST /postgrest/rpc/list_detection_target_tracks
 - 观测数量和空间点数量；
 - 质量标记数量；
 - 高度范围和空间范围。
+- 当前 `riskAssessment`；未评估时为 `status=pending`。
 
 ### 11.2 查询详情
 
@@ -533,13 +548,15 @@ POST /postgrest/rpc/get_target_track_detail
 
 响应包含：
 
-- `track`：航迹基本信息；
+- `track`：航迹基本信息及当前 `riskAssessment`；
 - `observations`：按时间排序的抽样观测，包含可空的 `target_location` 和 `remote_pilot_location`；优先使用此字段绘制目标与飞手；
 - `points`：兼容字段，仅包含有目标坐标的观测；
 - `non_spatial_observations`：兼容字段，仅包含无目标坐标的观测（可能仍有飞手坐标）；
 - `evidence`：窗口内原始观测数量、返回的抽样观测数量和是否抽样。`p_max_points` 限制的是抽样观测总数，不是目标空间点数。
 
 历史轨迹同样必须执行异常跳变切段。
+
+观测级风险历史通过 `list_target_risk_assessments` 单独查询，仅用于审计、回放和风险变化视图，不应默认附着到每条观测。
 
 ## 12. 错误处理与恢复
 

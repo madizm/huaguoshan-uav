@@ -441,7 +441,7 @@ comment on column situation.track_observation.association_confidence is '观测�
 
 create table if not exists situation.change_event (
   id bigserial primary key,
-  event_type text not null check (event_type in ('target_upsert','target_remove','source_status')),
+  event_type text not null check (event_type in ('target_upsert','target_remove','source_status','risk_changed')),
   aggregate_type text not null check (aggregate_type in ('target_track','observation_source')),
   aggregate_id bigint not null,
   observation_source_id bigint references situation.observation_source(id) on delete restrict,
@@ -451,7 +451,7 @@ create table if not exists situation.change_event (
 );
 comment on table situation.change_event is '供态势客户端按游标补读的持久化增量变更，不是业务空域事件。';
 comment on column situation.change_event.id is '单调递增的增量读取游标。';
-comment on column situation.change_event.event_type is '增量类型：目标更新、目标移除或来源状态。';
+comment on column situation.change_event.event_type is '增量类型：目标更新、目标移除、来源状态或风险变化。';
 comment on column situation.change_event.payload is '内部稳定事件载荷 JSON。';
 create index if not exists change_event_source_cursor_idx
   on situation.change_event(observation_source_id, id);
@@ -1623,7 +1623,8 @@ begin
       'latest_observation_method_code',latest_observation_method_code,
       'latest_observation_method_name',latest_observation_method_name,'model',model,
       'frequency_mhz',frequency_mhz,'quality_flags',quality_flags,
-      'last_observed_at',last_observed_at,'observations',observations
+      'last_observed_at',last_observed_at,'observations',observations,
+      'riskAssessment',event_response.risk_assessment_json(track_id)
     ) order by last_observed_at desc) from live_tracks),'[]'::jsonb),
     'sources',coalesce((select jsonb_agg(to_jsonb(v) order by id)
       from api.detection_observation_sources v
@@ -1632,12 +1633,12 @@ begin
   return v_result;
 end;
 $$;
-comment on function api.get_detection_live_tracks_v3(bigint[],bigint[],text[],integer,integer,integer,integer) is '返回 JSON：generated_at、cursor、trail_seconds、detection_methods、tracks、observations 和 sources；每条观测分别表达目标位置与远程飞手位置。';
+comment on function api.get_detection_live_tracks_v3(bigint[],bigint[],text[],integer,integer,integer,integer) is '返回 JSON：generated_at、cursor、trail_seconds、detection_methods、tracks、observations 和 sources；每条航迹包含当前 riskAssessment，每条观测分别表达目标位置与远程飞手位置。';
 
 create or replace function api.get_detection_situation_changes(
   p_after_cursor bigint,p_station_ids text[] default null,p_limit integer default 500
 ) returns jsonb language plpgsql stable security definer
-set search_path=pg_catalog,public,equipment,situation as $$
+set search_path=pg_catalog,public,equipment,situation,event_response as $$
 declare v_result jsonb;
 begin
   if p_after_cursor is null or p_after_cursor<0 then raise exception 'after cursor must be non-negative'; end if;
@@ -1646,7 +1647,7 @@ begin
     select e.* from situation.change_event e left join situation.observation_source s on s.id=e.observation_source_id
     where e.id>p_after_cursor and (p_station_ids is null or s.external_station_id=any(p_station_ids)) order by e.id limit p_limit+1
   ), page as (select * from filtered order by id limit p_limit), enriched as (
-    select p.id,p.event_type,p.occurred_at,
+    select p.id,p.event_type,p.aggregate_type,p.aggregate_id,p.occurred_at,
       p.payload||jsonb_strip_nulls(jsonb_build_object(
         'observation_id',r.id,'observed_at',r.observed_at,
         'observation',case when r.id is null then null else jsonb_build_object(
@@ -1676,18 +1677,23 @@ begin
   )
   select jsonb_build_object('from_cursor',p_after_cursor,'next_cursor',coalesce((select max(id) from page),p_after_cursor),
     'has_more',(select count(*)>p_limit from filtered),'changes',coalesce((select jsonb_agg(
-      jsonb_build_object('cursor',id,'type',event_type,'occurred_at',occurred_at,'payload',payload) order by id) from enriched),'[]'::jsonb))
+      jsonb_build_object('cursor',id,'type',event_type,'aggregate_type',aggregate_type,
+        'aggregate_id',aggregate_id,'occurred_at',occurred_at,'payload',payload,
+        'riskAssessment',case
+          when event_type='risk_changed' then payload->'risk_assessment'
+          when aggregate_type='target_track' then event_response.risk_assessment_json(aggregate_id)
+          else null end) order by id) from enriched),'[]'::jsonb))
   into v_result;
   return v_result;
 end;
 $$;
-comment on function api.get_detection_situation_changes(bigint,text[],integer) is '返回 JSON：from_cursor、next_cursor、has_more 和 changes；按持久化游标补读目标、来源状态及可用空间观测字段，单次最多 1000 条。';
+comment on function api.get_detection_situation_changes(bigint,text[],integer) is '返回 JSON：from_cursor、next_cursor、has_more 和 changes；按持久化游标补读目标、来源状态、risk_changed 及当前 riskAssessment，单次最多 1000 条。';
 
 create or replace function api.list_detection_target_tracks(
   p_start_at timestamptz,p_end_at timestamptz,p_station_ids text[] default null,
   p_source_type_codes smallint[] default null,p_limit integer default 200
 ) returns jsonb language plpgsql stable security definer
-set search_path=pg_catalog,public,equipment,situation as $$
+set search_path=pg_catalog,public,equipment,situation,event_response as $$
 declare v_result jsonb;
 begin
   if p_start_at is null or p_end_at is null or p_end_at<=p_start_at then raise exception 'invalid half-open time window'; end if;
@@ -1729,6 +1735,7 @@ begin
       'observation_count',observation_count,'spatial_point_count',spatial_point_count,
       'flagged_observation_count',flagged_observation_count,'min_altitude_amsl_m',min_altitude_amsl_m,
       'max_altitude_amsl_m',max_altitude_amsl_m,
+      'riskAssessment',event_response.risk_assessment_json(id),
       'bounds',case when spatial_extent is null then null else jsonb_build_object(
         'west',st_xmin(spatial_extent),'south',st_ymin(spatial_extent),
         'east',st_xmax(spatial_extent),'north',st_ymax(spatial_extent)) end
@@ -1737,12 +1744,12 @@ begin
   return v_result;
 end;
 $$;
-comment on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) is '返回 JSON：start_at、end_at_exclusive、limit 和 tracks；按半开时间区间列出侦测航迹摘要、空间点数量、质量统计和范围，窗口最大 7 天，最多 1000 条。';
+comment on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) is '返回 JSON：start_at、end_at_exclusive、limit 和 tracks；每条航迹包含当前 riskAssessment，窗口最大 7 天，最多 1000 条。';
 
 create or replace function api.get_target_track_detail(
   p_track_id bigint,p_start_at timestamptz,p_end_at timestamptz,p_max_points integer default 2000
 ) returns jsonb language plpgsql stable security definer
-set search_path=pg_catalog,public,equipment,situation as $$
+set search_path=pg_catalog,public,equipment,situation,event_response as $$
 declare v_result jsonb;
 begin
   if p_start_at is null or p_end_at is null or p_end_at<=p_start_at then raise exception 'invalid half-open time window'; end if;
@@ -1757,7 +1764,8 @@ begin
     where x.track_id=p_track_id and r.observed_at>=p_start_at and r.observed_at<p_end_at
   ), sampled as (select * from observations where total<=p_max_points or mod(rn-1,ceil(total::numeric/p_max_points)::bigint)=0 limit p_max_points)
   select jsonb_build_object('track',(select jsonb_build_object('id',t.id,'track_code',t.track_code,'status',t.status,
-      'first_observed_at',t.first_observed_at,'last_observed_at',t.last_observed_at,'lost_at',t.lost_at) from situation.target_track t where t.id=p_track_id),
+      'first_observed_at',t.first_observed_at,'last_observed_at',t.last_observed_at,'lost_at',t.lost_at,
+      'riskAssessment',event_response.risk_assessment_json(t.id)) from situation.target_track t where t.id=p_track_id),
     'observations',coalesce((select jsonb_agg(jsonb_build_object(
       'observation_id',id,'observed_at',observed_at,
       'target_location',case when geom is null then null else jsonb_build_object(
@@ -1780,7 +1788,7 @@ begin
   return v_result;
 end;
 $$;
-comment on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) is '返回 JSON：track、observations、兼容 points、non_spatial_observations 和 evidence；观测分别包含目标位置与远程飞手位置，窗口最大 7 天，最多返回 5000 条抽样观测。';
+comment on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) is '返回 JSON：track、observations、兼容 points、non_spatial_observations 和 evidence；track 包含当前 riskAssessment，窗口最大 7 天，最多返回 5000 条抽样观测。';
 
 create or replace function api.update_detection_observation_source(
   p_source_id bigint,p_name text,p_asset_id bigint,p_source_timezone text,

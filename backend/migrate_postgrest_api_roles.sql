@@ -846,8 +846,11 @@ begin
   if to_regclass('airspace.protected_object_id_seq') is not null then
     revoke all on sequence airspace.protected_object_id_seq,airspace.defense_ring_id_seq from admin;
   end if;
+  if to_regclass('event_response.target_risk_assessment') is not null then
+    revoke all on event_response.target_risk_assessment,event_response.target_risk_current,
+      event_response.risk_worker_cursor from admin;
+  end if;
 end $$;
-
 notify pgrst, 'reload schema';
 
 commit;

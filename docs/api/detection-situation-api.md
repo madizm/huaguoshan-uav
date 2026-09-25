@@ -5,6 +5,8 @@
 当前实现由以下文件组成：
 
 - 数据库迁移：`backend/create_detection_situation_schema.sql`
+- 风险评估迁移：`backend/create_target_risk_assessment.sql`
+- 风险评估服务：`backend/risk_engine/`
 - 云平台连接器：`scripts/radar_cloud_connector.py`
 - 数据库设计：`docs/雷达云平台/云平台侦测接入设计.md`
 - 前端对接：`docs/api/detection-situation-frontend-integration.md`
@@ -18,6 +20,8 @@
 1. `backend/create_equipment_asset_schema.sql`
 2. `backend/migrate_equipment_detection_devices.sql`
 3. `backend/create_detection_situation_schema.sql`
+4. `backend/create_defense_ring_admin.sql`
+5. `backend/create_target_risk_assessment.sql`
 
 执行：
 
@@ -196,6 +200,7 @@ POST /postgrest/rpc/get_detection_live_tracks_v3
 POST /postgrest/rpc/get_detection_situation_changes
 POST /postgrest/rpc/list_detection_target_tracks
 POST /postgrest/rpc/get_target_track_detail
+POST /postgrest/rpc/list_target_risk_assessments
 ```
 
 ### 6.1 当前态势快照
@@ -242,6 +247,8 @@ POST /postgrest/rpc/get_target_track_detail
 
 `get_detection_live_tracks_v3` 沿用 v2 的参数，但将每条航迹的 `points` 升级为 `observations`。每条观测分别包含可空的 `target_location` 和 `remote_pilot_location`，两者通过同一个 `observation_id` 保持关联；没有目标坐标但有飞手坐标的观测也会返回。v2 和更早接口仅用于兼容现有调用方。
 
+每条航迹同时返回当前 `riskAssessment`。尚未评估时明确返回 `status=pending`，不会用 `null` 或风险分数 0 表示缺失状态。
+
 `remote_pilot_location.position` 是 WGS84 GeoJSON Point，`source=vendor_reported` 表示位置由厂商设备上报。飞手位置不参与目标航迹位置、速度或跳点计算。
 
 ### 6.3 态势增量
@@ -254,7 +261,7 @@ POST /postgrest/rpc/get_target_track_detail
 }
 ```
 
-`target_upsert` 增量保留原有平铺字段，并增加与 v3 相同结构的 `observation`；其中分别包含 `target_location` 和 `remote_pilot_location`。`target_remove` 用于将目标标记为丢失。
+`target_upsert` 增量保留原有平铺字段，并增加与 v3 相同结构的 `observation`；其中分别包含 `target_location` 和 `remote_pilot_location`。`target_remove` 用于将目标标记为丢失。风险状态、等级、分数或命中防御圈变化时追加 `risk_changed`，目标类增量均返回当前 `riskAssessment`。
 
 ### 6.4 历史航迹摘要
 
@@ -270,7 +277,7 @@ POST /postgrest/rpc/get_target_track_detail
 }
 ```
 
-返回 `tracks`，每项包含航迹、来源目标、时间范围、空间点数量、质量标记数量、高度范围和空间范围。
+返回 `tracks`，每项包含航迹、来源目标、时间范围、空间点数量、质量标记数量、高度范围、空间范围和当前 `riskAssessment`。
 
 ### 6.5 航迹详情
 
@@ -285,7 +292,13 @@ POST /postgrest/rpc/get_target_track_detail
 }
 ```
 
-### 6.6 管理侦测来源
+详情结果的 `track.riskAssessment` 是航迹当前投影；观测级历史不重复附着到每个观测。
+
+### 6.6 风险评估历史
+
+`list_target_risk_assessments` 按航迹和半开时间窗口返回追加式评估历史，窗口最大 7 天，最多 5000 条。该接口用于审计、回放和风险变化分析；常规态势查询继续使用航迹级当前投影。部署和状态语义见 `docs/api/target-risk-assessment-engine.md`。
+
+### 6.7 管理侦测来源
 
 管理员通过受约束 RPC 更新来源配置，不直接写入 `situation` 基础表：
 
@@ -319,7 +332,7 @@ Content-Type: application/json
 
 `detection_observation_sources` 视图同时返回设备资产映射、来源时区、丢失宽限、连接时间和最近错误，供管理后台诊断使用。
 
-### 6.7 管理侦测方式与厂商映射
+### 6.8 管理侦测方式与厂商映射
 
 ```http
 GET  /postgrest/detection_methods
