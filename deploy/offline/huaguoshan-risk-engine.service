@@ -1,0 +1,21 @@
+[Unit]
+Description=Huaguoshan Detection Risk Assessment Worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=huaguoshan
+Group=huaguoshan
+WorkingDirectory=/mnt/project/huaguoshan
+EnvironmentFile=/etc/huaguoshan/risk-engine.env
+ExecStart=/opt/huaguoshan/runtime/bin/python -m backend.risk_engine.worker --database-url ${RISK_ENGINE_DATABASE_URL} --worker-name ${RISK_ENGINE_WORKER_NAME} --batch-size ${RISK_ENGINE_BATCH_SIZE} --poll-interval ${RISK_ENGINE_POLL_INTERVAL}
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
