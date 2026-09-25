@@ -77,20 +77,32 @@ comment on column situation.source_sortie_statistics.max_risk_level is '架次�
 
 revoke all on situation.source_sortie_statistics from public,anonymous,admin;
 
+drop function if exists api.get_source_sortie_statistics(timestamptz,timestamptz,bigint[],text[]);
+
 create or replace function api.get_source_sortie_statistics(
   p_start_at timestamptz,p_end_at timestamptz,
-  p_source_ids bigint[] default null,p_detection_method_codes text[] default null
+  p_source_ids bigint[] default null,p_detection_method_codes text[] default null,
+  p_quality_issue text default null
 ) returns jsonb language plpgsql stable security definer
 set search_path=pg_catalog,public,situation as $$
 declare v_result jsonb;
 begin
   if p_start_at is null or p_end_at is null or p_end_at<=p_start_at then raise exception 'invalid half-open time window'; end if;
   if p_end_at-p_start_at>interval '90 days' then raise exception 'sortie statistics window cannot exceed 90 days'; end if;
+  if p_quality_issue is not null and p_quality_issue not in ('normal','timestamp_suspect','single_timestamp','non_spatial','lifecycle_overlap') then
+    raise exception 'invalid quality issue';
+  end if;
   with filtered as (
     select * from situation.source_sortie_statistics
     where started_at>=p_start_at and started_at<p_end_at
       and (p_source_ids is null or observation_source_id=any(p_source_ids))
       and (p_detection_method_codes is null or detection_method_codes&&p_detection_method_codes)
+      and (p_quality_issue is null
+        or p_quality_issue='normal' and not timestamp_suspect and not single_timestamp and not non_spatial and not lifecycle_overlap
+        or p_quality_issue='timestamp_suspect' and timestamp_suspect
+        or p_quality_issue='single_timestamp' and single_timestamp
+        or p_quality_issue='non_spatial' and non_spatial
+        or p_quality_issue='lifecycle_overlap' and lifecycle_overlap)
   )
   select jsonb_build_object(
     'startAt',p_start_at,'endAtExclusive',p_end_at,
@@ -116,13 +128,16 @@ begin
   ) into v_result from filtered;
   return v_result;
 end $$;
-comment on function api.get_source_sortie_statistics(timestamptz,timestamptz,bigint[],text[]) is '返回 JSON：时间窗口、来源架次总览、架次最大风险分布和数据质量统计；窗口最大 90 天。';
-revoke all on function api.get_source_sortie_statistics(timestamptz,timestamptz,bigint[],text[]) from public,anonymous;
-grant execute on function api.get_source_sortie_statistics(timestamptz,timestamptz,bigint[],text[]) to admin;
+comment on function api.get_source_sortie_statistics(timestamptz,timestamptz,bigint[],text[],text) is '返回 JSON：时间窗口、来源架次总览、架次最大风险分布和数据质量统计；支持正常或指定质量问题过滤，窗口最大 90 天。';
+revoke all on function api.get_source_sortie_statistics(timestamptz,timestamptz,bigint[],text[],text) from public,anonymous;
+grant execute on function api.get_source_sortie_statistics(timestamptz,timestamptz,bigint[],text[],text) to admin;
+
+drop function if exists api.get_source_sortie_series(timestamptz,timestamptz,text,bigint[],text[]);
 
 create or replace function api.get_source_sortie_series(
   p_start_at timestamptz,p_end_at timestamptz,p_bucket text default 'day',
-  p_source_ids bigint[] default null,p_detection_method_codes text[] default null
+  p_source_ids bigint[] default null,p_detection_method_codes text[] default null,
+  p_quality_issue text default null
 ) returns jsonb language plpgsql stable security definer
 set search_path=pg_catalog,public,situation as $$
 declare v_result jsonb;
@@ -130,11 +145,20 @@ begin
   if p_start_at is null or p_end_at is null or p_end_at<=p_start_at then raise exception 'invalid half-open time window'; end if;
   if p_end_at-p_start_at>interval '90 days' then raise exception 'sortie series window cannot exceed 90 days'; end if;
   if p_bucket not in ('hour','day') then raise exception 'bucket must be hour or day'; end if;
+  if p_quality_issue is not null and p_quality_issue not in ('normal','timestamp_suspect','single_timestamp','non_spatial','lifecycle_overlap') then
+    raise exception 'invalid quality issue';
+  end if;
   with filtered as (
     select * from situation.source_sortie_statistics
     where started_at>=p_start_at and started_at<p_end_at
       and (p_source_ids is null or observation_source_id=any(p_source_ids))
       and (p_detection_method_codes is null or detection_method_codes&&p_detection_method_codes)
+      and (p_quality_issue is null
+        or p_quality_issue='normal' and not timestamp_suspect and not single_timestamp and not non_spatial and not lifecycle_overlap
+        or p_quality_issue='timestamp_suspect' and timestamp_suspect
+        or p_quality_issue='single_timestamp' and single_timestamp
+        or p_quality_issue='non_spatial' and non_spatial
+        or p_quality_issue='lifecycle_overlap' and lifecycle_overlap)
   ), buckets as (
     select (date_trunc(p_bucket,started_at at time zone 'Asia/Shanghai') at time zone 'Asia/Shanghai') bucket_at,
       count(*) sortie_count,count(*) filter(where max_risk_level in ('high','critical')) high_risk_count,
@@ -149,9 +173,9 @@ begin
     ) order by bucket_at),'[]'::jsonb)) into v_result from buckets;
   return v_result;
 end $$;
-comment on function api.get_source_sortie_series(timestamptz,timestamptz,text,bigint[],text[]) is '返回 JSON：按 Asia/Shanghai 小时或日期分桶的来源架次、空间架次、高风险架次和时间戳异常架次序列。';
-revoke all on function api.get_source_sortie_series(timestamptz,timestamptz,text,bigint[],text[]) from public,anonymous;
-grant execute on function api.get_source_sortie_series(timestamptz,timestamptz,text,bigint[],text[]) to admin;
+comment on function api.get_source_sortie_series(timestamptz,timestamptz,text,bigint[],text[],text) is '返回 JSON：按 Asia/Shanghai 小时或日期分桶的来源架次、空间架次、高风险架次和时间戳异常架次序列；支持质量过滤。';
+revoke all on function api.get_source_sortie_series(timestamptz,timestamptz,text,bigint[],text[],text) from public,anonymous;
+grant execute on function api.get_source_sortie_series(timestamptz,timestamptz,text,bigint[],text[],text) to admin;
 
 create or replace function api.list_source_sorties(
   p_start_at timestamptz,p_end_at timestamptz,
@@ -166,7 +190,7 @@ begin
   if p_end_at-p_start_at>interval '31 days' then raise exception 'sortie list window cannot exceed 31 days'; end if;
   if p_limit not between 1 and 500 then raise exception 'limit must be between 1 and 500'; end if;
   if p_offset not between 0 and 10000 then raise exception 'offset must be between 0 and 10000'; end if;
-  if p_quality_issue is not null and p_quality_issue not in ('timestamp_suspect','single_timestamp','non_spatial','lifecycle_overlap') then
+  if p_quality_issue is not null and p_quality_issue not in ('normal','timestamp_suspect','single_timestamp','non_spatial','lifecycle_overlap') then
     raise exception 'invalid quality issue';
   end if;
   with filtered as materialized (
@@ -176,6 +200,7 @@ begin
       and (p_detection_method_codes is null or detection_method_codes&&p_detection_method_codes)
       and (p_risk_levels is null or coalesce(max_risk_level,'unavailable')=any(p_risk_levels))
       and (p_quality_issue is null
+        or p_quality_issue='normal' and not timestamp_suspect and not single_timestamp and not non_spatial and not lifecycle_overlap
         or p_quality_issue='timestamp_suspect' and timestamp_suspect
         or p_quality_issue='single_timestamp' and single_timestamp
         or p_quality_issue='non_spatial' and non_spatial

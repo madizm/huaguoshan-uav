@@ -26,6 +26,8 @@ def test_statistics_rpcs_are_bounded_and_admin_only():
     assert "sortie list window cannot exceed 31 days" in SQL
     assert "limit must be between 1 and 500" in SQL
     assert "offset must be between 0 and 10000" in SQL
+    assert "('normal','timestamp_suspect','single_timestamp','non_spatial','lifecycle_overlap')" in SQL
+    assert "p_quality_issue='normal' and not timestamp_suspect" in SQL
     assert SQL.count("grant execute on function api.") == 3
     assert "grant select on situation.source_sortie_statistics to admin" not in SQL
 

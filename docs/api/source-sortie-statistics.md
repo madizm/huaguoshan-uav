@@ -40,7 +40,8 @@ Content-Type: application/json
   "p_start_at": "2026-09-18T00:00:00+08:00",
   "p_end_at": "2026-09-24T00:00:00+08:00",
   "p_source_ids": null,
-  "p_detection_method_codes": null
+  "p_detection_method_codes": null,
+  "p_quality_issue": "normal"
 }
 ```
 
@@ -62,7 +63,8 @@ POST /postgrest/rpc/get_source_sortie_series
   "p_end_at": "2026-09-24T00:00:00+08:00",
   "p_bucket": "day",
   "p_source_ids": null,
-  "p_detection_method_codes": null
+  "p_detection_method_codes": null,
+  "p_quality_issue": "normal"
 }
 ```
 
@@ -87,8 +89,9 @@ POST /postgrest/rpc/list_source_sorties
 }
 ```
 
-明细窗口最大 31 天，单页最多 500 条，偏移最大 10000。`p_quality_issue` 可选值：
+明细窗口最大 31 天，单页最多 500 条，偏移最大 10000。`p_quality_issue` 同时作用于总览、趋势和明细。后台页面默认为 `normal`，表示四个质量问题均未命中；清空过滤器时查询全部数据。可选值：
 
+- `normal`
 - `timestamp_suspect`
 - `single_timestamp`
 - `non_spatial`

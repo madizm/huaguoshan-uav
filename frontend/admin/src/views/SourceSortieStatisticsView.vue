@@ -15,7 +15,7 @@ import {
 const now = new Date()
 const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
 const dateRange = ref<[Date, Date]>([start, now])
-const filters = reactive({ riskLevels: [] as string[], qualityIssue: '' })
+const filters = reactive({ riskLevels: [] as string[], qualityIssue: 'normal' })
 const statistics = ref<SourceSortieStatistics | null>(null)
 const series = ref<SourceSortieSeriesPoint[]>([])
 const sorties = ref<SourceSortie[]>([])
@@ -150,7 +150,8 @@ onMounted(() => load())
         <el-option label="正常" value="none" />
         <el-option label="不可评估" value="unavailable" />
       </el-select>
-      <el-select v-model="filters.qualityIssue" clearable placeholder="明细质量状态" class="quality-filter">
+      <el-select v-model="filters.qualityIssue" clearable placeholder="全部质量状态" class="quality-filter">
+        <el-option label="数据质量正常" value="normal" />
         <el-option label="时间戳异常" value="timestamp_suspect" />
         <el-option label="单一观测时刻" value="single_timestamp" />
         <el-option label="无空间坐标" value="non_spatial" />

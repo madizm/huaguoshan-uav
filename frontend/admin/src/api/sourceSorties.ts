@@ -92,6 +92,7 @@ function commonPayload(filters: SortieFilters) {
     p_end_at: filters.endAt,
     p_source_ids: null,
     p_detection_method_codes: null,
+    p_quality_issue: filters.qualityIssue || null,
   }
 }
 
@@ -117,7 +118,6 @@ export function listSourceSorties(
   return http.post('/rpc/list_source_sorties', {
     ...commonPayload(filters),
     p_risk_levels: filters.riskLevels?.length ? filters.riskLevels : null,
-    p_quality_issue: filters.qualityIssue || null,
     p_limit: limit,
     p_offset: offset,
   })
