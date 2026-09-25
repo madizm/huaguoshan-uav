@@ -65,17 +65,21 @@ fi
 if [[ ! -f "$CONFIG_DIR/radar-cloud.env" ]]; then
   install -m 0600 "$BUNDLE_DIR/config/radar-cloud.env.example" "$CONFIG_DIR/radar-cloud.env"
 fi
+if [[ ! -f "$CONFIG_DIR/lizheng-connector.env" ]]; then
+  install -m 0600 "$BUNDLE_DIR/config/lizheng-connector.env.example" "$CONFIG_DIR/lizheng-connector.env"
+fi
 
 install -m 0644 "$BUNDLE_DIR/systemd/huaguoshan-auth.service" /etc/systemd/system/huaguoshan-auth.service
 install -m 0644 "$BUNDLE_DIR/systemd/huaguoshan-risk-engine.service" /etc/systemd/system/huaguoshan-risk-engine.service
 install -m 0644 "$BUNDLE_DIR/systemd/huaguoshan-postgrest.service" /etc/systemd/system/huaguoshan-postgrest.service
 install -m 0644 "$BUNDLE_DIR/systemd/huaguoshan-radar-cloud.service" /etc/systemd/system/huaguoshan-radar-cloud.service
+install -m 0644 "$BUNDLE_DIR/systemd/huaguoshan-lizheng-connector.service" /etc/systemd/system/huaguoshan-lizheng-connector.service
 install -m 0644 "$APP_DIR/deploy/nginx.conf" /etc/nginx/nginx.conf
 
 chown -R root:root "$APP_DIR"
 find "$APP_DIR" -type d -exec chmod 0755 {} +
 chown -R root:root "$OPT_DIR/python" "$OPT_DIR/runtime"
-chmod 0600 "$CONFIG_DIR/auth.env" "$CONFIG_DIR/risk-engine.env" "$CONFIG_DIR/postgrest.conf" "$CONFIG_DIR/radar-cloud.env"
+chmod 0600 "$CONFIG_DIR/auth.env" "$CONFIG_DIR/risk-engine.env" "$CONFIG_DIR/postgrest.conf" "$CONFIG_DIR/radar-cloud.env" "$CONFIG_DIR/lizheng-connector.env"
 
 if [[ ${SKIP_SYSTEMD_RELOAD:-0} != 1 ]]; then
   systemctl daemon-reload
@@ -90,6 +94,7 @@ Files installed. Before starting services:
    $CONFIG_DIR/risk-engine.env
    $CONFIG_DIR/postgrest.conf
    $CONFIG_DIR/radar-cloud.env
+   $CONFIG_DIR/lizheng-connector.env
 2. Ensure `auth.env` and `postgrest.conf` use exactly the same JWT secret; `risk-engine.env` uses the separate database password for `risk_engine`.
 3. Ensure PostgreSQL is reachable and database migrations are complete.
 4. Validate Nginx:
@@ -98,8 +103,9 @@ Files installed. Before starting services:
    systemctl enable --now huaguoshan-auth huaguoshan-postgrest nginx
 6. Start the risk engine worker after applying the risk-assessment migrations:
    systemctl enable --now huaguoshan-risk-engine
-7. Start the detection connector:
+7. Start the detection connectors:
    systemctl enable --now huaguoshan-radar-cloud
+   systemctl enable --now huaguoshan-lizheng-connector
 8. Verify:
    curl -fsS http://127.0.0.1:20000/healthz
 

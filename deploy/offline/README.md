@@ -36,6 +36,7 @@ sudo ./install.sh
 /etc/huaguoshan/auth.env
 /etc/huaguoshan/risk-engine.env
 /etc/huaguoshan/radar-cloud.env
+/etc/huaguoshan/lizheng-connector.env
 /etc/huaguoshan/postgrest.conf
 ```
 
@@ -44,7 +45,9 @@ sudo ./install.sh
 ```bash
 systemctl enable --now huaguoshan-risk-engine
 systemctl enable --now huaguoshan-radar-cloud
+systemctl enable --now huaguoshan-lizheng-connector
 systemctl status huaguoshan-radar-cloud --no-pager
+systemctl status huaguoshan-lizheng-connector --no-pager
 systemctl status huaguoshan-risk-engine --no-pager
 nginx -t
 systemctl enable --now huaguoshan-auth huaguoshan-postgrest nginx

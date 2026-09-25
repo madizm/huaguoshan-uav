@@ -136,6 +136,7 @@ on conflict (code) do nothing;
 insert into situation.detection_method_mapping(source_system,vendor_code,method_code,metadata) values
   ('radar_cloud','10','radar',jsonb_build_object('legacy_vendor_code',10)),
   ('radar_cloud','20','radio_detection',jsonb_build_object('legacy_vendor_code',20))
+  ,('lizheng','rf_sensor','radio_detection',jsonb_build_object('description','历正科技 RF 频谱侦测传感器'))
 on conflict (source_system,vendor_code) do nothing;
 
 create table if not exists situation.observation_source (
@@ -510,6 +511,40 @@ where source_system = 'radar_cloud' and source_asset_id = 'b260705174118582'
 order by id limit 1
 on conflict (source_system, external_station_id, external_box_code) do update set
   asset_id=excluded.asset_id, name=excluded.name, metadata=excluded.metadata, updated_at=now();
+
+ -- 注册历正科技 RF 侦测设备资产。
+ -- geo_location 占位坐标待设备实际部署后由 sync_detection_source_asset 更新。
+ insert into equipment.asset(
+   asset_code,category_code,type_code,name,source_system,source_asset_id,deployment_mode,
+   lifecycle_status,geom,height_datum,manufacturer,model,is_simulated,metadata
+ ) values (
+   'LIZHENG-001','counter_uas','rf_detection','历正科技 RF 侦测设备',
+   'lizheng','controller','fixed','active',
+   ST_SetSRID(ST_MakePoint(119.1929320,34.5919520),4326),'AMSL','历正科技','RF 侦测系统',false,
+   jsonb_build_object('device_address','10.10.0.93')
+ )
+ on conflict (source_system,source_asset_id) do update set
+   name=excluded.name,geom=excluded.geom,model=excluded.model,
+   metadata=equipment.asset.metadata||excluded.metadata,updated_at=now();
+
+ insert into equipment.counter_uas_profile(asset_id,detection_mode,identification_mode,tracking_mode,recommendation_notes)
+ select id,'radio_detection','vendor_identification','vendor_track','仅接收历正侦测数据，不接入打击指令。'
+ from equipment.asset where source_system='lizheng' and source_asset_id='controller'
+ on conflict (asset_id) do update set detection_mode=excluded.detection_mode,
+   identification_mode=excluded.identification_mode,tracking_mode=excluded.tracking_mode,
+   recommendation_notes=excluded.recommendation_notes;
+
+ -- 建立历正设备的观测来源映射。
+ insert into situation.observation_source(
+   source_system, external_station_id, external_box_code, asset_id, name, metadata
+ )
+ select 'lizheng', '1', 'controller', id, '历正科技 RF 侦测设备',
+        jsonb_build_object('device_address', '10.10.0.93')
+ from equipment.asset
+ where source_system = 'lizheng' and source_asset_id = 'controller'
+ order by id limit 1
+ on conflict (source_system, external_station_id, external_box_code) do update set
+   asset_id=excluded.asset_id, name=excluded.name, metadata=excluded.metadata, updated_at=now();
 
 create or replace function situation.safe_numeric(p_value text)
 returns numeric language plpgsql immutable as $$

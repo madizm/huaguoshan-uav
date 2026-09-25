@@ -101,11 +101,13 @@ fi
 install -m 0644 "$ROOT_DIR/deploy/offline/auth.env.example" "$STAGE/config/auth.env.example"
 install -m 0644 "$ROOT_DIR/deploy/offline/risk-engine.env.example" "$STAGE/config/risk-engine.env.example"
 install -m 0644 "$ROOT_DIR/deploy/offline/radar-cloud.env.example" "$STAGE/config/radar-cloud.env.example"
+install -m 0644 "$ROOT_DIR/deploy/offline/lizheng-connector.env.example" "$STAGE/config/lizheng-connector.env.example"
 install -m 0644 "$ROOT_DIR/deploy/offline/postgrest.conf.example" "$STAGE/config/postgrest.conf.example"
 install -m 0644 "$ROOT_DIR/deploy/offline/huaguoshan-auth.service" "$STAGE/systemd/huaguoshan-auth.service"
 install -m 0644 "$ROOT_DIR/deploy/offline/huaguoshan-risk-engine.service" "$STAGE/systemd/huaguoshan-risk-engine.service"
 install -m 0644 "$ROOT_DIR/deploy/offline/huaguoshan-postgrest.service" "$STAGE/systemd/huaguoshan-postgrest.service"
 install -m 0644 "$ROOT_DIR/deploy/offline/huaguoshan-radar-cloud.service" "$STAGE/systemd/huaguoshan-radar-cloud.service"
+install -m 0644 "$ROOT_DIR/deploy/offline/huaguoshan-lizheng-connector.service" "$STAGE/systemd/huaguoshan-lizheng-connector.service"
 install -m 0755 "$ROOT_DIR/deploy/offline/install.sh" "$STAGE/install.sh"
 install -m 0644 "$ROOT_DIR/deploy/offline/README.md" "$STAGE/README.md"
 

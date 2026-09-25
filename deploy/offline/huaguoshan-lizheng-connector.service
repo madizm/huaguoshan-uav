@@ -1,0 +1,21 @@
+[Unit]
+Description=Huaguoshan Lizheng RF Detection Connector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=huaguoshan
+Group=huaguoshan
+WorkingDirectory=/mnt/project/huaguoshan
+EnvironmentFile=/etc/huaguoshan/lizheng-connector.env
+ExecStart=/opt/huaguoshan/runtime/bin/python /mnt/project/huaguoshan/scripts/lizheng_connector.py
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=40
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
