@@ -47,6 +47,80 @@ async def update_worker_cursor(conn: AsyncConnection, worker_name: str, observat
     )
 
 
+async def register_worker_runtime(
+    conn: AsyncConnection, worker_name: str, instance_id: str, engine_version: str,
+) -> None:
+    await conn.execute(
+        """
+        insert into event_response.risk_worker_runtime(
+          worker_name,instance_id,state,engine_version,started_at,heartbeat_at,updated_at
+        ) values(%s,%s,'running',%s,now(),now(),now())
+        on conflict(worker_name) do update set
+          instance_id=excluded.instance_id,state='running',engine_version=excluded.engine_version,
+          started_at=excluded.started_at,heartbeat_at=excluded.heartbeat_at,updated_at=now()
+        """,
+        (worker_name, instance_id, engine_version),
+    )
+
+
+async def record_worker_idle(conn: AsyncConnection, worker_name: str) -> None:
+    await conn.execute(
+        """
+        update event_response.risk_worker_runtime
+        set state='idle',heartbeat_at=now(),updated_at=now()
+        where worker_name=%s and (heartbeat_at is null or heartbeat_at<now()-interval '5 seconds')
+        """,
+        (worker_name,),
+    )
+
+
+async def record_batch_started(conn: AsyncConnection, worker_name: str) -> None:
+    await conn.execute(
+        """update event_response.risk_worker_runtime
+        set state='running',heartbeat_at=now(),last_batch_started_at=now(),updated_at=now()
+        where worker_name=%s""",
+        (worker_name,),
+    )
+
+
+async def record_batch_success(
+    conn: AsyncConnection, worker_name: str, batch_size: int,
+    failed_count: int, duration_ms: int,
+) -> None:
+    await conn.execute(
+        """
+        update event_response.risk_worker_runtime set
+          state='running',heartbeat_at=now(),last_batch_finished_at=now(),last_success_at=now(),
+          last_batch_size=%s,last_batch_duration_ms=%s,
+          processed_total=processed_total+%s,failed_total=failed_total+%s,updated_at=now()
+        where worker_name=%s
+        """,
+        (batch_size, duration_ms, batch_size, failed_count, worker_name),
+    )
+
+
+async def record_worker_failure(
+    conn: AsyncConnection, worker_name: str, error_code: str, error_message: str,
+) -> None:
+    await conn.execute(
+        """
+        update event_response.risk_worker_runtime set
+          state='degraded',heartbeat_at=now(),last_error_at=now(),
+          last_error_code=%s,last_error_message=%s,updated_at=now()
+        where worker_name=%s
+        """,
+        (error_code[:120], error_message[:500], worker_name),
+    )
+
+
+async def record_worker_stopped(conn: AsyncConnection, worker_name: str) -> None:
+    await conn.execute(
+        """update event_response.risk_worker_runtime
+        set state='stopped',heartbeat_at=now(),updated_at=now() where worker_name=%s""",
+        (worker_name,),
+    )
+
+
 async def fetch_pending_observations(conn: AsyncConnection, after_id: int, limit: int = 100) -> Sequence[dict[str, Any]]:
     return await _fetch_all(
         conn,

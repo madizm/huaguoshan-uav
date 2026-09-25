@@ -8,6 +8,7 @@ import EquipmentDictionaryView from './views/EquipmentDictionaryView.vue'
 import EmergencyResourceView from './views/EmergencyResourceView.vue'
 import PoliceForceView from './views/PoliceForceView.vue'
 import DefenseRingView from './views/DefenseRingView.vue'
+import RiskEngineView from './views/RiskEngineView.vue'
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -23,6 +24,7 @@ export const router = createRouter({
         { path: 'emergency-resources', name: 'emergency-resources', component: EmergencyResourceView, meta: { title: '应急资源' } },
         { path: 'police-forces', name: 'police-forces', component: PoliceForceView, meta: { title: '警务力量' } },
         { path: 'defense-rings', name: 'defense-rings', component: DefenseRingView, meta: { title: '防御圈配置' } },
+        { path: 'risk-engine', name: 'risk-engine', component: RiskEngineView, meta: { title: '风险评估引擎' } },
         {
           path: 'detection-sources',
           name: 'detection-sources',

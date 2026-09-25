@@ -144,6 +144,20 @@ async def _exercise_database_contract():
                 "target_location_unavailable", "target_location_unavailable", "failed",
             ]
             assert set(observation_risks[-1]) == {"status", "riskLevel", "riskScore"}
+            cursor = await conn.execute(
+                "select api.get_risk_engine_status('defense-assessment') status"
+            )
+            monitor = (await cursor.fetchone())["status"]
+            assert set(monitor) == {"state", "generatedAt", "worker", "backlog", "throughput", "configuration"}
+            assert monitor["backlog"]["pendingCount"] >= 0
+            assert monitor["configuration"]["ruleVersion"] == rules.version
+
+            cursor = await conn.execute(
+                "select api.list_risk_engine_failures(%s,%s,10) failures",
+                (older_at - timedelta(seconds=1), failed_at + timedelta(seconds=1)),
+            )
+            failures = (await cursor.fetchone())["failures"]["failures"]
+            assert failures[0]["observationId"] == failed_observation["observationId"]
         finally:
             await conn.rollback()
 

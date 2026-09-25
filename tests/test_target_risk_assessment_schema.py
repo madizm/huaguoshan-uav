@@ -9,6 +9,9 @@ def test_creates_immutable_history_current_projection_and_cursor():
     assert "create table if not exists event_response.target_risk_assessment" in RISK_SQL
     assert "create table if not exists event_response.target_risk_current" in RISK_SQL
     assert "create table if not exists event_response.risk_worker_cursor" in RISK_SQL
+    assert "create table if not exists event_response.risk_worker_runtime" in RISK_SQL
+    assert "heartbeat_at timestamptz" in RISK_SQL
+    assert "last_batch_duration_ms integer" in RISK_SQL
     assert "target_risk_assessment_immutable" in RISK_SQL
     persistence = (ROOT / "backend/risk_engine/persistence.py").read_text(encoding="utf-8").lower()
     assert "where (excluded.observed_at,coalesce(excluded.observation_id,0)) >" in persistence
@@ -40,6 +43,17 @@ def test_history_rpc_is_bounded_and_admin_only():
     assert "limit must be between 1 and 5000" in RISK_SQL
     assert f"revoke all on function {signature} from public,anonymous" in RISK_SQL
     assert f"grant execute on function {signature} to admin" in RISK_SQL
+
+
+def test_monitoring_rpcs_are_bounded_and_admin_only():
+    assert "create or replace function api.get_risk_engine_status" in RISK_SQL
+    assert "limit 10001" in RISK_SQL
+    assert "'pendingcountcapped',b.sample_count>10000" in RISK_SQL
+    assert "create or replace function api.list_risk_engine_failures" in RISK_SQL
+    assert "failure window cannot exceed 31 days" in RISK_SQL
+    assert "limit must be between 1 and 500" in RISK_SQL
+    assert "grant execute on function api.get_risk_engine_status(text) to admin" in RISK_SQL
+    assert "grant execute on function api.list_risk_engine_failures(timestamptz,timestamptz,integer) to admin" in RISK_SQL
 
 
 def test_engine_uses_published_thresholds_parameters_and_versioned_centers():

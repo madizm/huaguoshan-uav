@@ -121,3 +121,35 @@ TEST_DATABASE_URL='<postgres-admin-dsn>' uv run pytest -q backend/risk_engine/te
 ```
 
 数据库集成用例在单个事务内验证重复观测幂等、迟到观测不覆盖 current、`risk_changed` 和历史 RPC，结束时回滚测试数据。
+
+## 8. 后台运行监控
+
+管理后台通过只读 RPC 获取 worker 业务运行状态，不直接访问 `event_response` schema，也不通过 Web 页面控制 systemd：
+
+```http
+POST /postgrest/rpc/get_risk_engine_status
+Authorization: Bearer <admin-jwt>
+Content-Type: application/json
+
+{}
+```
+
+返回 `state`、`worker`、`backlog`、`throughput` 和 `configuration`。积压统计与 worker 的消费条件一致，同时区分游标后的新观测和游标之前缺少评估的修复积压；查询最多扫描并报告 10000 条，`pendingCountCapped=true` 表示实际数量不低于该值。
+
+worker 每 5 秒至少更新一次空闲心跳，并在批次成功后记录批量、耗时、成功时间、累计处理量和失败评估量。批次异常使用独立事务记录，避免与失败批次一起回滚。
+
+最近失败评估通过以下 RPC 查询：
+
+```http
+POST /postgrest/rpc/list_risk_engine_failures
+Authorization: Bearer <admin-jwt>
+Content-Type: application/json
+
+{
+  "p_start_at": "2026-09-24T00:00:00Z",
+  "p_end_at": "2026-09-25T00:00:00Z",
+  "p_limit": 50
+}
+```
+
+窗口采用半开区间，最长 31 天，最多返回 500 条。接口只暴露错误代码，不返回输入快照、数据库连接信息或内部异常堆栈。
