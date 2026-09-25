@@ -378,15 +378,6 @@
 
       var DOMAIN_TAGS = [
         {
-          name: '空域约束',
-          description: '禁飞区、临时管控区、适飞基底范围等空域空间配置接口。',
-          patterns: [
-            /^no_fly_zone/,
-            /^temp_control_zone/,
-            /^suitable_fly_zone_footprints/
-          ]
-        },
-        {
           name: '防御圈与风险研判',
           description: '保护对象、同心防御圈配置、目标风险评估与风险引擎状态接口。',
           patterns: [
@@ -411,16 +402,6 @@
           ]
         },
         {
-          name: '飞行路径规划',
-          description: '航线规划方案 CRUD、飞行障碍查询、凸包计算与规划结果检索接口。',
-          patterns: [
-            /flight_path/,
-            /flight_obstacles/,
-            /flight_plan/,
-            /convex_hull/
-          ]
-        },
-        {
           name: '侦测态势',
           description: '侦测方式与来源配置、目标航迹、态势快照、原始来源态势与架次统计接口。',
           patterns: [
@@ -441,22 +422,6 @@
             /^emergency_/,
             /^rpc\/(create_police_team|assign_police_team_leader|remove_police_team_member)/,
             /^rpc\/refresh_emergency_resource/
-          ]
-        },
-        {
-          name: '飞行架次与巡查',
-          description: '报备飞行、巡查任务、飞行活动展示与航线预览接口。',
-          patterns: [
-            /^flight_activit/,
-            /^reported_flights/,
-            /^inspection_tasks/
-          ]
-        },
-        {
-          name: '空间数据查询',
-          description: '3D CityDB 要素属性与 GGER 网格查询接口。',
-          patterns: [
-            /citydb_feature/
           ]
         },
         {
