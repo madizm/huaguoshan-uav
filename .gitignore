@@ -17,3 +17,4 @@ deploy-pack.zip
 postgrest-*.tar.xz
 *.osm.pbf
 生产环境.md
+tianditu-bld/
