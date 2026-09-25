@@ -45,6 +45,36 @@
 
   function formatCount(value) { return Number(value || 0).toLocaleString('zh-CN'); }
 
+  var RISK_STYLE = {
+    critical: { color: '#fb7185', label: '严重' },
+    high: { color: '#f97316', label: '高' },
+    medium: { color: '#facc15', label: '中' },
+    low: { color: '#86efac', label: '低' },
+    none: { color: '#94a3b8', label: '正常' },
+    pending: { color: '#94a3b8', label: '待评估' },
+    target_location_unavailable: { color: '#c4b5fd', label: '缺少位置' },
+    outside_protected_objects: { color: '#94a3b8', label: '圈外' },
+    failed: { color: '#ef4444', label: '评估失败' }
+  };
+
+  function riskStyle(assessment) {
+    var status = assessment && assessment.status;
+    var level = assessment && assessment.riskLevel;
+    return RISK_STYLE[status] || RISK_STYLE[level] || RISK_STYLE.pending;
+  }
+
+  function riskLabel(assessment) {
+    var style = riskStyle(assessment);
+    if (!assessment || assessment.status === 'pending') return style.label;
+    return assessment.riskScore == null ? style.label : style.label + ' ' + Number(assessment.riskScore) + '分';
+  }
+
+  function riskBadgeHtml(assessment) {
+    var style = riskStyle(assessment);
+    return '<span class="risk-badge" style="--risk-color:' + style.color + '">' +
+      escapeHtml(riskLabel(assessment)) + '</span>';
+  }
+
   function formatTime(value) {
     if (!value) return '--';
     var date = new Date(value);
@@ -154,10 +184,14 @@
     var lostCutoffMs = referenceMs - Number(lostRetentionSeconds || 60) * 1000;
     (changes || []).forEach(function (change) {
       var payload = change.payload || {};
-      var trackId = payload.track_id;
+      var trackId = payload.track_id != null ? payload.track_id : change.aggregate_id;
       if (trackId == null) return;
       var key = String(trackId);
       var track = trackMap[key];
+      if (change.type === 'risk_changed') {
+        if (track) track.riskAssessment = change.riskAssessment || payload.risk_assessment || null;
+        return;
+      }
       if (change.type === 'target_remove') {
         if (track) {
           track.status = 'lost';
@@ -199,6 +233,8 @@
         if (payload[field] != null) track[field] = payload[field];
       });
       if (methodCode != null) track.latest_observation_method_code = methodCode;
+      if (methodCode != null) track.latest_observation_method_code = methodCode;
+      if (change.riskAssessment) track.riskAssessment = change.riskAssessment;
       if (observation && observation.observation_id != null && !(track.observations || []).some(function (item) {
         return String(item.observation_id) === String(observation.observation_id);
       })) track.observations.push(observation);
@@ -233,6 +269,19 @@
     var spatialCount = targets.filter(function (track) { return (track.points || []).length || track.position; }).length;
     var nonSpatialCount = targets.length - spatialCount;
     var sources = payload && payload.sources || [];
+    var riskCounts = (payload && payload.tracks || []).reduce(function (counts, track) {
+      var assessment = track.riskAssessment;
+      var status = assessment && assessment.status || 'pending';
+      var key = status === 'assessed' ? (assessment.riskLevel || 'none') : status;
+      counts[key] = (counts[key] || 0) + 1;
+      return counts;
+    }, {});
+    var highRiskCount = (riskCounts.critical || 0) + (riskCounts.high || 0);
+    var riskOverview = '<div class="risk-situation-overview"><strong>风险评估</strong>' +
+      '<b>' + formatCount(highRiskCount) + ' 高风险</b>' +
+      '<b>' + formatCount((riskCounts.pending || 0) + (riskCounts.target_location_unavailable || 0)) + ' 待补充</b>' +
+      (riskCounts.failed ? '<b class="risk-overview-failed">' + formatCount(riskCounts.failed) + ' 失败</b>' : '') +
+      '</div>';
     var sourceCards = sources.map(function (source) {
       var state = sourceState(source, payload.generated_at);
       return '<article class="source-quality-card" data-quality="' + state.code + '">' +
@@ -243,6 +292,7 @@
         '<p>最近消息 ' + formatTime(source.last_message_at) + '</p></article>';
     }).join('');
     if (!sourceCards) sourceCards = '<p class="source-situation-empty">没有可用侦测来源。</p>';
+    sourceCards = riskOverview + sourceCards;
     if (!targets.length) sourceCards += '<p class="source-situation-empty">当前没有正在跟踪的目标。</p>';
     return sourceCards;
   }
@@ -255,6 +305,7 @@
         '<span class="detection-track-main"><i style="--source-color:' + style.color + '"></i><strong>' +
         escapeHtml(track.model || track.source_target_id || track.track_code) + '</strong><small>' +
         escapeHtml(style.label + ' · ' + track.track_code) + '</small></span>' +
+        riskBadgeHtml(track.riskAssessment) +
         '<span class="detection-track-count"><strong>' + formatCount(track.spatial_point_count) + '</strong><small>空间点</small></span>' +
         '<span class="detection-track-meta">' + formatTime(track.first_observed_at) + ' — ' + formatTime(track.last_observed_at) +
         (Number(track.flagged_observation_count) ? ' · ' + formatCount(track.flagged_observation_count) + ' 条待核验' : '') + '</span></button>';
@@ -373,6 +424,7 @@
         var dataSource = addDataSource(methodCode, style.label);
         var split = splitTrack(points, MAX_TRACK_SPEED_MPS);
         var lost = track.status === 'lost';
+        var currentRisk = riskStyle(track.riskAssessment);
         var remotePilotPoints = track.remotePilotPoints || [];
         points.forEach(extendBounds);
         remotePilotPoints.forEach(extendBounds);
@@ -437,8 +489,8 @@
           point: {
             pixelSize: lost ? 8 : 11,
             color: CesiumRuntime.Color.fromCssColorString(style.color).withAlpha(lost ? 0.38 : 1),
-            outlineColor: CesiumRuntime.Color.fromCssColorString('#071713'),
-            outlineWidth: 2,
+            outlineColor: CesiumRuntime.Color.fromCssColorString(currentRisk.color),
+            outlineWidth: 3,
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           },
           label: {
@@ -451,7 +503,8 @@
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           },
           description: '来源目标：' + escapeHtml(track.source_target_id) + '；观测时间：' + formatTime(target.observed_at) +
-            '；高度：' + (target.altitude_amsl_m == null ? '未知' : target.altitude_amsl_m + ' m AMSL')
+            '；高度：' + (target.altitude_amsl_m == null ? '未知' : target.altitude_amsl_m + ' m AMSL') +
+            '；风险：' + escapeHtml(riskLabel(track.riskAssessment))
         });
       });
       if (summary) summary.innerHTML = realtimeSummaryHtml(payload);
@@ -471,6 +524,7 @@
       var methodCode = points.length ? (points[points.length - 1].detection_method_code || points[points.length - 1].source_type_code) : null;
       var style = SOURCE_STYLE[methodCode] || { color: '#9ba8a2', label: '来源待确认' };
       var dataSource = addDataSource(methodCode, '历史航迹');
+      var currentRisk = riskStyle(detail.track.riskAssessment);
       points.forEach(extendBounds);
       remotePilotPoints.forEach(extendBounds);
       split.segments.forEach(function (segment, index) {
@@ -523,15 +577,15 @@
           point: {
             pixelSize: 12,
             color: CesiumRuntime.Color.fromCssColorString(style.color),
-            outlineColor: CesiumRuntime.Color.fromCssColorString('#071713'),
-            outlineWidth: 3,
+            outlineColor: CesiumRuntime.Color.fromCssColorString(currentRisk.color),
+            outlineWidth: 4,
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           }
         });
       }
       if (locateButton) locateButton.disabled = !lastBounds;
       if (clearButton) clearButton.disabled = false;
-      if (hint) hint.textContent = formatCount(points.length) + ' 点 · ' + formatCount(split.jumpCount) + ' 断点';
+      if (hint) hint.textContent = formatCount(points.length) + ' 点 · ' + formatCount(split.jumpCount) + ' 断点 · 风险 ' + riskLabel(detail.track.riskAssessment);
       locate();
       log('航迹 ' + detail.track.track_code + ' 已加载；' + split.jumpCount + ' 个异常跳变已断开。', split.jumpCount ? 'warning' : 'success');
     }

@@ -10,6 +10,8 @@
 - 历史航迹摘要与详情；
 - 观测来源健康状态。
 
+三维工作台还可在管理员登录后通过 `get_defense_ring_config` 加载当前发布的五层防御圈，作为独立 Cesium 图层显示。防御圈配置属于管理端发布的数据，工作台只读、不提供编辑。
+
 数据库表、连接器写入协议和部署方式见 [`detection-situation-api.md`](./detection-situation-api.md)。前端不得直接访问 `situation` schema，只能调用 `api` schema 暴露的视图和 RPC。
 
 ## 2. 推荐对接流程

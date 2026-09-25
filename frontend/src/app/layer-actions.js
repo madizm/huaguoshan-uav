@@ -112,6 +112,12 @@
       state.airspaceGrid.setLabelsEnabled(active);
       log(active ? 'GGER 网格编码标签已开启。' : 'GGER 网格编码标签已关闭。');
     }
+    if (layer === 'defenseRings' && state.defenseRings) {
+      state.defenseRings.setEnabled(active).catch(function () {
+        layerButton.setAttribute('aria-pressed', 'false');
+      });
+      log(active ? '五层防御圈正在加载。' : '防御圈图层已关闭。');
+    }
     if (layer === 'flightObstacles' && state.flightObstacleLayer) {
       state.flightObstacleLayer.setEnabled(active);
     }

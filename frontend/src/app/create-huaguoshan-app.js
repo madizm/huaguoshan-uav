@@ -58,6 +58,7 @@
         airspaceTilesLayer: null,
         suitableFootprintLayer: null,
         sourceSituation: null,
+        defenseRings: null,
         airspaceEnabled: false,
         featurePropertyCache: {},
         featureGridCache: {},
@@ -304,6 +305,19 @@
 
       function featureCatalogUrl(tilesetUrl) {
         return new URL('analysis/feature-catalog.json', new URL(tilesetUrl, document.baseURI)).href;
+      }
+
+      function initDefenseRings() {
+        if (!window.HuaguoshanDefenseRings) {
+          log('防御圈图层模块未加载。', 'error');
+          return;
+        }
+        state.defenseRings = window.HuaguoshanDefenseRings.createModule({
+          CesiumRuntime: Cesium,
+          viewer: state.viewer,
+          rpc: postgrestRpc,
+          log: log
+        });
       }
 
       function initSourceSituation() {
@@ -562,6 +576,8 @@
         initAirspaceTilesLayer();
         initSuitableFootprintLayer();
         initSourceSituation();
+        initSourceSituation();
+        initDefenseRings();
         initFlightObstacleLayer();
         initConvexHullAnalysis();
         addLocalTileset(state.viewer);
@@ -589,6 +605,7 @@
           log: log,
           selectors: authSelectors,
           onAuthChanged: function (loggedIn) {
+            if (state.defenseRings) state.defenseRings.setAuthenticated(loggedIn).catch(function () {});
             appEvents.emit('auth:changed', { loggedIn: loggedIn });
           }
         });
@@ -610,6 +627,7 @@
         panelRouter.destroy();
         statusCenter.destroy();
         if (state.sourceSituation) state.sourceSituation.destroy();
+        if (state.defenseRings) state.defenseRings.destroy();
         if (state.viewer && !state.viewer.isDestroyed()) state.viewer.destroy();
       }
 
@@ -639,6 +657,7 @@
       var appEvents = window.HuaguoshanAppEvents.createEventBus();
       appEvents.on('auth:changed', function (event) {
         window.HuaguoshanHud.setAuthRequiredLocked(!(event && event.loggedIn));
+        if (state.defenseRings) state.defenseRings.setAuthenticated(Boolean(event && event.loggedIn)).catch(function () {});
       });
 
       disposers.push(window.HuaguoshanHud.initHudSections({ storageKey: 'hud.sections.open' }));

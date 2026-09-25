@@ -4,6 +4,16 @@ const SourceSituation = require('../frontend/src/features/source-situation/sourc
 
 const pageHtml = fs.readFileSync(require.resolve('../frontend/tianditu-3d.html'), 'utf8');
 assert(pageHtml.includes('data-situation-layer="remote-pilot"'));
+const defenseRingLayerText = fs.readFileSync(
+  require.resolve('../frontend/src/features/defense-rings/defense-ring-layer'),
+  'utf8',
+);
+assert(pageHtml.includes('data-layer="defenseRings"'));
+assert(defenseRingLayerText.includes("rpc('get_defense_ring_config'"));
+assert(defenseRingLayerText.includes('semiMajorAxis'));
+assert(defenseRingLayerText.includes('sensing'));
+assert(defenseRingLayerText.includes('hard_strike'));
+assert(defenseRingLayerText.includes('core'));
 
 const sourceModuleText = fs.readFileSync(
   require.resolve('../frontend/src/features/source-situation/source-situation-module'),
@@ -86,6 +96,7 @@ const liveTracks = SourceSituation.indexLiveTracks([{
   track_id: 7,
   status: 'tracking',
   source_type_code: 20,
+  riskAssessment: { status: 'assessed', riskLevel: 'high', riskScore: 75 },
   observations: [{
     observation_id: 1,
     observed_at: '2026-09-21T10:00:00+08:00',
@@ -93,6 +104,13 @@ const liveTracks = SourceSituation.indexLiveTracks([{
     remote_pilot_location: { position: { coordinates: [119.18, 34.58] }, source: 'vendor_reported' },
   }],
 }]);
+SourceSituation.applyLiveChanges(liveTracks, [{
+  type: 'risk_changed',
+  aggregate_id: 7,
+  riskAssessment: { status: 'assessed', riskLevel: 'critical', riskScore: 90 },
+  payload: { track_id: 7 },
+}], '2026-09-21T10:01:00+08:00', 300, 60, ['radio_detection']);
+assert.strictEqual(liveTracks['7'].riskAssessment.riskLevel, 'critical', '风险增量只替换 current 风险属性');
 SourceSituation.applyLiveChanges(liveTracks, [{
   type: 'target_upsert',
   occurred_at: '2026-09-21T10:01:00+08:00',
@@ -139,6 +157,7 @@ const html = SourceSituation.historySummaryHtml([{
   source_target_id: '<target>',
   source_type_code: 20,
   model: '<DJI>',
+  riskAssessment: { status: 'assessed', riskLevel: 'high', riskScore: 75 },
   spatial_point_count: 12,
   flagged_observation_count: 2,
   first_observed_at: '2026-09-21T10:00:00+08:00',
@@ -146,6 +165,7 @@ const html = SourceSituation.historySummaryHtml([{
 }]);
 assert(html.includes('&lt;DJI&gt;'));
 assert(html.includes('12'));
+assert(html.includes('高 75分'));
 assert(!html.includes('<DJI>'));
 
 console.log('source situation module tests passed');

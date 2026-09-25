@@ -36,6 +36,8 @@
   <script src="./src/features/airspace-grid/airspace-grid-ui.js"></script>
   <script src="./src/features/suitable-footprint/suitable-footprint-module.js"></script>
   <script src="./src/features/source-situation/source-situation-module.js"></script>
+  <script src="./src/features/source-situation/source-situation-module.js"></script>
+  <script src="./src/features/defense-rings/defense-ring-layer.js"></script>
   <script src="./src/features/airspace-tiles/airspace-tiles-module.js"></script>
   <script src="./src/features/citydb-inspector/citydb-inspector.js"></script>
   <script src="./src/features/convex-hull/glb-feature-geometry.js"></script>
@@ -127,6 +129,12 @@
         <h3>障碍</h3>
         <div class="toggles">
           <button type="button" data-layer="flightObstacles" aria-pressed="false" data-requires-auth>飞行障碍</button>
+        </div>
+      </div>
+      <div class="toggle-group" aria-label="防御圈图层">
+        <h3>防御圈</h3>
+        <div class="toggles">
+          <button type="button" data-layer="defenseRings" aria-pressed="false" data-requires-auth>五层防御圈</button>
         </div>
       </div>
     </details>
