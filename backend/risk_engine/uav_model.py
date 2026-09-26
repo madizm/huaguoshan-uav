@@ -11,9 +11,9 @@ logger = logging.getLogger(__name__)
 
 
 def _text(value: Any) -> str:
-    """Convert bytes or other types to string."""
-    if isinstance(value, bytes):
-        return value.decode("utf-8")
+    """Convert text-like database values to strings."""
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes(value).decode("utf-8")
     return str(value)
 
 class AsyncConnection(Protocol):
@@ -134,7 +134,7 @@ class UavModelMatcher:
         
         return cls(rules=rules, specs=specs)
 
-    def match(self, observation_model: str | None) -> UavModelSpec | None:
+    def match(self, observation_model: str | bytes | bytearray | memoryview | None) -> UavModelSpec | None:
         """Match observation model string to UAV spec.
         
         Returns None if no match or observation_model is None/empty.
@@ -142,11 +142,15 @@ class UavModelMatcher:
         """
         if not observation_model:
             return None
-        
+
+        # Detection adapters may expose textual database values as bytes. Regex
+        # patterns are compiled from strings, so normalize before searching.
+        normalized_model = _text(observation_model)
+
         # Find all matching rules
         candidates: dict[str, tuple[int, int]] = {}  # model_code -> (priority, rule_index)
         for rule_index, (pattern, priority, model_code) in enumerate(self.rules):
-            if pattern.search(observation_model):
+            if pattern.search(normalized_model):
                 existing = candidates.get(model_code)
                 if existing is None or priority > existing[0]:
                     candidates[model_code] = (priority, rule_index)

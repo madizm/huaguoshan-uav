@@ -87,6 +87,17 @@ def test_match_empty_string(matcher):
     assert spec is None
 
 
+@pytest.mark.parametrize(
+    "model",
+    [b"DJI-Mavic 3E", bytearray(b"DJI-Mavic 3E"), memoryview(b"DJI-Mavic 3E")],
+)
+def test_match_bytes_like_input(matcher, model):
+    """Database drivers may return text-like model values as bytes."""
+    spec = matcher.match(model)
+    assert spec is not None
+    assert spec.model_code == "DJI_MAVIC_3E"
+
+
 def test_match_generic_fallback(matcher):
     """Test generic fallback when specific model not matched."""
     # "DJI-Mini 2" matches %Mini% (priority 1) but not %Mini 5% (priority 10)
