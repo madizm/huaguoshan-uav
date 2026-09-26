@@ -325,6 +325,7 @@
           log('源数据校验模块未加载。', 'error');
           return;
         }
+        if (state.sourceSituation) state.sourceSituation.destroy();
         state.sourceSituation = window.HuaguoshanSourceSituation.createModule({
           CesiumRuntime: Cesium,
           viewer: state.viewer,
@@ -576,7 +577,6 @@
         initAirspaceGrid(state.viewer);
         initAirspaceTilesLayer();
         initSuitableFootprintLayer();
-        initSourceSituation();
         initSourceSituation();
         initDefenseRings();
         initFlightObstacleLayer();
