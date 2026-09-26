@@ -41,3 +41,6 @@ BEGIN
 END $$;
 
 commit;
+
+-- 授权 risk_engine 角色读取机型匹配所需的表
+grant select on equipment.uav_model_alias, equipment.uav_model_spec to risk_engine;
