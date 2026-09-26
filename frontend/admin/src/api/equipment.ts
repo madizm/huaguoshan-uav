@@ -358,3 +358,61 @@ export function listCounterUasTelemetrySamples(
     limit: String(limit),
   })
 }
+
+// 机型匹配规则
+export interface UavModelAlias {
+  alias_pattern: string
+  model_code: string
+  priority: number
+}
+
+export interface UavModelAliasStatistics extends UavModelAlias {
+  model_name: string
+  manufacturer: string
+  match_count: number
+  created_at: string
+}
+
+export interface UavModelAliasPayload {
+  alias_pattern: string
+  model_code: string
+  priority: number
+}
+
+export interface TestMatchResult {
+  matched: boolean
+  model_code?: string
+  model_name?: string
+  manufacturer?: string
+  weight_class?: string
+  max_takeoff_weight_kg?: number
+  reason?: string
+}
+
+export function listUavModelAliasStatistics(): Promise<UavModelAliasStatistics[]> {
+  return http.get('/uav_model_alias_statistics', { order: 'priority.desc,alias_pattern.asc' })
+}
+
+export function createUavModelAlias(payload: UavModelAliasPayload): Promise<UavModelAlias> {
+  return http.post('/rpc/create_uav_model_alias', payload)
+}
+
+export function updateUavModelAlias(
+  oldAliasPattern: string,
+  payload: UavModelAliasPayload
+): Promise<UavModelAlias> {
+  return http.post('/rpc/update_uav_model_alias', {
+    p_old_alias_pattern: oldAliasPattern,
+    p_new_alias_pattern: payload.alias_pattern,
+    p_model_code: payload.model_code,
+    p_priority: payload.priority,
+  })
+}
+
+export function deleteUavModelAlias(aliasPattern: string): Promise<void> {
+  return http.post('/rpc/delete_uav_model_alias', { p_alias_pattern: aliasPattern })
+}
+
+export function testUavModelMatch(model: string): Promise<TestMatchResult> {
+  return http.post('/rpc/test_uav_model_match', { p_model: model })
+}

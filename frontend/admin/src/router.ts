@@ -12,6 +12,7 @@ import RiskEngineView from './views/RiskEngineView.vue'
 import SourceSortieStatisticsView from './views/SourceSortieStatisticsView.vue'
 import SourceTargetSortieView from './views/SourceTargetSortieView.vue'
 import SystemSettingsView from './views/SystemSettingsView.vue'
+import UavModelAliasView from './views/UavModelAliasView.vue'
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -24,6 +25,7 @@ export const router = createRouter({
         { path: '', redirect: '/assets' },
         { path: 'assets', name: 'assets', component: AssetListView, meta: { title: '设备资产' } },
         { path: 'equipment-dictionaries', name: 'equipment-dictionaries', component: EquipmentDictionaryView, meta: { title: '设备字典' } },
+        { path: 'uav-model-alias', name: 'uav-model-alias', component: UavModelAliasView, meta: { title: '机型匹配规则' } },
         { path: 'emergency-resources', name: 'emergency-resources', component: EmergencyResourceView, meta: { title: '应急资源' } },
         { path: 'police-forces', name: 'police-forces', component: PoliceForceView, meta: { title: '警务力量' } },
         { path: 'defense-rings', name: 'defense-rings', component: DefenseRingView, meta: { title: '防御圈配置' } },

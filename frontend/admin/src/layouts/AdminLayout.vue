@@ -33,6 +33,10 @@ function handleLogout() {
           <el-icon><Setting /></el-icon>
           <span>设备字典</span>
         </el-menu-item>
+        <el-menu-item index="/uav-model-alias">
+          <el-icon><Grid /></el-icon>
+          <span>机型匹配规则</span>
+        </el-menu-item>
         <el-menu-item index="/emergency-resources">
           <el-icon><FirstAidKit /></el-icon>
           <span>应急资源</span>
