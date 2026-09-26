@@ -10,6 +10,12 @@ from typing import Any, Protocol
 logger = logging.getLogger(__name__)
 
 
+def _text(value: Any) -> str:
+    """Convert bytes or other types to string."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return str(value)
+
 class AsyncConnection(Protocol):
     async def execute(self, query: str, params: tuple[Any, ...] = ()) -> Any: ...
 
@@ -47,7 +53,7 @@ class UavModelMatcher:
         
         rules = []
         for row in alias_rows:
-            pattern_str = row["alias_pattern"]
+            pattern_str = _text(row["alias_pattern"])
             # Convert SQL LIKE pattern to regex
             # First escape all regex special chars except % and _
             # Then convert % to .* and _ to .
@@ -60,7 +66,7 @@ class UavModelMatcher:
                 else:
                     regex_str += re.escape(char)
             regex_str += "$"
-            rules.append((re.compile(regex_str, re.IGNORECASE), row["priority"], row["model_code"]))
+            rules.append((re.compile(regex_str, re.IGNORECASE), row["priority"], _text(row["model_code"])))
         
         # Load specs
         cursor = await conn.execute(
@@ -73,9 +79,10 @@ class UavModelMatcher:
         
         specs = {}
         for row in spec_rows:
-            specs[row["model_code"]] = UavModelSpec(
-                model_code=row["model_code"],
-                weight_class=row["weight_class"],
+            model_code = _text(row["model_code"])
+            specs[model_code] = UavModelSpec(
+                model_code=model_code,
+                weight_class=_text(row["weight_class"]),
                 max_takeoff_weight_kg=float(row["max_takeoff_weight_kg"]),
             )
         
