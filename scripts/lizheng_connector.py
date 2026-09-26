@@ -406,6 +406,13 @@ class GraphQLClient:
                 body = response.json()
                 if not isinstance(body, dict):
                     raise RuntimeError(f"{operation} response must be a JSON object")
+                if attempt > 1:
+                    logging.info(
+                        "%s recovered on attempt %d/%d",
+                        operation,
+                        attempt,
+                        NETWORK_RETRY_ATTEMPTS,
+                    )
                 return body
             except httpx.HTTPStatusError as error:
                 status = error.response.status_code

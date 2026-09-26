@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import types
 import unittest
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -111,6 +112,39 @@ class LizhengConnectorTests(unittest.TestCase):
         self.assertEqual(observation["qualityFlags"], [])
         self.assertEqual(observation["rawPayload"], {})
 
+    def test_logs_when_http_transport_recovers_after_retry(self):
+        class TransportError(Exception):
+            pass
+
+        class HTTPStatusError(Exception):
+            pass
+
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"data": {}}
+        client = MagicMock()
+        client.post.side_effect = [TransportError("timed out"), response]
+        graphql = connector.GraphQLClient("https://device.example", verify_ssl=False)
+        graphql._http_client = client
+        fake_httpx = types.SimpleNamespace(
+            TransportError=TransportError,
+            HTTPStatusError=HTTPStatusError,
+        )
+
+        with (
+            patch.dict(sys.modules, {"httpx": fake_httpx}),
+            patch.object(connector.time, "sleep"),
+            self.assertLogs(level="INFO") as logs,
+        ):
+            body = graphql._request_json("/rf/graphql", {}, 10, "lizheng graphql query")
+
+        self.assertEqual(body, {"data": {}})
+        self.assertIn(
+            "lizheng graphql query recovered on attempt 2/3",
+            "\n".join(logs.output),
+        )
+
+    def test_http_reconciliation_queries_all_preserved_drone_fields(self):
         for field in (
             "localization { lat lng }",
             "noise_dbm",

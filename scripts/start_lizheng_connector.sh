@@ -92,7 +92,7 @@ do_stop() {
     if ! is_running; then
         echo "⚠️  连接器未运行"
         rm -f "$PID_FILE"
-        exit 0
+        return 0
     fi
 
     local pid=$(get_pid)
