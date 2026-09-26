@@ -27,6 +27,11 @@ const SCORE_ROWS = [
   ['next_ring_eta_60', '下一圈 ETA ≤ 60 秒'],
   ['next_ring_eta_30', '下一圈 ETA ≤ 30 秒'],
   ['identity_unverified', '身份未核实'],
+  ['weight_class_micro', '微型无人机 (<250g)'],
+  ['weight_class_light', '轻型无人机 (250g-4kg)'],
+  ['weight_class_small', '小型无人机 (4-25kg)'],
+  ['weight_class_medium', '中型无人机 (25-150kg)'],
+  ['weight_class_large', '大型无人机 (>150kg)'],
 ] as const
 
 const loading = ref(false)
