@@ -97,20 +97,28 @@ class LizhengConnectorTests(unittest.TestCase):
         self.assertEqual(message["payload"]["extensions"], {})
         self.assertIsNone(message["payload"]["operationName"])
 
-    def test_reconciled_absence_is_a_normal_close_event(self):
+    def test_vendor_deletion_uses_deleted_time_as_observation_identity(self):
         received_at = connector.datetime(
             2026, 9, 26, 4, 1, tzinfo=connector.timezone.utc
         )
+        upstream = {
+            "id": "60601f08afe4",
+            "created_time": "2026-09-26T12:00:45+08:00",
+            "lastseen_time": "2026-09-26T12:00:48+08:00",
+            "deleted_time": "2026-09-26T12:00:55+08:00",
+        }
 
-        observation = connector.reconciled_offline_observation(
-            "60601f08afe4", "station-7", received_at
-        )
+        observation = connector.normalize_drone(upstream, "station-7", received_at)
 
         self.assertEqual(observation["stationId"], "station-7")
         self.assertEqual(observation["eventType"], "offline_remove")
-        self.assertEqual(observation["endReason"], "reconciled_absent")
+        self.assertEqual(observation["observedAt"], "2026-09-26T04:00:55+00:00")
+        self.assertEqual(
+            observation["sourceObservationId"],
+            "lizheng:60601f08afe4:2026-09-26T04:00:55+00:00",
+        )
         self.assertEqual(observation["qualityFlags"], [])
-        self.assertEqual(observation["rawPayload"], {})
+        self.assertIs(observation["rawPayload"], upstream)
 
     def test_logs_when_http_transport_recovers_after_retry(self):
         class TransportError(Exception):
@@ -155,6 +163,65 @@ class LizhengConnectorTests(unittest.TestCase):
 
 
 class LizhengWebSocketTests(unittest.IsolatedAsyncioTestCase):
+    async def test_snapshot_absence_delegates_to_server_reconciliation(self):
+        instance = connector.Connector(
+            connector.Config(
+                database_dsn="postgresql://unused",
+                database_role="detection_ingest",
+                base_url="https://device.example",
+                station_id="station-7",
+                username="user",
+                password="password",
+                reconcile_seconds=30,
+                device_sync_seconds=300,
+                http_timeout_seconds=10,
+                verify_ssl=False,
+            )
+        )
+        instance.active_drones["drone-a"] = connector.datetime.now(
+            connector.timezone.utc
+        )
+        instance.graphql.ensure_token = Mock()
+        instance.graphql.query = Mock(return_value={"drone": []})
+        instance.store.ingest = AsyncMock()
+        instance.store.reconcile = AsyncMock(return_value={"closedSessions": 0})
+
+        await instance._reconcile_drones()
+
+        instance.store.ingest.assert_not_awaited()
+        instance.store.reconcile.assert_awaited_once_with([])
+        self.assertNotIn("drone-a", instance.active_drones)
+
+    async def test_vendor_deletion_is_ingested_without_local_presence(self):
+        instance = connector.Connector(
+            connector.Config(
+                database_dsn="postgresql://unused",
+                database_role="detection_ingest",
+                base_url="https://device.example",
+                station_id="station-7",
+                username="user",
+                password="password",
+                reconcile_seconds=30,
+                device_sync_seconds=300,
+                http_timeout_seconds=10,
+                verify_ssl=False,
+            )
+        )
+        instance.store.ingest = AsyncMock(return_value={"status": "accepted"})
+        upstream = {
+            "id": "drone-a",
+            "created_time": "2026-09-26T12:00:45+08:00",
+            "lastseen_time": "2026-09-26T12:00:48+08:00",
+            "deleted_time": "2026-09-26T12:00:55+08:00",
+        }
+
+        await instance._process_subscription_data({"drone": [upstream]})
+
+        instance.store.ingest.assert_awaited_once()
+        observation = instance.store.ingest.await_args.args[0]
+        self.assertEqual(observation["eventType"], "offline_remove")
+        self.assertIs(observation["rawPayload"], upstream)
+
     async def test_stop_closes_active_websocket(self):
         instance = connector.Connector(
             connector.Config(

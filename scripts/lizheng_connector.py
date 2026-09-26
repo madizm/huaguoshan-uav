@@ -135,9 +135,9 @@ def parse_source_time(value: Any, fallback: datetime) -> tuple[datetime, bool]:
 
 def is_deleted(drone: dict[str, Any]) -> bool:
     deleted = drone.get("deleted_time")
-    if not isinstance(deleted, str):
+    if not isinstance(deleted, str) or not deleted.strip():
         return False
-    return not deleted.startswith("0001-01-01")
+    return not deleted.strip().startswith("0001-01-01")
 
 
 # ---------------------------------------------------------------------------
@@ -166,9 +166,12 @@ def normalize_drone(
     else:
         event_type = "online_upsert"
 
-    observed_at, missing_time = parse_source_time(
-        drone.get("lastseen_time") or drone.get("created_time"), received_at
+    source_time = (
+        drone.get("deleted_time")
+        if event_type == "offline_remove"
+        else drone.get("lastseen_time") or drone.get("created_time")
     )
+    observed_at, missing_time = parse_source_time(source_time, received_at)
 
     lng = safe_number(drone.get("longitude"))
     lat = safe_number(drone.get("latitude"))
@@ -238,40 +241,6 @@ def normalize_drone(
         "endReason": None,
         "qualityFlags": quality_flags,
         "rawPayload": drone,
-    }
-
-
-def reconciled_offline_observation(
-    drone_id: str, station_id: str, received_at: datetime
-) -> dict[str, Any]:
-    """Build a synthetic close event without treating normal absence as bad data."""
-    return {
-        "schemaVersion": 1,
-        "sourceSystem": SOURCE_SYSTEM,
-        "stationId": station_id,
-        "sourceObservationId": f"lizheng:{drone_id}:{received_at.isoformat()}",
-        "sourceTargetId": drone_id,
-        "sourceSessionId": drone_id,
-        "sourceTypeCode": None,
-        "detectionMethodCode": DETECTION_METHOD_CODE,
-        "eventType": "offline_remove",
-        "observedAt": received_at.isoformat(),
-        "receivedAt": received_at.isoformat(),
-        "longitude": None,
-        "latitude": None,
-        "altitudeAmslM": None,
-        "relativeHeightM": None,
-        "horizontalDistanceM": None,
-        "azimuthDeg": None,
-        "elevationDeg": None,
-        "speedMps": None,
-        "frequencyMhz": None,
-        "listType": None,
-        "model": None,
-        "remotePilotLocation": None,
-        "endReason": "reconciled_absent",
-        "qualityFlags": [],
-        "rawPayload": {},
     }
 
 
@@ -698,19 +667,19 @@ class Connector:
             drone_id = drone_id.strip()
 
             if is_deleted(drone):
-                # Drone removed — emit offline_remove if we were tracking it.
-                if drone_id in self.active_drones:
-                    normalized = normalize_drone(
-                        drone, self.config.station_id, received_at
-                    )
-                    if normalized is not None:
-                        try:
-                            await self.store.ingest(normalized)
-                        except Exception:
-                            logging.exception(
-                                "offline_remove rejected drone_id=%s", drone_id
-                            )
-                    self.active_drones.pop(drone_id, None)
+                # A vendor deletion is authoritative even after a process restart;
+                # database idempotency handles repeated deletion messages.
+                normalized = normalize_drone(
+                    drone, self.config.station_id, received_at
+                )
+                if normalized is not None:
+                    try:
+                        await self.store.ingest(normalized)
+                    except Exception:
+                        logging.exception(
+                            "offline_remove rejected drone_id=%s", drone_id
+                        )
+                self.active_drones.pop(drone_id, None)
                 continue
 
             # Drone present — track and ingest.
@@ -832,6 +801,18 @@ class Connector:
             drone_id = drone_id.strip()
 
             if is_deleted(drone):
+                normalized = normalize_drone(
+                    drone, self.config.station_id, received_at
+                )
+                if normalized is not None:
+                    try:
+                        await self.store.ingest(normalized)
+                    except Exception:
+                        logging.exception(
+                            "reconciliation offline_remove rejected drone_id=%s",
+                            drone_id,
+                        )
+                self.active_drones.pop(drone_id, None)
                 continue
 
             present_ids.add(drone_id)
@@ -847,16 +828,11 @@ class Connector:
             except Exception:
                 logging.exception("reconciliation ingest rejected drone_id=%s", drone_id)
 
-        # Emit offline_remove for tracked drones no longer present.
+        # Snapshot absence isn't an upstream deletion event. Forget the local
+        # presence marker and let server-side reconciliation apply the source's
+        # lost_timeout_seconds before marking its session and track as lost.
         disappeared = set(self.active_drones.keys()) - present_ids
         for drone_id in disappeared:
-            offline = reconciled_offline_observation(
-                drone_id, self.config.station_id, received_at
-            )
-            try:
-                await self.store.ingest(offline)
-            except Exception:
-                logging.exception("reconciliation offline_remove rejected drone_id=%s", drone_id)
             self.active_drones.pop(drone_id, None)
 
         # Also call the server-side reconcile for timeout-based cleanup.
