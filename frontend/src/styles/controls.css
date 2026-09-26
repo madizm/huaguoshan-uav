@@ -275,6 +275,8 @@
     gap: 7px;
   }
 
+  .source-situation-toggles[hidden] { display: none; }
+
   .source-situation-toggles button {
     flex: 1 1 100px;
     padding: 8px 9px;

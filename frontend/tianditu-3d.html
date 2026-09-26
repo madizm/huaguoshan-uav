@@ -36,7 +36,6 @@
   <script src="./src/features/airspace-grid/airspace-grid-ui.js"></script>
   <script src="./src/features/suitable-footprint/suitable-footprint-module.js"></script>
   <script src="./src/features/source-situation/source-situation-module.js"></script>
-  <script src="./src/features/source-situation/source-situation-module.js"></script>
   <script src="./src/features/defense-rings/defense-ring-layer.js"></script>
   <script src="./src/features/airspace-tiles/airspace-tiles-module.js"></script>
   <script src="./src/features/citydb-inspector/citydb-inspector.js"></script>
@@ -153,6 +152,9 @@
           <label class="field">结束日期
             <input id="sourceSituationEnd" type="date" />
           </label>
+        </div>
+        <div class="source-situation-toggles" id="sourceSituationFilters" aria-label="历史查询过滤" hidden>
+          <button type="button" id="sourceSituationSpatialOnly" aria-pressed="true" style="--source-color:#86efac">过滤无坐标航迹</button>
         </div>
         <p class="source-situation-note" id="sourceSituationNote">实时模式按游标每 2 秒补读，显示最近 5 分钟尾迹；异常跳变自动断开。</p>
         <div class="source-situation-toggles" aria-label="源数据图层">

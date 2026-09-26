@@ -35,7 +35,13 @@ assert.deepStrictEqual(
     p_station_ids: null,
     p_source_type_codes: [20],
     p_limit: 200,
+    p_require_spatial: false,
   },
+);
+assert.strictEqual(
+  SourceSituation.buildHistoryPayload('2026-09-21', '2026-09-21', [20], true).p_require_spatial,
+  true,
+  '开启空间过滤时必须传递 p_require_spatial',
 );
 assert.throws(
   () => SourceSituation.buildHistoryPayload('2025-12-31', '2025-12-26'),

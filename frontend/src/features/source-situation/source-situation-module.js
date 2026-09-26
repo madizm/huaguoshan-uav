@@ -24,7 +24,7 @@
     return date.toISOString().slice(0, 10);
   }
 
-  function buildHistoryPayload(startDate, inclusiveEndDate, sourceTypeCodes) {
+  function buildHistoryPayload(startDate, inclusiveEndDate, sourceTypeCodes, requireSpatial) {
     var exclusiveEnd = addDays(inclusiveEndDate, 1);
     if (!startDate || !exclusiveEnd || startDate > inclusiveEndDate) throw new Error('结束日期不能早于开始日期。');
     if ((Date.parse(exclusiveEnd) - Date.parse(startDate)) / 86400000 > 7) throw new Error('历史查询最多支持 7 天。');
@@ -33,7 +33,8 @@
       p_end_at: exclusiveEnd + 'T00:00:00+08:00',
       p_station_ids: null,
       p_source_type_codes: sourceTypeCodes == null ? null : sourceTypeCodes,
-      p_limit: 200
+      p_limit: 200,
+      p_require_spatial: Boolean(requireSpatial)
     };
   }
 
@@ -423,6 +424,7 @@
     var livePolling = false;
     var replayTimer = null;
     var replayDetail = null;
+    var historyQueried = false;
     var loadButton = $('#sourceSituationLoad');
     var locateButton = $('#sourceSituationLocate');
     var clearButton = $('#sourceSituationClear');
@@ -432,6 +434,8 @@
     var note = $('#sourceSituationNote');
     var startInput = $('#sourceSituationStart');
     var endInput = $('#sourceSituationEnd');
+    var filtersRow = $('#sourceSituationFilters');
+    var spatialOnlyButton = $('#sourceSituationSpatialOnly');
     var sourceToggleContainer = typeof document === 'undefined' ? null : document.querySelector('.source-situation-toggles');
     var sourceButtons = typeof document === 'undefined' ? [] : Array.prototype.slice.call(document.querySelectorAll('[data-detection-method]'));
     var remotePilotButton = $('[data-situation-layer="remote-pilot"]');
@@ -473,6 +477,7 @@
       liveCursor = 0;
       liveSources = [];
       replayDetail = null;
+      historyQueried = false;
       if (hint) hint.textContent = '未加载';
     }
 
@@ -848,8 +853,9 @@
 
     function loadHistory() {
       var payload;
+      var requireSpatial = Boolean(spatialOnlyButton && spatialOnlyButton.getAttribute('aria-pressed') === 'true');
       try {
-        payload = buildHistoryPayload(startInput && startInput.value, endInput && endInput.value, legacySourceTypeFilter(sourceButtons));
+        payload = buildHistoryPayload(startInput && startInput.value, endInput && endInput.value, legacySourceTypeFilter(sourceButtons), requireSpatial);
       } catch (error) {
         log(error.message, 'error');
         return Promise.reject(error);
@@ -859,6 +865,7 @@
       if (hint) hint.textContent = '查询中';
       return rpc('list_detection_target_tracks', payload).then(function (result) {
         if (destroyed || mode !== 'history') return result;
+        historyQueried = true;
         removeLayers();
         var tracks = result && result.tracks || [];
         if (summary) summary.innerHTML = historySummaryHtml(tracks);
@@ -905,6 +912,7 @@
       stopRefresh();
       stopReplay();
       replayDetail = null;
+      historyQueried = false;
       removeLayers();
       modeButtons.forEach(function (button) {
         button.setAttribute('aria-pressed', String(button.dataset.situationMode === mode));
@@ -915,6 +923,7 @@
       });
       if (startInput) startInput.disabled = !historyMode;
       if (endInput) endInput.disabled = !historyMode;
+      if (filtersRow) filtersRow.hidden = !historyMode;
       if (loadButton) loadButton.textContent = historyMode ? '查询历史航迹' : '刷新实时态势';
       if (note) note.textContent = historyMode
         ? '选择航迹查看详情；推算速度超过 100 m/s 的相邻点自动断开。'
@@ -965,6 +974,11 @@
       var active = remotePilotButton.getAttribute('aria-pressed') !== 'true';
       remotePilotButton.setAttribute('aria-pressed', String(active));
       if (dataSources['remote-pilot']) dataSources['remote-pilot'].show = active;
+    });
+    bind(spatialOnlyButton, 'click', function () {
+      var active = spatialOnlyButton.getAttribute('aria-pressed') !== 'true';
+      spatialOnlyButton.setAttribute('aria-pressed', String(active));
+      if (mode === 'history' && historyQueried) loadHistory().catch(function () {});
     });
 
     return {
