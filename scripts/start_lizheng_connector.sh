@@ -101,8 +101,8 @@ do_stop() {
     # 优雅关闭：先发送 SIGTERM
     kill "$pid" 2>/dev/null || true
 
-    # 等待进程退出（最多 10 秒）
-    for i in {1..10}; do
+    # 后台请求可能正在等待设备超时；与 systemd TimeoutStopSec 保持一致。
+    for i in {1..40}; do
         if ! kill -0 "$pid" 2>/dev/null; then
             echo "✅ 连接器已停止"
             rm -f "$PID_FILE"

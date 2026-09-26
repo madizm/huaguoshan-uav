@@ -84,3 +84,30 @@ curl --noproxy '*' -ksS --fail-with-body \
 实测无 `id` 查询返回 HTTP 200、8 条记录且无 GraphQL 错误：controller 1 条、engine 3 条、sensor 3 条、jammer 1 条；7 条 `state=operational`，controller 的 `state` 为空，全部 `faults` 为空。sensor 和 jammer 均有 `id=179`，因此 `id` 不应被视为跨设备类别唯一。`status` 和 `config` 可能包含设备内网地址、坐标、许可证等敏感信息，示例默认不读取这些字段。
 
 > GraphQL 即使返回 HTTP 200，也应检查响应的 `errors` 字段；认证失败时 HTTP 返回 401。测试结束后执行 `unset TOKEN`。上述示例只使用查询操作，未经授权不要调用文档中的打击、重启、删除或配置修改等 Mutation。
+
+## 5. 订阅无人机变化（只读）
+
+WebSocket 地址为 `wss://10.10.0.93/sub/subscriptions`，握手请求同样携带
+`Authorization: Bearer <token>`。实测流程为：
+
+1. 发送 `{"type":"connection_init"}`；
+2. 等待设备返回 `{"type":"connection_ack"}`；
+3. 按厂商协议发送一次 `type=add` 的订阅消息。
+
+订阅消息不是标准 GraphQL `type=subscribe`，格式如下：
+
+```json
+{
+  "id": "1",
+  "type": "add",
+  "payload": {
+    "query": "subscription { drone { id name longitude latitude lastseen_time } }",
+    "extensions": {},
+    "operationName": null,
+    "variables": {}
+  }
+}
+```
+
+设备无目标时连接可能长期没有业务消息，这是正常空闲状态，不应据此主动断开。设备返回的
+`210`、`365` 等无效哨兵值应在标准化时处理，同时保留未经修改的原始载荷用于追溯。

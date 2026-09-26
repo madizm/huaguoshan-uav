@@ -3,6 +3,7 @@
 # requires-python = ">=3.12"
 # dependencies = [
 #   "psycopg[binary]>=3.2,<4",
+#   "httpx[http2]>=0.28,<1",
 #   "websockets>=15,<17",
 # ]
 # ///
@@ -25,7 +26,6 @@ import signal
 import ssl
 import time
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -35,6 +35,7 @@ DETECTION_METHOD_CODE = "radio_detection"
 SOURCE_TIMEZONE_NAME = "Asia/Shanghai"
 # Token refresh when less than this many seconds remain before expiry.
 TOKEN_REFRESH_MARGIN_SECONDS = 300
+NETWORK_RETRY_ATTEMPTS = 3
 # Drone subscription query — selects the same fields as the HTTP drone query.
 DRONE_SUBSCRIPTION_QUERY = """subscription {
   drone {
@@ -55,15 +56,19 @@ DRONE_SUBSCRIPTION_QUERY = """subscription {
 }"""
 DRONE_QUERY = """query {
   drone {
-    id name description state direction distance speed
+    id name description image state direction distance speed
     altitude height latitude longitude
     created_time deleted_time lastseen_time
     confirmed reliability
     rc_location { lat lng }
     initial_location { lat lng }
-    seen_sensor { sensor_id detected_freq_khz signal_dbm snr_dB bandwidth_khz port }
-    attack_bands attack_type attacking
-    in_ada blacklisted whitelisted
+    localization { lat lng }
+    seen_sensor { sensor_id detected_freq_khz signal_dbm snr_dB bandwidth_khz noise_dbm port }
+    attack_bands attack_type attacking attacking_ttl
+    in_ada blacklisted whitelisted has_duplicate
+    tracing { lastlen origin { lat lng } points }
+    link_id jamming_conflicts directional_attack_state
+    has_screenshot tracking_video
   }
 }"""
 DEVICES_QUERY = """query {
@@ -140,7 +145,17 @@ def is_deleted(drone: dict[str, Any]) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def normalize_drone(drone: dict[str, Any], received_at: datetime) -> dict[str, Any] | None:
+def drone_session_id(drone: dict[str, Any], drone_id: str) -> str:
+    """Identify one appearance of a target, allowing the same ID to reappear."""
+    created_time = drone.get("created_time")
+    if isinstance(created_time, str) and created_time.strip():
+        return f"{drone_id}:{created_time.strip()}"
+    return drone_id
+
+
+def normalize_drone(
+    drone: dict[str, Any], station_id: str, received_at: datetime
+) -> dict[str, Any] | None:
     drone_id = drone.get("id")
     if not isinstance(drone_id, str) or not drone_id.strip():
         return None
@@ -195,10 +210,10 @@ def normalize_drone(drone: dict[str, Any], received_at: datetime) -> dict[str, A
     return {
         "schemaVersion": 1,
         "sourceSystem": SOURCE_SYSTEM,
-        "stationId": "1",
+        "stationId": station_id,
         "sourceObservationId": f"lizheng:{drone_id}:{observed_at.isoformat()}",
         "sourceTargetId": drone_id,
-        "sourceSessionId": drone_id,
+        "sourceSessionId": drone_session_id(drone, drone_id),
         "sourceTypeCode": None,
         "detectionMethodCode": DETECTION_METHOD_CODE,
         "eventType": event_type,
@@ -226,7 +241,43 @@ def normalize_drone(drone: dict[str, Any], received_at: datetime) -> dict[str, A
     }
 
 
-def normalize_device(device: dict[str, Any], received_at: datetime) -> dict[str, Any] | None:
+def reconciled_offline_observation(
+    drone_id: str, station_id: str, received_at: datetime
+) -> dict[str, Any]:
+    """Build a synthetic close event without treating normal absence as bad data."""
+    return {
+        "schemaVersion": 1,
+        "sourceSystem": SOURCE_SYSTEM,
+        "stationId": station_id,
+        "sourceObservationId": f"lizheng:{drone_id}:{received_at.isoformat()}",
+        "sourceTargetId": drone_id,
+        "sourceSessionId": drone_id,
+        "sourceTypeCode": None,
+        "detectionMethodCode": DETECTION_METHOD_CODE,
+        "eventType": "offline_remove",
+        "observedAt": received_at.isoformat(),
+        "receivedAt": received_at.isoformat(),
+        "longitude": None,
+        "latitude": None,
+        "altitudeAmslM": None,
+        "relativeHeightM": None,
+        "horizontalDistanceM": None,
+        "azimuthDeg": None,
+        "elevationDeg": None,
+        "speedMps": None,
+        "frequencyMhz": None,
+        "listType": None,
+        "model": None,
+        "remotePilotLocation": None,
+        "endReason": "reconciled_absent",
+        "qualityFlags": [],
+        "rawPayload": {},
+    }
+
+
+def normalize_device(
+    device: dict[str, Any], station_id: str, received_at: datetime
+) -> dict[str, Any] | None:
     device_class = device.get("class") or "unknown"
     device_id = device.get("id")
     # For controller, use 'controller' as default id if empty.
@@ -284,7 +335,7 @@ def normalize_device(device: dict[str, Any], received_at: datetime) -> dict[str,
     return {
         "schemaVersion": 1,
         "sourceSystem": SOURCE_SYSTEM,
-        "stationId": "1",
+        "stationId": station_id,
         "sourceAssetId": device_id,
         "name": f"历正{device_class} #{device_id}",
         "manufacturer": "历正科技",
@@ -310,24 +361,81 @@ class GraphQLClient:
         self.token: str | None = None
         self.token_exp: float = 0.0
         self.verify_ssl = verify_ssl
+        self._http_client: Any = None
+
+    def _client(self) -> Any:
+        if self._http_client is None:
+            import httpx
+            logging.getLogger("httpx").setLevel(logging.WARNING)
+
+            # The device's HTTP/1.1 TLS endpoint resets connections frequently.
+            # HTTP/2 plus connection reuse is stable in device-side testing.
+            self._http_client = httpx.Client(
+                base_url=self.base_url,
+                verify=self.verify_ssl,
+                http2=True,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "huaguoshan-lizheng-connector/1",
+                },
+            )
+        return self._http_client
+
+    def close(self) -> None:
+        if self._http_client is not None:
+            self._http_client.close()
+            self._http_client = None
+
+    def _request_json(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        timeout: float,
+        operation: str,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Execute a device request, retrying intermittent transport failures."""
+        import httpx
+
+        for attempt in range(1, NETWORK_RETRY_ATTEMPTS + 1):
+            try:
+                response = self._client().post(
+                    path, json=payload, headers=headers, timeout=timeout
+                )
+                response.raise_for_status()
+                body = response.json()
+                if not isinstance(body, dict):
+                    raise RuntimeError(f"{operation} response must be a JSON object")
+                return body
+            except httpx.HTTPStatusError as error:
+                status = error.response.status_code
+                if status not in (307, 308) and status < 500:
+                    raise
+                last_error: Exception = error
+            except httpx.TransportError as error:
+                last_error = error
+
+            if attempt == NETWORK_RETRY_ATTEMPTS:
+                raise last_error
+            delay = 0.5 * attempt
+            logging.warning(
+                "%s transport error (%s); retrying in %.1fs (%d/%d)",
+                operation,
+                last_error,
+                delay,
+                attempt,
+                NETWORK_RETRY_ATTEMPTS,
+            )
+            time.sleep(delay)
+        raise AssertionError("unreachable")
 
     def login(self, username: str, password: str, timeout: float) -> None:
-        data = json.dumps(
-            {"username": username, "password": password}
-        ).encode()
-        request = urllib.request.Request(
-            f"{self.base_url}/login",
-            data=data,
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "User-Agent": "huaguoshan-lizheng-connector/1",
-            },
-            method="POST",
+        body = self._request_json(
+            "/login",
+            {"username": username, "password": password},
+            timeout,
+            "lizheng login",
         )
-        ssl_ctx = self._ssl_context()
-        with urllib.request.urlopen(request, timeout=timeout, context=ssl_ctx) as response:
-            body = json.load(response)
         token = body.get("token")
         if not isinstance(token, str) or not token:
             raise RuntimeError("login response missing token")
@@ -340,24 +448,16 @@ class GraphQLClient:
     def query(self, graphql: str, timeout: float) -> dict[str, Any]:
         if self.token is None:
             raise RuntimeError("not logged in")
-        data = json.dumps({"query": graphql}).encode()
-        request = urllib.request.Request(
-            f"{self.base_url}/rf/graphql",
-            data=data,
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "Authorization": f"Bearer {self.token}",
-                "User-Agent": "huaguoshan-lizheng-connector/1",
-            },
-            method="POST",
+        body = self._request_json(
+            "/rf/graphql",
+            {"query": graphql},
+            timeout,
+            "lizheng graphql query",
+            {"Authorization": f"Bearer {self.token}"},
         )
-        ssl_ctx = self._ssl_context()
-        with urllib.request.urlopen(request, timeout=timeout, context=ssl_ctx) as response:
-            body = json.load(response)
         if "errors" in body and body["errors"]:
             messages = [e.get("message", "") for e in body["errors"] if isinstance(e, dict)]
-            logging.warning("graphql errors: %s", messages)
+            raise RuntimeError(f"graphql query failed: {messages}")
         return body.get("data") or {}
 
     def ensure_token(self, username: str, password: str, timeout: float) -> None:
@@ -393,12 +493,30 @@ class DetectionStore:
         import psycopg
         from psycopg import sql
 
-        self.connection = await psycopg.AsyncConnection.connect(
-            self.config.database_dsn, autocommit=True
-        )
-        await self.connection.execute(
-            sql.SQL("set role {}").format(sql.Identifier(self.config.database_role))
-        )
+        for attempt in range(1, NETWORK_RETRY_ATTEMPTS + 1):
+            try:
+                self.connection = await psycopg.AsyncConnection.connect(
+                    self.config.database_dsn, autocommit=True
+                )
+                await self.connection.execute(
+                    sql.SQL("set role {}").format(
+                        sql.Identifier(self.config.database_role)
+                    )
+                )
+                return
+            except psycopg.OperationalError as error:
+                await self.close()
+                if attempt == NETWORK_RETRY_ATTEMPTS:
+                    raise
+                delay = 0.5 * attempt
+                logging.warning(
+                    "detection database connection failed (%s); retrying in %.1fs (%d/%d)",
+                    error,
+                    delay,
+                    attempt,
+                    NETWORK_RETRY_ATTEMPTS,
+                )
+                await asyncio.sleep(delay)
 
     async def close(self) -> None:
         if self.connection is not None:
@@ -445,7 +563,7 @@ class DetectionStore:
             "select situation.update_detection_connector_status(%s,%s,%s,%s,%s,%s,%s::jsonb)",
             (
                 SOURCE_SYSTEM,
-                "1",
+                self.config.station_id,
                 state,
                 now,
                 now if state == "connected" else None,
@@ -462,7 +580,7 @@ class DetectionStore:
 
         return await self._execute_value(
             "select situation.reconcile_detection_targets(%s,%s,%s,%s)",
-            (SOURCE_SYSTEM, "1", _dt.now(timezone.utc), target_ids),
+            (SOURCE_SYSTEM, self.config.station_id, _dt.now(timezone.utc), target_ids),
         )
 
 
@@ -492,31 +610,25 @@ class Connector:
         self.graphql = GraphQLClient(config.base_url, verify_ssl=config.verify_ssl)
         self.stop_event = asyncio.Event()
         self.active_drones: dict[str, datetime] = {}  # drone_id → last_seen
-        self._protocol_use_add = False  # False = standard graphql-ws, True = "add"
+        self._subscription_started = False
+        self._ws_connection: Any = None
 
     async def stop(self) -> None:
         self.stop_event.set()
+        if self._ws_connection is not None:
+            await self._ws_connection.close()
 
     # -- Drone subscription (WebSocket) ------------------------------------
 
     def _subscription_message(self) -> dict[str, Any]:
-        if self._protocol_use_add:
-            return {
-                "id": "1",
-                "type": "add",
-                "payload": {
-                    "query": DRONE_SUBSCRIPTION_QUERY,
-                    "extensions": {},
-                    "operationName": None,
-                    "variables": {},
-                },
-            }
-        # Standard graphql-ws protocol.
+        """Build the proprietary subscription message documented by Lizheng."""
         return {
             "id": "1",
-            "type": "subscribe",
+            "type": "add",
             "payload": {
                 "query": DRONE_SUBSCRIPTION_QUERY,
+                "extensions": {},
+                "operationName": None,
                 "variables": {},
             },
         }
@@ -532,14 +644,19 @@ class Connector:
 
         msg_type = message.get("type")
 
-        # Standard graphql-ws: server sends connection_ack after connection_init.
+        # The device acknowledges connection_init before accepting its documented
+        # proprietary "add" subscription message.
         if msg_type == "connection_ack":
             logging.info("graphql-ws connection acknowledged")
-            await self._ws_send(self._subscription_message())
+            if not self._subscription_started:
+                await self._ws_send(self._subscription_message())
+                self._subscription_started = True
             return
 
-        # Standard graphql-ws keepalive.
-        if msg_type in ("ka", "ping"):
+        if msg_type == "ping":
+            await self._ws_send({"type": "pong"})
+            return
+        if msg_type == "ka":
             return
 
         # Data delivery — both protocols use "data" / "next".
@@ -547,10 +664,10 @@ class Connector:
             await self._process_subscription_data(message.get("payload", {}))
             return
 
-        # Error from server.
         if msg_type in ("error", "complete"):
-            logging.info("subscription ended: type=%s", msg_type)
-            return
+            raise RuntimeError(
+                f"lizheng subscription ended: type={msg_type} payload={message.get('payload')}"
+            )
 
         logging.debug("unhandled websocket message type=%s", msg_type)
 
@@ -576,7 +693,9 @@ class Connector:
             if is_deleted(drone):
                 # Drone removed — emit offline_remove if we were tracking it.
                 if drone_id in self.active_drones:
-                    normalized = normalize_drone(drone, received_at)
+                    normalized = normalize_drone(
+                        drone, self.config.station_id, received_at
+                    )
                     if normalized is not None:
                         try:
                             await self.store.ingest(normalized)
@@ -592,7 +711,7 @@ class Connector:
             is_new = drone_id not in self.active_drones
             self.active_drones[drone_id] = received_at
 
-            normalized = normalize_drone(drone, received_at)
+            normalized = normalize_drone(drone, self.config.station_id, received_at)
             if normalized is None:
                 continue
             if is_new:
@@ -633,13 +752,10 @@ class Connector:
             self._ws_connection = websocket
             await self.store.connector_status("connected")
 
-            # Send connection_init for standard graphql-ws protocol.
-            # The server may respond with connection_ack, triggering the
-            # subscription request in _handle_ws_message.
+            self._subscription_started = False
+            # The observed device responds to connection_init with connection_ack;
+            # _handle_ws_message then sends exactly one documented "add" request.
             await self._ws_send({"type": "connection_init"})
-            # Also send the subscription directly for servers that accept
-            # the documented "add" protocol without connection_init.
-            await self._ws_send(self._subscription_message())
 
             # Perform initial device sync and reconciliation immediately.
             try:
@@ -657,16 +773,20 @@ class Connector:
 
             try:
                 while not self.stop_event.is_set():
-                    raw = await asyncio.wait_for(websocket.recv(), timeout=30)
+                    try:
+                        raw = await asyncio.wait_for(websocket.recv(), timeout=30)
+                    except asyncio.TimeoutError:
+                        # An idle RF feed is healthy. Protocol-level ping/pong detects
+                        # dead connections without resetting periodic background jobs.
+                        continue
                     await self._handle_ws_message(raw)
-            except asyncio.TimeoutError:
-                logging.info("websocket receive timeout, reconnecting")
             finally:
                 reconcile_task.cancel()
                 device_sync_task.cancel()
                 await asyncio.gather(
                     reconcile_task, device_sync_task, return_exceptions=True
                 )
+                self._ws_connection = None
 
     # -- Reconciliation (periodic drone query) ------------------------------
 
@@ -711,7 +831,7 @@ class Connector:
             is_new = drone_id not in self.active_drones
             self.active_drones[drone_id] = received_at
 
-            normalized = normalize_drone(drone, received_at)
+            normalized = normalize_drone(drone, self.config.station_id, received_at)
             if normalized is None:
                 continue
             normalized["eventType"] = "online_upsert" if is_new else "snapshot"
@@ -723,34 +843,9 @@ class Connector:
         # Emit offline_remove for tracked drones no longer present.
         disappeared = set(self.active_drones.keys()) - present_ids
         for drone_id in disappeared:
-            offline = {
-                "schemaVersion": 1,
-                "sourceSystem": SOURCE_SYSTEM,
-                "stationId": "1",
-                "sourceObservationId": f"lizheng:{drone_id}:{received_at.isoformat()}",
-                "sourceTargetId": drone_id,
-                "sourceSessionId": drone_id,
-                "sourceTypeCode": None,
-                "detectionMethodCode": DETECTION_METHOD_CODE,
-                "eventType": "offline_remove",
-                "observedAt": received_at.isoformat(),
-                "receivedAt": received_at.isoformat(),
-                "longitude": None,
-                "latitude": None,
-                "altitudeAmslM": None,
-                "relativeHeightM": None,
-                "horizontalDistanceM": None,
-                "azimuthDeg": None,
-                "elevationDeg": None,
-                "speedMps": None,
-                "frequencyMhz": None,
-                "listType": None,
-                "model": None,
-                "remotePilotLocation": None,
-                "endReason": "reconciled_absent",
-                "qualityFlags": ["reconciled_absent"],
-                "rawPayload": {},
-            }
+            offline = reconciled_offline_observation(
+                drone_id, self.config.station_id, received_at
+            )
             try:
                 await self.store.ingest(offline)
             except Exception:
@@ -797,7 +892,9 @@ class Connector:
             # are components of the integrated system and share the same observation source.
             if device.get("class") != "controller":
                 continue
-            normalized = normalize_device(device, received_at)
+            normalized = normalize_device(
+                device, self.config.station_id, received_at
+            )
             if normalized is None:
                 continue
             try:
@@ -873,15 +970,9 @@ class Connector:
     # -- Main loop ----------------------------------------------------------
 
     async def run(self) -> None:
-        await self.store.connect()
-        # Initial login.
-        await asyncio.to_thread(
-            self.graphql.login,
-            self.config.username,
-            self.config.password,
-            self.config.http_timeout_seconds,
-        )
-
+        # All network initialization happens inside the retry loop. Both the
+        # device and VPN occasionally reset TLS during startup, and a transient
+        # first-login or database failure must not terminate the service.
         delay = 1.0
         try:
             while not self.stop_event.is_set():
@@ -891,6 +982,8 @@ class Connector:
                 except asyncio.CancelledError:
                     raise
                 except Exception as error:
+                    if self.stop_event.is_set():
+                        break
                     logging.exception(
                         "lizheng connection failed; retrying in %.1fs", delay
                     )
@@ -911,6 +1004,7 @@ class Connector:
             except Exception:
                 logging.exception("failed to persist shutdown status")
             await self.store.close()
+            await asyncio.to_thread(self.graphql.close)
 
 
 # ---------------------------------------------------------------------------
