@@ -275,9 +275,12 @@ POST /postgrest/rpc/list_target_risk_assessments
   "p_end_at": "2026-09-21T16:00:00Z",
   "p_station_ids": ["90"],
   "p_source_type_codes": [20],
-  "p_limit": 200
+  "p_limit": 200,
+  "p_require_spatial": true
 }
 ```
+
+`p_require_spatial` 为 `true` 时只返回窗口内有空间点的航迹（过滤 `spatial_point_count` 为 0 的数据），缺省为 `false`。过滤在 `p_limit` 之前生效，不占用返回名额。
 
 返回 `tracks`，每项包含航迹、来源目标、时间范围、空间点数量、质量标记数量、高度范围、空间范围和当前 `riskAssessment`。
 

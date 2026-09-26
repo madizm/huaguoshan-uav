@@ -517,11 +517,14 @@ POST /postgrest/rpc/list_detection_target_tracks
   "p_end_at": "2026-09-22T00:00:00+08:00",
   "p_station_ids": ["90"],
   "p_source_type_codes": [20],
-  "p_limit": 200
+  "p_limit": 200,
+  "p_require_spatial": true
 }
 ```
 
 时间区间采用 `[p_start_at, p_end_at)` 半开语义，单次窗口最大 7 天。
+
+`p_require_spatial` 为 `true` 时只返回窗口内有空间点的航迹（过滤空间点数量为 0 的数据），缺省为 `false`；历史航迹地图场景建议传 `true`，避免列出无法绘制轨迹的航迹。
 
 每条摘要包括：
 

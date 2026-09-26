@@ -143,7 +143,7 @@ comment on function api.get_detection_situation_changes(bigint,text[],integer) i
   - 断线重连后的数据同步$$;
 
 -- 9. 目标航迹列表
-comment on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) is
+comment on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer,boolean) is
   $$查询目标航迹列表
   
   分页查询目标航迹，支持按时间范围、站点、来源类型等条件过滤。
@@ -154,7 +154,8 @@ comment on function api.list_detection_target_tracks(timestamptz,timestamptz,tex
   - p_end_at: 结束时间（含时区）
   - p_station_ids: 站点 ID 列表，为空时返回所有站点
   - p_source_type_codes: 来源类型代码列表，为空时返回所有类型
-  - p_limit: 每页数量（1-500），默认 200
+  - p_limit: 每页数量（1-1000），默认 200
+  - p_require_spatial: 为 true 时只返回时间窗口内有空间点的航迹，默认 false
   
   返回 JSON 结构：
   - total: 总数量

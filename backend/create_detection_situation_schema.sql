@@ -1724,9 +1724,13 @@ end;
 $$;
 comment on function api.get_detection_situation_changes(bigint,text[],integer) is '返回 JSON：from_cursor、next_cursor、has_more 和 changes；按持久化游标补读目标、来源状态、risk_changed 及当前 riskAssessment，单次最多 1000 条。';
 
+-- 签名变更：删除旧的五参数重载，避免 PostgREST 重载歧义。
+drop function if exists api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer);
+
 create or replace function api.list_detection_target_tracks(
   p_start_at timestamptz,p_end_at timestamptz,p_station_ids text[] default null,
-  p_source_type_codes smallint[] default null,p_limit integer default 200
+  p_source_type_codes smallint[] default null,p_limit integer default 200,
+  p_require_spatial boolean default false
 ) returns jsonb language plpgsql stable security definer
 set search_path=pg_catalog,public,equipment,situation,event_response as $$
 declare v_result jsonb;
@@ -1745,6 +1749,12 @@ begin
     where t.first_observed_at<p_end_at and t.last_observed_at>=p_start_at
       and (p_station_ids is null or src.external_station_id=any(p_station_ids))
       and (p_source_type_codes is null or s.source_type_code=any(p_source_type_codes))
+      and (not coalesce(p_require_spatial,false) or exists(
+        select 1 from situation.track_observation x
+        join equipment.raw_observation r on r.id=x.observation_id
+        where x.track_id=t.id and r.observed_at>=p_start_at and r.observed_at<p_end_at
+          and r.geom is not null
+      ))
     order by t.last_observed_at desc,t.id desc limit p_limit
   ), summaries as (
     select mt.*,coalesce(count(r.id),0) observation_count,
@@ -1779,7 +1789,7 @@ begin
   return v_result;
 end;
 $$;
-comment on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) is '返回 JSON：start_at、end_at_exclusive、limit 和 tracks；每条航迹包含当前 riskAssessment，窗口最大 7 天，最多 1000 条。';
+comment on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer,boolean) is '返回 JSON：start_at、end_at_exclusive、limit 和 tracks；每条航迹包含当前 riskAssessment；p_require_spatial 为 true 时只返回窗口内有空间点的航迹；窗口最大 7 天，最多 1000 条。';
 
 create or replace function event_response.observation_risk_assessment_json(p_observation_id bigint) returns jsonb
 language sql stable security definer set search_path=pg_catalog,public,event_response as $$
@@ -1899,7 +1909,7 @@ revoke all on function api.get_detection_live_tracks_v2(bigint[],bigint[],text[]
 revoke all on function api.get_detection_live_tracks_v3(bigint[],bigint[],text[],integer,integer,integer,integer) from public,anonymous;
 
 revoke all on function api.get_detection_situation_changes(bigint,text[],integer) from public,anonymous;
-revoke all on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) from public,anonymous;
+revoke all on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer,boolean) from public,anonymous;
 revoke all on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) from public,anonymous;
 revoke all on function api.update_detection_observation_source(bigint,text,bigint,text,integer,boolean) from public,anonymous;
 revoke all on function api.create_detection_method(text,text,text,boolean,integer,jsonb) from public,anonymous;
@@ -1911,7 +1921,7 @@ grant execute on function api.get_detection_live_tracks(text[],smallint[],intege
 grant execute on function api.get_detection_live_tracks_v2(bigint[],bigint[],text[],integer,integer,integer,integer) to admin;
 grant execute on function api.get_detection_live_tracks_v3(bigint[],bigint[],text[],integer,integer,integer,integer) to admin;
 grant execute on function api.get_detection_situation_changes(bigint,text[],integer) to admin;
-grant execute on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer) to admin;
+grant execute on function api.list_detection_target_tracks(timestamptz,timestamptz,text[],smallint[],integer,boolean) to admin;
 grant execute on function api.get_target_track_detail(bigint,timestamptz,timestamptz,integer) to admin;
 grant execute on function api.update_detection_observation_source(bigint,text,bigint,text,integer,boolean) to admin;
 grant execute on function api.create_detection_method(text,text,text,boolean,integer,jsonb) to admin;
