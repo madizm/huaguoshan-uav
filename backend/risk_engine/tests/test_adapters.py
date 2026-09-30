@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
+import json
 
+from psycopg.types.json import JsonbDumper
 from psycopg.types.json import Jsonb
 
 from backend.risk_engine.detection_adapter import fetch_published_configuration, target_from_row
@@ -78,6 +80,24 @@ def test_persistence_uses_psycopg_parameters_and_version_snapshots():
     assert params[15] == 9
     assert isinstance(params[17], Jsonb)
     assert isinstance(params[18], Jsonb)
+
+
+def test_persistence_sends_literal_utf8_json_for_sql_ascii_databases():
+    import asyncio
+
+    conn = FakeConnection()
+    assessment = RiskAssessment(
+        status="target_location_unavailable", track_id=1, observation_id=2,
+        observed_at=datetime.now(timezone.utc), assessed_at=datetime.now(timezone.utc),
+    )
+    snapshot = {"model": "大疆御4 🛩", "nested": {"名称": "无人机"}}
+    asyncio.run(persist_assessment(conn, assessment, snapshot))
+    _, params = conn.calls[0]
+    for param in params[17:19]:
+        payload = JsonbDumper(Jsonb).dump(param)
+        assert b"\\u" not in payload
+        assert json.loads(payload) == param.obj
+    assert "大疆御4 🛩".encode("utf-8") in JsonbDumper(Jsonb).dump(params[18])
 
 
 def test_fetch_persisted_assessment_returns_versioned_result():

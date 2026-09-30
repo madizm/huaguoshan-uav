@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from functools import partial
+import json
 from typing import Any, Protocol
 
 from psycopg.types.json import Jsonb
 
 from .domain import RiskAssessment
+
+
+# SQL_ASCII databases cannot convert non-ASCII \u escapes when parsing jsonb.
+# Send literal UTF-8 instead; this also works unchanged on UTF8 databases.
+_json_dumps = partial(json.dumps, ensure_ascii=False)
 
 
 class Database(Protocol):
@@ -106,7 +113,7 @@ async def persist_assessment(db: Database, assessment: RiskAssessment, input_sna
             values["risk_level"], values["risk_score"], values["protected_object_id"],
             values["protected_object_version"], values["ring_id"], values["ring_code"],
             values["ring_level"], values["ring_version"], values["distance_m"],
-            values["rule_set_id"], values["rule_version"], Jsonb(values["factors"]),
-            Jsonb(dict(input_snapshot)), values["reason"],
+            values["rule_set_id"], values["rule_version"], Jsonb(values["factors"], dumps=_json_dumps),
+            Jsonb(dict(input_snapshot), dumps=_json_dumps), values["reason"],
         ),
     )

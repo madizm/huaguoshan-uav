@@ -64,9 +64,16 @@ async def _exercise_database_contract():
                 observed_at=older_at, longitude=None, latitude=None,
             ), protected_objects, rules, older_at)
 
-            await persist_assessment(conn, newer_result, {"integrationTest": True})
-            await persist_assessment(conn, newer_result, {"integrationTest": True})
+            snapshot = {"integrationTest": True, "model": "大疆御4 🛩"}
+            await persist_assessment(conn, newer_result, snapshot)
+            await persist_assessment(conn, newer_result, snapshot)
             await persist_assessment(conn, older_result, {"integrationTest": True})
+
+            cursor = await conn.execute(
+                "select input_snapshot from event_response.target_risk_assessment where observation_id=%s",
+                (newer["observationId"],),
+            )
+            assert (await cursor.fetchone())["input_snapshot"] == snapshot
 
             cursor = await conn.execute(
                 """select count(*) history_count,
