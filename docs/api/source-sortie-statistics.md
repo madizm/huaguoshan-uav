@@ -98,3 +98,7 @@ POST /postgrest/rpc/list_source_sorties
 - `lifecycle_overlap`
 
 返回 `total` 和 `sorties`。每条架次包含来源目标、航迹、起止时间、观测与空间点数量、风险、防御圈和质量属性。
+
+## 6. 运维注意
+
+本节三个 RPC 的执行计划包含并行查询（`Gather` + `Parallel Hash Join`），动态共享内存存放在数据库容器 `/dev/shm`。容器必须使用 `--shm-size=1g` 或更大启动；Docker 默认 64MB 在并发请求时会被打满，接口返回 `53100 could not resize shared memory segment ... No space left on device`。修复和降级方案见 `docs/部署指南.md`「前置条件」与「常见故障」。
