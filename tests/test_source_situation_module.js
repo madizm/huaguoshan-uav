@@ -97,6 +97,39 @@ assert.strictEqual(
   }, '2026-09-21T10:01:00+08:00').code,
   'warning',
 );
+assert.deepStrictEqual(
+  SourceSituation.sourceState({
+    enabled: true,
+    connector_state: 'connected',
+    last_message_at: '2026-09-21T10:00:00+08:00',
+    lost_timeout_seconds: 60,
+    skew_abs_max_seconds: 24.3,
+    skew_sample_count: 40,
+  }, '2026-09-21T10:01:00+08:00'),
+  { code: 'warning', label: '源时钟偏差严重' },
+);
+assert.deepStrictEqual(
+  SourceSituation.sourceState({
+    enabled: true,
+    connector_state: 'connected',
+    last_message_at: '2026-09-21T10:00:00+08:00',
+    lost_timeout_seconds: 60,
+    skew_abs_max_seconds: 8.2,
+    skew_sample_count: 40,
+  }, '2026-09-21T10:01:00+08:00'),
+  { code: 'warning', label: '源时钟偏差' },
+);
+assert.strictEqual(
+  SourceSituation.sourceState({
+    enabled: true,
+    connector_state: 'connected',
+    last_message_at: '2026-09-21T10:00:00+08:00',
+    lost_timeout_seconds: 60,
+    skew_abs_max_seconds: 2.1,
+    skew_sample_count: 40,
+  }, '2026-09-21T10:01:00+08:00').code,
+  'ok',
+);
 
 const sourceButtons = ['radar', 'radio_detection'].map((code) => ({
   dataset: { detectionMethod: code },

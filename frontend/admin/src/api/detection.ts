@@ -25,6 +25,25 @@ export interface DetectionObservationSource {
   last_error_code: string | null
   last_error_at: string | null
   details: Record<string, unknown> | null
+  skew_median_seconds: number | null
+  skew_abs_max_seconds: number | null
+  skew_sample_count: number | null
+}
+
+export type ClockSkewLevel = 'normal' | 'warning' | 'critical' | 'unknown'
+
+export function clockSkewLevel(source: Pick<DetectionObservationSource, 'skew_abs_max_seconds' | 'skew_sample_count'>): ClockSkewLevel {
+  if (source.skew_abs_max_seconds == null || !source.skew_sample_count) return 'unknown'
+  if (source.skew_abs_max_seconds > 15) return 'critical'
+  if (source.skew_abs_max_seconds > 5) return 'warning'
+  return 'normal'
+}
+
+export function formatClockSkew(source: Pick<DetectionObservationSource, 'skew_median_seconds' | 'skew_sample_count'>): string {
+  if (source.skew_median_seconds == null || !source.skew_sample_count) return '--'
+  const value = Number(source.skew_median_seconds)
+  const direction = value > 0.05 ? '快' : value < -0.05 ? '慢' : '准'
+  return direction === '准' ? '准（<0.1 秒）' : `${direction} ${Math.abs(value).toFixed(1)} 秒`
 }
 
 export interface DetectionSourceUpdate {

@@ -79,6 +79,8 @@ situation.ingest_target_observation(p_observation jsonb) returns jsonb
 
 返回 `status`、`observationId`、`targetId`、`trackId` 和 `changeCursor`。重复幂等键返回 `status=duplicate`，不会重复写入航迹和增量事件。
 
+接入时函数比较 `observedAt` 与 `receivedAt`：偏差绝对值大于 5 秒的观测追加 `source_clock_skew` 质量标记，观测本身不修改、不拒绝。偏差口径假设连接器与数据库时钟一致；该标记用于暴露厂商设备时钟偏差，运维应在来源侧校时。
+
 ### 3.2 同步盒子台账和状态
 
 ```sql
@@ -335,7 +337,7 @@ Content-Type: application/json
 - 停用后接入函数拒绝该来源的新观测，并将连接器状态重置为 `unknown`。
 - 每次配置变更产生一条 `source_status` 增量事件。
 
-`detection_observation_sources` 视图同时返回设备资产映射、来源时区、丢失宽限、连接时间和最近错误，供管理后台诊断使用。
+`detection_observation_sources` 视图同时返回设备资产映射、来源时区、丢失宽限、连接时间和最近错误，供管理后台诊断使用。视图还按来源聚合近 15 分钟的源时钟偏差：`skew_median_seconds`（偏差中位数，秒）、`skew_abs_max_seconds`（绝对值最大值，秒）和 `skew_sample_count`（样本数）；正值表示来源时钟快于接收时钟，无样本时为 NULL。管理后台按 5 秒警告、15 秒严重着色展示。
 
 ### 6.8 管理侦测方式与厂商映射
 

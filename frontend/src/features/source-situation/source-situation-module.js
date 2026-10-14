@@ -302,6 +302,13 @@
   function sourceState(source, generatedAt) {
     if (!source || !source.enabled) return { code: 'disabled', label: '已停用' };
     if (source.connector_state !== 'connected') return { code: 'warning', label: '连接异常' };
+    var skewAbsMax = Number(source.skew_abs_max_seconds);
+    if (Number.isFinite(skewAbsMax) && source.skew_sample_count > 0 && skewAbsMax > 15) {
+      return { code: 'warning', label: '源时钟偏差严重' };
+    }
+    if (Number.isFinite(skewAbsMax) && source.skew_sample_count > 0 && skewAbsMax > 5) {
+      return { code: 'warning', label: '源时钟偏差' };
+    }
     var ageSeconds = (Date.parse(generatedAt) - Date.parse(source.last_message_at)) / 1000;
     if (!Number.isFinite(ageSeconds) || ageSeconds > Math.max(120, Number(source.lost_timeout_seconds || 30) * 2)) {
       return { code: 'warning', label: '数据已延迟' };

@@ -6,8 +6,11 @@ import type { FormInstance, FormRules, TagProps } from 'element-plus'
 import DetectionMethodManager from '../components/DetectionMethodManager.vue'
 import { listAssets, type EquipmentAsset } from '../api/equipment'
 import {
+  clockSkewLevel,
+  formatClockSkew,
   listDetectionSources,
   updateDetectionSource,
+  type ClockSkewLevel,
   type ConnectorState,
   type DetectionObservationSource,
 } from '../api/detection'
@@ -96,6 +99,13 @@ function formatRelativeTime(value: string | null): string {
   if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`
   if (seconds < 86400) return `${Math.floor(seconds / 3600)} 小时前`
   return `${Math.floor(seconds / 86400)} 天前`
+}
+
+function clockSkewTagType(source: DetectionObservationSource): TagProps['type'] {
+  const level: ClockSkewLevel = clockSkewLevel(source)
+  if (level === 'critical') return 'danger'
+  if (level === 'warning') return 'warning'
+  return 'success'
 }
 
 function messageIsStale(source: DetectionObservationSource): boolean {
@@ -253,6 +263,18 @@ onMounted(() => {
               <strong>{{ formatRelativeTime(row.last_message_at) }}</strong>
               <span>{{ formatTime(row.last_message_at) }}</span>
             </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="源时钟偏差" width="150">
+          <template #default="{ row }">
+            <el-tooltip
+              v-if="clockSkewLevel(row) !== 'unknown'"
+              :content="`近 15 分钟 ${row.skew_sample_count} 个样本，绝对偏差最大 ${row.skew_abs_max_seconds} 秒；偏差会污染航迹时间窗与轨迹预测，请在来源侧校时`"
+              placement="top"
+            >
+              <el-tag :type="clockSkewTagType(row)" effect="light">{{ formatClockSkew(row) }}</el-tag>
+            </el-tooltip>
+            <span v-else class="empty-value">--</span>
           </template>
         </el-table-column>
         <el-table-column label="最近快照对账" width="180">

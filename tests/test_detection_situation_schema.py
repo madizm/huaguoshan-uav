@@ -35,6 +35,17 @@ class DetectionSituationSchemaTests(unittest.TestCase):
                 rf"comment on table situation\.{table} is '[^']*[\u4e00-\u9fff]",
             )
 
+    def test_source_clock_skew_is_measured_and_flagged(self):
+        self.assertIn("skew_median_seconds", self.lower)
+        self.assertIn("skew_abs_max_seconds", self.lower)
+        self.assertIn("skew_sample_count", self.lower)
+        self.assertIn("r.observed_at-r.received_at", self.lower)
+        self.assertIn("source_clock_skew", self.lower)
+        for column in ("skew_median_seconds", "skew_abs_max_seconds", "skew_sample_count"):
+            self.assertRegex(
+                self.lower,
+                rf"comment on column api\.detection_observation_sources\.{column} is '[^']*[\u4e00-\u9fff]",
+            )
     def test_reuses_append_only_equipment_observations(self):
         self.assertIn("insert into equipment.raw_observation", self.lower)
         self.assertIn("references equipment.raw_observation(id)", self.lower)

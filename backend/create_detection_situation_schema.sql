@@ -668,6 +668,11 @@ begin
     ST_SetSRID(ST_MakePoint(v_pilot_lng,v_pilot_lat),4326) end;
   select coalesce(array_agg(value),array[]::text[]) into v_quality
   from jsonb_array_elements_text(coalesce(p_observation->'qualityFlags','[]'::jsonb));
+  if v_observed_at is not null and v_received_at is not null
+    and abs(extract(epoch from v_observed_at-v_received_at))>5
+    and not ('source_clock_skew'=any(v_quality)) then
+    v_quality := array_append(v_quality,'source_clock_skew');
+  end if;
 
   select * into v_source from situation.observation_source
   where source_system=v_source_system and external_station_id=v_station_id and enabled
@@ -1318,14 +1323,26 @@ select s.id,s.source_system,s.external_station_id as station_id,s.external_box_c
   s.asset_id,a.asset_code,a.name as asset_name,a.lifecycle_status as asset_lifecycle_status,
   s.source_timezone,s.lost_timeout_seconds,st.last_connected_at,st.last_disconnected_at,
   st.last_error_code,st.last_error_at,st.details,
-  coalesce(cap.capability_codes,array[]::text[]) capability_codes
+  coalesce(cap.capability_codes,array[]::text[]) capability_codes,
+  skew.skew_median_seconds,skew.skew_abs_max_seconds,skew.skew_sample_count
 from situation.observation_source s
 join equipment.asset a on a.id=s.asset_id
 left join situation.observation_source_status_current st on st.observation_source_id=s.id
 left join lateral (
   select array_agg(ac.capability_code order by ac.capability_code) capability_codes
   from equipment.asset_capability ac where ac.asset_id=s.asset_id and ac.enabled
-) cap on true;
+) cap on true
+left join lateral (
+  select round(percentile_cont(0.5) within group (order by skew_s))::numeric(10,1) skew_median_seconds,
+    round(max(abs(skew_s)))::numeric(10,1) skew_abs_max_seconds,
+    count(*)::integer skew_sample_count
+  from (
+    select extract(epoch from (r.observed_at-r.received_at)) skew_s
+    from equipment.raw_observation r
+    where r.asset_id=s.asset_id and r.observed_at is not null
+      and r.received_at>=now()-interval '15 minutes'
+  ) q
+) skew on true;
 comment on view api.detection_observation_sources is '侦测观测来源、设备资产映射和接入链路状态只读资源。';
 comment on column api.detection_observation_sources.station_id is '来源系统站点 ID。';
 comment on column api.detection_observation_sources.connector_state is '接入连接器状态，不等同于物理设备在线状态。';
@@ -1333,6 +1350,9 @@ comment on column api.detection_observation_sources.asset_id is '来源映射的
 comment on column api.detection_observation_sources.lost_timeout_seconds is '目标未出现在来源快照后判定丢失的宽限秒数。';
 comment on column api.detection_observation_sources.last_error_code is '连接器最近一次错误编码，不包含敏感错误详情。';
 comment on column api.detection_observation_sources.capability_codes is '来源映射设备当前启用的能力编码；仅描述能力，不代表每条观测均有对应结果。';
+comment on column api.detection_observation_sources.skew_median_seconds is '近 15 分钟该来源观测的源时钟偏差中位数（秒）：observed_at 减 received_at；正值表示来源时钟快于接收时钟，NULL 表示窗口内无样本。';
+comment on column api.detection_observation_sources.skew_abs_max_seconds is '近 15 分钟源时钟偏差绝对值的最大值（秒）；偏差口径依赖连接器与数据库时钟一致。';
+comment on column api.detection_observation_sources.skew_sample_count is '近 15 分钟参与偏差统计的观测样本数。';
 
 create or replace function api.get_detection_situation_snapshot(
   p_station_ids text[] default null,p_source_type_codes smallint[] default null,
