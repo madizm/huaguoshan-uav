@@ -225,7 +225,8 @@ with worker_cursor as (
   join equipment.raw_observation r on r.id=tr.observation_id
   join situation.target_observation o on o.observation_id=r.id
   left join event_response.target_risk_assessment a on a.observation_id=r.id
-  where r.id>c.last_observation_id or a.id is null
+  where r.observation_type <> 'detection_offline_remove'
+    and (r.id>c.last_observation_id or a.id is null)
   order by r.id limit 10001
 ), backlog as (
   select count(*) sample_count,

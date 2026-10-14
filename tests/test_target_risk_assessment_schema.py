@@ -65,3 +65,35 @@ def test_engine_uses_published_thresholds_parameters_and_versioned_centers():
     assert "history.trajectory" in adapter
     assert "next_ring_eta_30" in domain
     assert "target.speed_mps >= 15" not in domain
+
+
+def test_offline_migration_and_fresh_schema_use_identical_monitoring_definition():
+    migration = (ROOT / "backend/migrate_target_risk_offline_events.sql").read_text(encoding="utf-8").lower()
+    start = "create or replace function api.get_risk_engine_status"
+    end = "grant execute on function api.get_risk_engine_status(text) to admin;"
+
+    def monitoring(sql):
+        return sql[sql.index(start):sql.index(end) + len(end)]
+
+    assert monitoring(migration) == monitoring(RISK_SQL)
+    assert "where r.observation_type <> 'detection_offline_remove'\n    and (r.id>c.last_observation_id or a.id is null)" in monitoring(migration)
+
+
+def test_offline_repair_is_transactional_scoped_and_preserves_evidence():
+    migration = (ROOT / "backend/migrate_target_risk_offline_events.sql").read_text(encoding="utf-8").lower()
+    assert "begin;" in migration and migration.rstrip().endswith("commit;")
+    assert "lock table event_response.target_risk_assessment,\n  event_response.target_risk_current in access exclusive mode;" in migration
+    assert "where r.observation_type='detection_offline_remove'" in migration
+    assert "order by a.observed_at desc,a.observation_id desc" in migration
+    assert "delete from event_response.target_risk_current" in migration
+    assert "delete from event_response.target_risk_assessment" not in migration
+    assert "update event_response.target_risk_assessment" not in migration
+    assert "delete from equipment.raw_observation" not in migration
+    assert "update equipment.raw_observation" not in migration
+    assert "disable trigger" not in migration
+    assert "v_repaired_at timestamptz := clock_timestamp()" in migration
+    assert "updated_at=v_repaired_at" in migration
+    assert "v_repaired_at,jsonb_build_object(" in migration
+    assert "v_risk := event_response.risk_assessment_json(v_previous.track_id)" in migration
+    assert "'risk_assessment',v_risk" in migration
+    assert "'previous_risk_level',v_previous.risk_level" in migration

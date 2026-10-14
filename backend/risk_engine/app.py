@@ -20,6 +20,10 @@ class ObservationNotFoundError(LookupError):
     pass
 
 
+class ObservationNotAssessableError(ValueError):
+    pass
+
+
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
@@ -28,12 +32,15 @@ def healthz() -> dict[str, str]:
 async def assess_observation(database_url: str, observation_id: int) -> RiskAssessment:
     async with await psycopg.AsyncConnection.connect(database_url, row_factory=dict_row) as conn:
         async with conn.transaction():
-            persisted = await fetch_persisted_assessment(conn, observation_id)
-            if persisted is not None:
-                return persisted
             row = await fetch_observation(conn, observation_id)
             if row is None:
                 raise ObservationNotFoundError(observation_id)
+            # SQL_ASCII databases return text as bytes. Check before legacy history.
+            if row["observation_type"] in ("detection_offline_remove", b"detection_offline_remove"):
+                raise ObservationNotAssessableError(observation_id)
+            persisted = await fetch_persisted_assessment(conn, observation_id)
+            if persisted is not None:
+                return persisted
             protected_objects, rules = await fetch_published_configuration(conn)
             target = target_from_row(row)
             result = assess_target(target, protected_objects, rules, datetime.now(timezone.utc))
@@ -56,6 +63,8 @@ async def create_assessment(observation_id: int) -> RiskAssessment:
         raise HTTPException(status_code=503, detail="risk assessment database is not configured")
     try:
         return await assess_observation(database_url, observation_id)
+    except ObservationNotAssessableError as exc:
+        raise HTTPException(status_code=422, detail="lifecycle events are not eligible for risk assessment") from exc
     except ObservationNotFoundError as exc:
         raise HTTPException(status_code=404, detail="observation is not associated with a target track") from exc
     except RuntimeError as exc:

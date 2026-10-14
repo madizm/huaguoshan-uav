@@ -144,14 +144,16 @@ async def fetch_pending_observations(conn: AsyncConnection, after_id: int, limit
             from situation.track_observation pt
             join equipment.raw_observation pr on pr.id=pt.observation_id
             where pt.track_id=t.track_id and pr.geom is not null
+              and pr.observation_type <> 'detection_offline_remove'
               and (pr.observed_at,pr.id)<=(r.observed_at,r.id)
               and pr.observed_at>=r.observed_at-interval '120 seconds'
             order by pr.observed_at desc,pr.id desc limit 100
           ) h
         ) history on true
-        where r.id > %s or not exists (
-          select 1 from event_response.target_risk_assessment a where a.observation_id=r.id
-        )
+        where r.observation_type <> 'detection_offline_remove'
+          and (r.id > %s or not exists (
+            select 1 from event_response.target_risk_assessment a where a.observation_id=r.id
+          ))
         order by r.id
         limit %s
         """,
@@ -163,7 +165,7 @@ async def fetch_observation(conn: AsyncConnection, observation_id: int) -> dict[
     return await _fetch_one(
         conn,
         """
-        select t.track_id, r.id observation_id, r.observed_at,
+        select t.track_id, r.id observation_id, r.observed_at, r.observation_type,
           case when r.geom is null then null else st_x(r.geom) end longitude,
           case when r.geom is null then null else st_y(r.geom) end latitude,
           o.speed_mps,a.identity_status,o.model,coalesce(history.trajectory,'[]'::jsonb) trajectory
@@ -182,6 +184,7 @@ async def fetch_observation(conn: AsyncConnection, observation_id: int) -> dict[
             from situation.track_observation pt
             join equipment.raw_observation pr on pr.id=pt.observation_id
             where pt.track_id=t.track_id and pr.geom is not null
+              and pr.observation_type <> 'detection_offline_remove'
               and (pr.observed_at,pr.id)<=(r.observed_at,r.id)
               and pr.observed_at>=r.observed_at-interval '120 seconds'
             order by pr.observed_at desc,pr.id desc limit 100

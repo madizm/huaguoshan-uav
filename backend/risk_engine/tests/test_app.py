@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 
 import httpx
+import pytest
 
 import backend.risk_engine.app as app_module
 from backend.risk_engine.domain import RiskAssessment
@@ -50,3 +51,41 @@ def test_assessment_endpoint_rejects_non_positive_observation_id(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://risk-engine")
     response = _post("/v1/assessments/0")
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize("observation_type", ["detection_offline_remove", b"detection_offline_remove"])
+def test_offline_event_with_legacy_assessment_is_rejected(monkeypatch, observation_type):
+    class Cursor:
+        def __init__(self, row):
+            self.row = row
+
+        async def fetchone(self):
+            return self.row
+
+    class Connection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        def transaction(self):
+            return self
+
+        async def execute(self, query, params=()):
+            if "from event_response.target_risk_assessment" in query:
+                return Cursor({
+                    "status": "target_location_unavailable", "track_id": 1, "observation_id": 2,
+                    "observed_at": datetime(2026, 9, 25, tzinfo=timezone.utc),
+                    "assessed_at": datetime(2026, 9, 25, tzinfo=timezone.utc),
+                })
+            return Cursor({"observation_type": observation_type})
+
+    async def connect(*args, **kwargs):
+        return Connection()
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://risk-engine")
+    monkeypatch.setattr(app_module.psycopg.AsyncConnection, "connect", connect)
+    response = _post("/v1/assessments/2")
+    assert response.status_code == 422
+    assert response.json()["detail"] == "lifecycle events are not eligible for risk assessment"
