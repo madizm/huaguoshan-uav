@@ -9,6 +9,7 @@ import EmergencyResourceView from './views/EmergencyResourceView.vue'
 import PoliceForceView from './views/PoliceForceView.vue'
 import DefenseRingView from './views/DefenseRingView.vue'
 import RiskEngineView from './views/RiskEngineView.vue'
+import TrajectoryPredictionView from './views/TrajectoryPredictionView.vue'
 import SourceSortieStatisticsView from './views/SourceSortieStatisticsView.vue'
 import SourceTargetSortieView from './views/SourceTargetSortieView.vue'
 import SystemSettingsView from './views/SystemSettingsView.vue'
@@ -30,6 +31,7 @@ export const router = createRouter({
         { path: 'police-forces', name: 'police-forces', component: PoliceForceView, meta: { title: '警务力量' } },
         { path: 'defense-rings', name: 'defense-rings', component: DefenseRingView, meta: { title: '防御圈配置' } },
         { path: 'risk-engine', name: 'risk-engine', component: RiskEngineView, meta: { title: '风险评估引擎' } },
+        { path: 'trajectory-prediction', name: 'trajectory-prediction', component: TrajectoryPredictionView, meta: { title: '轨迹预测引擎' } },
         { path: 'source-sorties', name: 'source-sorties', component: SourceSortieStatisticsView, meta: { title: '来源架次统计' } },
         { path: 'source-target-sorties', name: 'source-target-sorties', component: SourceTargetSortieView, meta: { title: '来源目标架次' } },
         {

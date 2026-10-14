@@ -186,3 +186,61 @@ async def persist_predictions(
         (retention_hours,),
     )
     return written
+
+async def register_worker_runtime(
+    conn: AsyncConnection, worker_name: str, instance_id: str, engine_version: str,
+) -> None:
+    """登记 worker 实例并置为 running；幂等，可在每次启动时调用。"""
+    await conn.execute(
+        """
+        insert into situation.prediction_worker_runtime(
+          worker_name,instance_id,state,engine_version,started_at,heartbeat_at,updated_at
+        ) values(%s,%s,'running',%s,now(),now(),now())
+        on conflict(worker_name) do update set
+          instance_id=excluded.instance_id,state='running',engine_version=excluded.engine_version,
+          started_at=excluded.started_at,heartbeat_at=excluded.heartbeat_at,updated_at=now()
+        """,
+        (worker_name, instance_id, engine_version),
+    )
+
+
+async def record_batch_started(conn: AsyncConnection, worker_name: str) -> None:
+    await conn.execute(
+        """update situation.prediction_worker_runtime
+        set state='running',heartbeat_at=now(),last_batch_started_at=now(),updated_at=now()
+        where worker_name=%s""",
+        (worker_name,),
+    )
+
+
+async def record_batch_success(conn: AsyncConnection, worker_name: str, written: int, duration_ms: int) -> None:
+    await conn.execute(
+        """
+        update situation.prediction_worker_runtime set
+          state='running',heartbeat_at=now(),last_batch_finished_at=now(),last_success_at=now(),
+          last_batch_size=%s,last_batch_duration_ms=%s,
+          processed_total=processed_total+%s,updated_at=now()
+        where worker_name=%s
+        """,
+        (written, duration_ms, written, worker_name),
+    )
+
+
+async def record_worker_failure(conn: AsyncConnection, worker_name: str, error_code: str, error_message: str) -> None:
+    await conn.execute(
+        """
+        update situation.prediction_worker_runtime set
+          state='degraded',heartbeat_at=now(),last_error_at=now(),
+          last_error_code=%s,last_error_message=%s,updated_at=now()
+        where worker_name=%s
+        """,
+        (error_code[:120], error_message[:500], worker_name),
+    )
+
+
+async def record_worker_stopped(conn: AsyncConnection, worker_name: str) -> None:
+    await conn.execute(
+        """update situation.prediction_worker_runtime
+        set state='stopped',heartbeat_at=now(),updated_at=now() where worker_name=%s""",
+        (worker_name,),
+    )

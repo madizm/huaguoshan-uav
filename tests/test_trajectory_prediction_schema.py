@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -56,6 +57,23 @@ class TrajectoryPredictionSchemaTests(unittest.TestCase):
         for field in ("subject_kind", "points", "uncertainty_m", "eta_seconds"):
             self.assertIn(field, comment)
 
+    def test_worker_runtime_table_with_chinese_comment(self):
+        self.assertIn("create table if not exists situation.prediction_worker_runtime", self.lower)
+        self.assertRegex(
+            self.lower,
+            r"comment on table situation\.prediction_worker_runtime is '[^']*[\u4e00-\u9fff]",
+        )
+        self.assertIn("values('trajectory-prediction')", self.lower)
+    def test_admin_rpcs_documented(self):
+        for signature in (
+            "api.get_prediction_engine_status(integer)",
+            "api.list_trajectory_predictions(integer,text[])",
+        ):
+            self.assertIn(f"grant execute on function {signature} to admin", self.lower)
+            self.assertRegex(
+                self.lower,
+                rf"comment on function {re.escape(signature)} is '[^']*[\u4e00-\u9fff]",
+            )
     def test_grants_follow_role_boundaries(self):
         self.assertIn("create role prediction_engine", self.lower)
         self.assertIn("grant select on situation.trajectory_prediction to admin", self.lower)
