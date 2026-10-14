@@ -4,15 +4,21 @@ import { Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import type { TagProps } from 'element-plus'
 import {
+  getPredictionAccuracyStats,
   getPredictionEngineStatus,
+  getPredictionEvaluationDetail,
   listTrajectoryPredictions,
+  type PredictionAccuracyStats,
   type PredictionEngineHealth,
   type PredictionEngineStatus,
+  type PredictionEvaluation,
   type TrajectoryPredictionRow,
 } from '../api/prediction'
 
 const status = ref<PredictionEngineStatus | null>(null)
 const predictions = ref<TrajectoryPredictionRow[]>([])
+const accuracy = ref<PredictionAccuracyStats | null>(null)
+const evaluations = ref<Record<number, PredictionEvaluation[]>>({})
 const loading = ref(false)
 let refreshTimer: number | undefined
 
@@ -65,21 +71,41 @@ function formatCount(value?: number | null): string {
   return Number(value ?? 0).toLocaleString('zh-CN')
 }
 
+async function loadEvaluations(row: TrajectoryPredictionRow) {
+  if (row.quality !== 'ok' || evaluations.value[row.id]) return
+  try {
+    const detail = await getPredictionEvaluationDetail(row.id)
+    evaluations.value = { ...evaluations.value, [row.id]: detail.evaluations }
+  } catch (error) {
+    ElMessage.error((error as Error).message)
+  }
+}
+
 async function load(showSuccess = false) {
   loading.value = true
   try {
-    const [nextStatus, list] = await Promise.all([
+    const [nextStatus, list, nextAccuracy] = await Promise.all([
       getPredictionEngineStatus(),
       listTrajectoryPredictions(),
+      getPredictionAccuracyStats(),
     ])
     status.value = nextStatus
     predictions.value = list.predictions
+    accuracy.value = nextAccuracy
     if (showSuccess) ElMessage.success('轨迹预测引擎状态已刷新')
   } catch (error) {
     ElMessage.error((error as Error).message)
   } finally {
     loading.value = false
   }
+}
+
+function formatMeters(value?: number | null): string {
+  return value == null ? '--' : `${value} m`
+}
+
+function formatRate(value?: number | null): string {
+  return value == null ? '--' : `${(value * 100).toFixed(1)}%`
 }
 
 onMounted(() => {
@@ -171,11 +197,99 @@ onBeforeUnmount(() => {
     <el-card shadow="never" class="prediction-card">
       <template #header>
         <div class="card-header">
+          <strong>准确度评估（最近 {{ accuracy?.hours ?? 24 }} 小时）</strong>
+          <span>预测越过检查点后与实际观测比对</span>
+        </div>
+      </template>
+      <div class="metric-grid accuracy-grid" aria-label="预测准确度汇总">
+        <article>
+          <span>已评估预测</span>
+          <strong>{{ formatCount(accuracy?.summary?.evaluatedPredictions) }}</strong>
+          <small>{{ formatCount(accuracy?.summary?.samples) }} 个检查点样本</small>
+        </article>
+        <article>
+          <span>平均误差</span>
+          <strong>{{ formatMeters(accuracy?.summary?.meanErrorM) }}</strong>
+          <small>中位数 {{ formatMeters(accuracy?.summary?.medianErrorM) }}</small>
+        </article>
+        <article :data-tone="(accuracy?.summary?.withinUncertaintyRate ?? 1) < 0.8 ? 'warning' : 'success'">
+          <span>不确定度覆盖率</span>
+          <strong>{{ formatRate(accuracy?.summary?.withinUncertaintyRate) }}</strong>
+          <small>误差落在预测不确定半径内的比例</small>
+        </article>
+      </div>
+      <el-table :data="accuracy?.buckets ?? []" stripe empty-text="暂无评估样本：预测需先越过 10/30/60/120 秒检查点">
+        <el-table-column label="对象" width="120">
+          <template #default="{ row }">{{ subjectLabel(row.subjectKind) }}</template>
+        </el-table-column>
+        <el-table-column label="模型" width="110">
+          <template #default="{ row }">{{ modelLabel(row.modelCode) }}</template>
+        </el-table-column>
+        <el-table-column prop="etaSeconds" label="检查点" width="90">
+          <template #default="{ row }">{{ row.etaSeconds }} 秒</template>
+        </el-table-column>
+        <el-table-column prop="samples" label="样本数" width="90" />
+        <el-table-column label="平均误差" width="110">
+          <template #default="{ row }">{{ formatMeters(row.meanErrorM) }}</template>
+        </el-table-column>
+        <el-table-column label="中位误差" width="110">
+          <template #default="{ row }">{{ formatMeters(row.medianErrorM) }}</template>
+        </el-table-column>
+        <el-table-column label="P90 误差" width="110">
+          <template #default="{ row }">{{ formatMeters(row.p90ErrorM) }}</template>
+        </el-table-column>
+        <el-table-column label="覆盖率" min-width="100">
+          <template #default="{ row }">
+            <el-tag :type="(row.withinUncertaintyRate ?? 1) < 0.8 ? 'warning' : 'success'" size="small">
+              {{ formatRate(row.withinUncertaintyRate) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-card shadow="never" class="prediction-card">
+      <template #header>
+        <div class="card-header">
           <strong>最近预测记录</strong>
           <span>{{ predictions.length }} 条</span>
         </div>
       </template>
-      <el-table v-loading="loading" :data="predictions" stripe empty-text="暂无预测记录">
+      <el-table v-loading="loading" :data="predictions" stripe empty-text="暂无预测记录" row-key="id" @expand-change="loadEvaluations">
+        <el-table-column type="expand">
+          <template #default="{ row }">
+            <div class="evaluation-detail" v-if="row.quality === 'ok'">
+              <template v-if="evaluations[row.id]?.length">
+                <el-table :data="evaluations[row.id]" size="small">
+                  <el-table-column label="检查点" width="90">
+                    <template #default="{ row: ev }">{{ ev.etaSeconds }} 秒</template>
+                  </el-table-column>
+                  <el-table-column label="误差" width="110">
+                    <template #default="{ row: ev }">{{ ev.errorM }} m</template>
+                  </el-table-column>
+                  <el-table-column label="不确定半径" width="110">
+                    <template #default="{ row: ev }">{{ ev.uncertaintyM }} m</template>
+                  </el-table-column>
+                  <el-table-column label="是否在半径内" width="120">
+                    <template #default="{ row: ev }">
+                      <el-tag :type="ev.withinUncertainty ? 'success' : 'danger'" size="small">
+                        {{ ev.withinUncertainty ? '是' : '否' }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="实际观测时刻" min-width="160">
+                    <template #default="{ row: ev }">{{ formatTime(ev.actualObservedAt) }}</template>
+                  </el-table-column>
+                  <el-table-column label="时刻偏差" width="100">
+                    <template #default="{ row: ev }">{{ ev.timeOffsetS }} 秒</template>
+                  </el-table-column>
+                </el-table>
+              </template>
+              <span v-else class="empty-value">尚未越过检查点或该时段无实际观测，暂无评估数据</span>
+            </div>
+            <span v-else class="empty-value">数据不足的预测不参与准确度评估</span>
+          </template>
+        </el-table-column>
         <el-table-column label="预测时间" min-width="160">
           <template #default="{ row }">{{ formatTime(row.predicted_at) }}</template>
         </el-table-column>
@@ -226,6 +340,9 @@ onBeforeUnmount(() => {
 .error-text { color: #d84b4b; overflow-wrap: anywhere; }
 .card-header { display: flex; align-items: center; justify-content: space-between; }
 .card-header span { color: #84908a; font-size: 12px; }
+.accuracy-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 14px; }
+.evaluation-detail { padding: 4px 12px 12px 48px; }
+.empty-value { color: #9aa39e; font-size: 12px; }
 @media (max-width: 1100px) {
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .detail-grid { grid-template-columns: 1fr; }

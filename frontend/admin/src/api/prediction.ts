@@ -62,3 +62,49 @@ export function getPredictionEngineStatus(): Promise<PredictionEngineStatus> {
 export function listTrajectoryPredictions(limit = 50): Promise<{ generatedAt: string; predictions: TrajectoryPredictionRow[] }> {
   return http.post('/rpc/list_trajectory_predictions', { p_limit: limit })
 }
+
+export interface PredictionAccuracySummary {
+  evaluatedPredictions: number | null
+  samples: number | null
+  meanErrorM: number | null
+  medianErrorM: number | null
+  withinUncertaintyRate: number | null
+}
+
+export interface PredictionAccuracyBucket {
+  modelCode: 'cv' | 'ct' | 'hover'
+  subjectKind: 'airspace_target' | 'aircraft_asset'
+  etaSeconds: number
+  samples: number
+  meanErrorM: number | null
+  medianErrorM: number | null
+  p90ErrorM: number | null
+  withinUncertaintyRate: number | null
+}
+
+export interface PredictionAccuracyStats {
+  generated_at: string
+  hours: number
+  summary: PredictionAccuracySummary | null
+  buckets: PredictionAccuracyBucket[]
+}
+
+export interface PredictionEvaluation {
+  etaSeconds: number
+  errorM: number
+  uncertaintyM: number
+  withinUncertainty: boolean
+  actualObservedAt: string
+  timeOffsetS: number
+  evaluatedAt: string
+}
+
+export function getPredictionAccuracyStats(hours = 24): Promise<PredictionAccuracyStats> {
+  return http.post('/rpc/get_prediction_accuracy_stats', { p_hours: hours })
+}
+
+export function getPredictionEvaluationDetail(
+  predictionId: number,
+): Promise<{ generated_at: string; prediction_id: number; evaluations: PredictionEvaluation[] }> {
+  return http.post('/rpc/get_prediction_evaluation_detail', { p_prediction_id: predictionId })
+}

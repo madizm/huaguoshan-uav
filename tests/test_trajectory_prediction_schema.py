@@ -74,8 +74,38 @@ class TrajectoryPredictionSchemaTests(unittest.TestCase):
                 self.lower,
                 rf"comment on function {re.escape(signature)} is '[^']*[\u4e00-\u9fff]",
             )
+    def test_evaluation_table_with_chinese_comment(self):
+        self.assertIn(
+            "create table if not exists situation.trajectory_prediction_evaluation", self.lower,
+        )
+        self.assertRegex(
+            self.lower,
+            r"comment on table situation\.trajectory_prediction_evaluation is '[^']*[\u4e00-\u9fff]",
+        )
+        self.assertIn("unique (prediction_id, eta_seconds)", self.lower)
+        self.assertIn("within_uncertainty boolean not null", self.lower)
+        self.assertIn("trajectory_prediction_evaluation_subject_idx", self.lower)
+
+    def test_accuracy_rpcs_documented(self):
+        for signature in (
+            "api.get_prediction_accuracy_stats(integer)",
+            "api.get_prediction_evaluation_detail(bigint)",
+        ):
+            self.assertIn(f"grant execute on function {signature} to admin", self.lower)
+            self.assertRegex(
+                self.lower,
+                rf"comment on function {re.escape(signature)} is '[^']*[\u4e00-\u9fff]",
+            )
+
     def test_grants_follow_role_boundaries(self):
         self.assertIn("create role prediction_engine", self.lower)
+        self.assertIn(
+            "grant select, insert on situation.trajectory_prediction_evaluation to prediction_engine",
+            self.lower,
+        )
+        self.assertIn(
+            "revoke all on situation.trajectory_prediction_evaluation from public", self.lower,
+        )
         self.assertIn("grant select on situation.trajectory_prediction to admin", self.lower)
         self.assertIn(
             "grant select, insert, delete on situation.trajectory_prediction to prediction_engine",

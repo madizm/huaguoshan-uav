@@ -53,6 +53,39 @@ create index if not exists trajectory_prediction_subject_time_idx
   on situation.trajectory_prediction(subject_kind, subject_id, predicted_at desc, id desc);
 create index if not exists trajectory_prediction_time_idx
   on situation.trajectory_prediction(predicted_at desc);
+create table if not exists situation.trajectory_prediction_evaluation (
+  id bigserial primary key,
+  prediction_id bigint not null,
+  subject_kind text not null check (subject_kind in ('airspace_target','aircraft_asset')),
+  subject_id bigint not null,
+  model_code text not null check (model_code in ('cv','ct','hover')),
+  model_version integer not null check (model_version > 0),
+  base_observed_at timestamptz not null,
+  eta_seconds integer not null check (eta_seconds > 0),
+  actual_observed_at timestamptz not null,
+  time_offset_s numeric not null,
+  error_m numeric not null check (error_m >= 0),
+  uncertainty_m numeric not null check (uncertainty_m >= 0),
+  within_uncertainty boolean not null,
+  evaluated_at timestamptz not null default now(),
+  unique (prediction_id, eta_seconds)
+);
+comment on table situation.trajectory_prediction_evaluation is '轨迹预测准确度评估追加记录：预测越过检查点时刻后与实际观测比对的结果；预测超期清理后评估仍保留，用于模型效果审计。';
+comment on column situation.trajectory_prediction_evaluation.prediction_id is '被评估的轨迹预测记录 ID，软引用；situation.trajectory_prediction 超期清理后本表不级联删除。';
+comment on column situation.trajectory_prediction_evaluation.subject_kind is '预测对象类别：airspace_target 空域目标航迹，aircraft_asset 无人机资产。';
+comment on column situation.trajectory_prediction_evaluation.subject_id is '预测对象标识：空域目标为航迹 ID，无人机资产为设备资产 ID。';
+comment on column situation.trajectory_prediction_evaluation.base_observed_at is '被评估预测的基准时刻；检查点目标时刻为该时刻加 eta_seconds。';
+comment on column situation.trajectory_prediction_evaluation.eta_seconds is '评估检查点：从基准时刻起算的秒数，取预测点序列中的固定档位。';
+comment on column situation.trajectory_prediction_evaluation.actual_observed_at is '匹配到的实际观测时刻；匹配容差由 worker 参数控制。';
+comment on column situation.trajectory_prediction_evaluation.time_offset_s is '实际观测时刻减检查点目标时刻的秒数；正值表示实际观测偏晚。';
+comment on column situation.trajectory_prediction_evaluation.error_m is '预测点与实际观测位置的水平误差，单位米，按 WGS84 椭球面距离计算。';
+comment on column situation.trajectory_prediction_evaluation.uncertainty_m is '该预测点生成时输出的水平不确定半径，单位米。';
+comment on column situation.trajectory_prediction_evaluation.within_uncertainty is '误差是否落在不确定半径内；用于校验不确定度口径是否可信。';
+create index if not exists trajectory_prediction_evaluation_subject_idx
+  on situation.trajectory_prediction_evaluation(subject_kind, subject_id, base_observed_at desc, id desc);
+create index if not exists trajectory_prediction_evaluation_time_idx
+  on situation.trajectory_prediction_evaluation(evaluated_at desc);
+
 create index if not exists trajectory_prediction_geom_gix
   on situation.trajectory_prediction using gist (geom);
 
@@ -261,5 +294,87 @@ grant select on situation.prediction_worker_runtime to admin;
 grant select, insert, update on situation.prediction_worker_runtime to prediction_engine;
 grant execute on function api.get_prediction_engine_status(integer) to admin;
 grant execute on function api.list_trajectory_predictions(integer,text[]) to admin;
+
+create or replace function api.get_prediction_accuracy_stats(
+  p_hours integer default 24
+) returns jsonb language plpgsql stable security definer
+set search_path=pg_catalog,public,situation,api as $$
+begin
+  if p_hours not between 1 and 720 then raise exception 'hours must be between 1 and 720'; end if;
+  return jsonb_build_object(
+    'generated_at', now(),
+    'hours', p_hours,
+    'summary', (
+      select jsonb_build_object(
+        'evaluatedPredictions', count(distinct prediction_id),
+        'samples', count(*),
+        'meanErrorM', round(avg(error_m)::numeric,1),
+        'medianErrorM', round(percentile_cont(0.5) within group (order by error_m)::numeric,1),
+        'withinUncertaintyRate', round(avg(case when within_uncertainty then 1.0 else 0.0 end)::numeric,3)
+      )
+      from situation.trajectory_prediction_evaluation
+      where base_observed_at >= now() - make_interval(hours => p_hours)
+    ),
+    'buckets', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'modelCode', model_code,
+        'subjectKind', subject_kind,
+        'etaSeconds', eta_seconds,
+        'samples', samples,
+        'meanErrorM', mean_error_m,
+        'medianErrorM', median_error_m,
+        'p90ErrorM', p90_error_m,
+        'withinUncertaintyRate', within_uncertainty_rate
+      ) order by subject_kind, model_code, eta_seconds)
+      from (
+        select model_code, subject_kind, eta_seconds,
+          count(*)::integer samples,
+          round(avg(error_m)::numeric,1) mean_error_m,
+          round(percentile_cont(0.5) within group (order by error_m)::numeric,1) median_error_m,
+          round(percentile_cont(0.9) within group (order by error_m)::numeric,1) p90_error_m,
+          round(avg(case when within_uncertainty then 1.0 else 0.0 end)::numeric,3) within_uncertainty_rate
+        from situation.trajectory_prediction_evaluation
+        where base_observed_at >= now() - make_interval(hours => p_hours)
+        group by model_code, subject_kind, eta_seconds
+      ) b
+    ), '[]'::jsonb)
+  );
+end;
+$$;
+comment on function api.get_prediction_accuracy_stats(integer) is '轨迹预测准确度汇总。返回 {"generated_at","hours","summary":{"evaluatedPredictions","samples","meanErrorM","medianErrorM","withinUncertaintyRate"},"buckets":[{"modelCode","subjectKind","etaSeconds","samples","meanErrorM","medianErrorM","p90ErrorM","withinUncertaintyRate"}]}；误差单位米，覆盖率误差落在不确定半径内的比例；无样本时 summary 各指标为 NULL。';
+
+create or replace function api.get_prediction_evaluation_detail(
+  p_prediction_id bigint
+) returns jsonb language plpgsql stable security definer
+set search_path=pg_catalog,public,situation,api as $$
+begin
+  return jsonb_build_object(
+    'generated_at', now(),
+    'prediction_id', p_prediction_id,
+    'evaluations', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'etaSeconds', e.eta_seconds,
+        'errorM', e.error_m,
+        'uncertaintyM', e.uncertainty_m,
+        'withinUncertainty', e.within_uncertainty,
+        'actualObservedAt', e.actual_observed_at,
+        'timeOffsetS', e.time_offset_s,
+        'evaluatedAt', e.evaluated_at
+      ) order by e.eta_seconds)
+      from situation.trajectory_prediction_evaluation e
+      where e.prediction_id = p_prediction_id
+    ), '[]'::jsonb)
+  );
+end;
+$$;
+comment on function api.get_prediction_evaluation_detail(bigint) is '单条预测的准确度评估明细。返回 {"generated_at","prediction_id","evaluations":[{"etaSeconds","errorM","uncertaintyM","withinUncertainty","actualObservedAt","timeOffsetS","evaluatedAt"}]}；预测记录超期清理后明细仍可查；未评估时 evaluations 为空数组。';
+
+revoke all on situation.trajectory_prediction_evaluation from public, anonymous, admin, prediction_engine;
+revoke all on sequence situation.trajectory_prediction_evaluation_id_seq from public, anonymous, admin, prediction_engine;
+grant select on situation.trajectory_prediction_evaluation to admin;
+grant select, insert on situation.trajectory_prediction_evaluation to prediction_engine;
+grant usage on sequence situation.trajectory_prediction_evaluation_id_seq to prediction_engine;
+grant execute on function api.get_prediction_accuracy_stats(integer) to admin;
+grant execute on function api.get_prediction_evaluation_detail(bigint) to admin;
 
 commit;

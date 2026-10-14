@@ -187,6 +187,68 @@ async def persist_predictions(
     )
     return written
 
+EVALUATION_CHECKPOINT_ETAS = (10, 30, 60, 120)
+"""准确度评估的检查点档位（秒）：只对预测点序列中这些 ETA 与实际观测比对。"""
+
+EVALUATION_TOLERANCE_SECONDS = 3
+"""实际观测匹配的容差（秒）：取检查点目标时刻前后该范围内的最近一条实际观测。"""
+
+
+async def evaluate_due_predictions(
+    conn: AsyncConnection,
+    retention_hours: int,
+    checkpoint_etas: tuple[int, ...] = EVALUATION_CHECKPOINT_ETAS,
+    tolerance_seconds: int = EVALUATION_TOLERANCE_SECONDS,
+) -> int:
+    """对已越过检查点时刻的有效预测匹配实际观测，追加准确度评估记录，返回评估条数。"""
+    cursor = await conn.execute(
+        """
+        insert into situation.trajectory_prediction_evaluation(
+          prediction_id,subject_kind,subject_id,model_code,model_version,base_observed_at,
+          eta_seconds,actual_observed_at,time_offset_s,error_m,uncertainty_m,within_uncertainty
+        )
+        select p.id,p.subject_kind,p.subject_id,p.model_code,p.model_version,p.base_observed_at,
+          ck.eta_seconds,a.observed_at,
+          round(extract(epoch from a.observed_at-(p.base_observed_at+make_interval(secs=>ck.eta_seconds)))::numeric,1),
+          round(st_distance(ck.geom::geography,a.geom::geography)::numeric,1),
+          ck.uncertainty_m,
+          st_distance(ck.geom::geography,a.geom::geography)<=ck.uncertainty_m
+        from situation.trajectory_prediction p
+        cross join lateral (
+          select (pt->>'eta_seconds')::numeric::int eta_seconds,(pt->>'uncertainty_m')::float8 uncertainty_m,
+            st_setsrid(st_makepoint((pt->>'longitude')::float8,(pt->>'latitude')::float8),4326) geom
+          from jsonb_array_elements(p.points) pt
+        ) ck
+        join lateral (
+          select a.observed_at,a.geom
+          from (
+            select r.observed_at,r.geom from situation.track_observation x
+              join equipment.raw_observation r on r.id=x.observation_id
+              where p.subject_kind='airspace_target' and x.track_id=p.subject_id and r.geom is not null
+            union all
+            select r.observed_at,r.geom from equipment.raw_observation r
+              where p.subject_kind='aircraft_asset' and r.asset_id=p.subject_id and r.geom is not null
+          ) a
+          where a.observed_at between p.base_observed_at+make_interval(secs=>ck.eta_seconds)-make_interval(secs=>%s)
+                                  and p.base_observed_at+make_interval(secs=>ck.eta_seconds)+make_interval(secs=>%s)
+          order by abs(extract(epoch from a.observed_at-(p.base_observed_at+make_interval(secs=>ck.eta_seconds))))
+          limit 1
+        ) a on true
+        where p.quality='ok' and p.points<>'[]'::jsonb
+          and ck.eta_seconds=any(%s)
+          and p.base_observed_at+make_interval(secs=>ck.eta_seconds)<=now()
+          and p.predicted_at>=now()-make_interval(hours=>%s)
+          and not exists(
+            select 1 from situation.trajectory_prediction_evaluation e
+            where e.prediction_id=p.id and e.eta_seconds=ck.eta_seconds)
+        on conflict(prediction_id,eta_seconds) do nothing
+        returning id
+        """,
+        (tolerance_seconds, tolerance_seconds, list(checkpoint_etas), retention_hours + 2),
+    )
+    return len(await cursor.fetchall())
+
+
 async def register_worker_runtime(
     conn: AsyncConnection, worker_name: str, instance_id: str, engine_version: str,
 ) -> None:

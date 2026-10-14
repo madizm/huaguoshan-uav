@@ -15,6 +15,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from .adapter import (
+    evaluate_due_predictions,
     fetch_asset_windows,
     fetch_target_windows,
     persist_predictions,
@@ -55,7 +56,8 @@ async def process_once(
     for subject_id, points in asset_windows:
         predictions.append(predict_trajectory("aircraft_asset", subject_id, points, predicted_at, config))
     written = await persist_predictions(conn, predictions, min_interval_seconds, retention_hours)
-    return {"subjects": len(predictions), "written": written}
+    evaluated = await evaluate_due_predictions(conn, retention_hours)
+    return {"subjects": len(predictions), "written": written, "evaluated": evaluated}
 
 
 async def run_once(
@@ -108,7 +110,10 @@ async def run_forever(
                     active_seconds, worker_name, register=False,
                 )
                 if stats["subjects"]:
-                    LOGGER.info("predicted %s subjects, wrote %s rows", stats["subjects"], stats["written"])
+                    LOGGER.info(
+                        "predicted %s subjects, wrote %s rows, evaluated %s checkpoints",
+                        stats["subjects"], stats["written"], stats["evaluated"],
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
