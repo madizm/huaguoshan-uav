@@ -21,8 +21,8 @@ dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["backend/risk_engine"]
+packages = ["backend/risk_engine", "backend/prediction"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-testpaths = ["backend/risk_engine/tests"]
+testpaths = ["backend/risk_engine/tests", "backend/prediction/tests"]

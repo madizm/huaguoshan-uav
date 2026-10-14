@@ -118,6 +118,12 @@
       });
       log(active ? '五层防御圈正在加载。' : '防御圈图层已关闭。');
     }
+    if (layer === 'trajectoryPrediction' && state.trajectoryPrediction) {
+      state.trajectoryPrediction.setEnabled(active).catch(function () {
+        layerButton.setAttribute('aria-pressed', 'false');
+      });
+      log(active ? '轨迹预测已开启：虚线为外推航线，圆环为不确定范围。' : '轨迹预测图层已关闭。');
+    }
     if (layer === 'flightObstacles' && state.flightObstacleLayer) {
       state.flightObstacleLayer.setEnabled(active);
     }

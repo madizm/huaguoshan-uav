@@ -59,6 +59,7 @@
         suitableFootprintLayer: null,
         sourceSituation: null,
         defenseRings: null,
+        trajectoryPrediction: null,
         airspaceEnabled: false,
         featurePropertyCache: {},
         featureGridCache: {},
@@ -335,6 +336,20 @@
         });
       }
 
+      function initTrajectoryPrediction() {
+        if (!window.HuaguoshanTrajectoryPrediction) {
+          log('轨迹预测模块未加载。', 'error');
+          return;
+        }
+        if (state.trajectoryPrediction) state.trajectoryPrediction.destroy();
+        state.trajectoryPrediction = window.HuaguoshanTrajectoryPrediction.createModule({
+          CesiumRuntime: Cesium,
+          viewer: state.viewer,
+          rpc: postgrestRpc,
+          log: log
+        });
+      }
+
       function initConvexHullAnalysis() {
         state.convexHullAnalysis = window.HuaguoshanConvexHull.createModule({
           CesiumRuntime: Cesium,
@@ -579,6 +594,7 @@
         initSuitableFootprintLayer();
         initSourceSituation();
         initDefenseRings();
+        initTrajectoryPrediction();
         initFlightObstacleLayer();
         initConvexHullAnalysis();
         addLocalTileset(state.viewer);
@@ -629,6 +645,7 @@
         statusCenter.destroy();
         if (state.sourceSituation) state.sourceSituation.destroy();
         if (state.defenseRings) state.defenseRings.destroy();
+        if (state.trajectoryPrediction) state.trajectoryPrediction.destroy();
         if (state.viewer && !state.viewer.isDestroyed()) state.viewer.destroy();
       }
 
@@ -659,6 +676,7 @@
       appEvents.on('auth:changed', function (event) {
         window.HuaguoshanHud.setAuthRequiredLocked(!(event && event.loggedIn));
         if (state.defenseRings) state.defenseRings.setAuthenticated(Boolean(event && event.loggedIn)).catch(function () {});
+        if (state.trajectoryPrediction) state.trajectoryPrediction.setAuthenticated(Boolean(event && event.loggedIn)).catch(function () {});
       });
 
       disposers.push(window.HuaguoshanHud.initHudSections({ storageKey: 'hud.sections.open' }));
