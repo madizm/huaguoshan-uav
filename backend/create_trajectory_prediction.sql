@@ -369,6 +369,51 @@ end;
 $$;
 comment on function api.get_prediction_evaluation_detail(bigint) is '单条预测的准确度评估明细。返回 {"generated_at","prediction_id","evaluations":[{"etaSeconds","errorM","uncertaintyM","withinUncertainty","actualObservedAt","timeOffsetS","evaluatedAt"}]}；预测记录超期清理后明细仍可查；未评估时 evaluations 为空数组。';
 
+create or replace function api.get_track_prediction_history(
+  p_track_id bigint,
+  p_from timestamptz,
+  p_to timestamptz,
+  p_thin_seconds integer default 30
+) returns jsonb language plpgsql stable security definer
+set search_path=pg_catalog,public,situation,api as $$
+begin
+  if p_thin_seconds not between 5 and 600 then raise exception 'thin seconds must be between 5 and 600'; end if;
+  if p_from is null or p_to is null or p_from >= p_to then raise exception 'from must be earlier than to'; end if;
+  if p_to - p_from > interval '7 days' then raise exception 'time window must not exceed 7 days'; end if;
+  return jsonb_build_object(
+    'generated_at', now(),
+    'track_id', p_track_id,
+    'thin_seconds', p_thin_seconds,
+    'predictions', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', t.id,
+        'base_observed_at', t.base_observed_at,
+        'predicted_at', t.predicted_at,
+        'model_code', t.model_code,
+        'speed_mps', t.speed_mps,
+        'heading_deg', t.heading_deg,
+        'turn_rate_dps', t.turn_rate_dps,
+        'points', t.points
+      ) order by t.base_observed_at, t.id)
+      from (
+        select distinct on (floor(extract(epoch from p.base_observed_at)/p_thin_seconds))
+          p.id, p.base_observed_at, p.predicted_at, p.model_code,
+          p.speed_mps, p.heading_deg, p.turn_rate_dps, p.points
+        from situation.trajectory_prediction p
+        where p.subject_kind='airspace_target' and p.subject_id=p_track_id
+          and p.quality='ok' and p.points<>'[]'::jsonb
+          and p.base_observed_at between p_from and p_to
+        order by floor(extract(epoch from p.base_observed_at)/p_thin_seconds),
+          p.base_observed_at desc, p.id desc
+      ) t
+    ), '[]'::jsonb)
+  );
+end;
+$$;
+comment on function api.get_track_prediction_history(bigint,timestamptz,timestamptz,integer) is '按航迹抽稀查询历史轨迹预测，用于大屏历史回放叠加"当时的预测"。返回 {"generated_at","track_id","thin_seconds","predictions":[{"id","base_observed_at","predicted_at","model_code","speed_mps","heading_deg","turn_rate_dps","points":[{"eta_seconds","longitude","latitude","height_amsl_m","uncertainty_m"}]}]}；每个抽稀时间桶取基准时刻最新的一条，仅含 quality=ok 且有预测点的记录；预测仅保留 24 小时，超出窗口返回空数组。';
+
+grant execute on function api.get_track_prediction_history(bigint,timestamptz,timestamptz,integer) to admin;
+
 revoke all on situation.trajectory_prediction_evaluation from public, anonymous, admin, prediction_engine;
 revoke all on sequence situation.trajectory_prediction_evaluation_id_seq from public, anonymous, admin, prediction_engine;
 grant select on situation.trajectory_prediction_evaluation to admin;

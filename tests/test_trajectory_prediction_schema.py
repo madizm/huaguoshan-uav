@@ -90,12 +90,21 @@ class TrajectoryPredictionSchemaTests(unittest.TestCase):
         for signature in (
             "api.get_prediction_accuracy_stats(integer)",
             "api.get_prediction_evaluation_detail(bigint)",
+            "api.get_track_prediction_history(bigint,timestamptz,timestamptz,integer)",
         ):
             self.assertIn(f"grant execute on function {signature} to admin", self.lower)
             self.assertRegex(
                 self.lower,
                 rf"comment on function {re.escape(signature)} is '[^']*[\u4e00-\u9fff]",
             )
+
+    def test_track_prediction_history_is_thinned_and_bounded(self):
+        self.assertIn(
+            "create or replace function api.get_track_prediction_history(", self.lower,
+        )
+        self.assertIn("distinct on (floor(extract(epoch from p.base_observed_at)/p_thin_seconds))", self.lower)
+        self.assertIn("time window must not exceed 7 days", self.lower)
+        self.assertIn("p.quality='ok'", self.lower)
 
     def test_grants_follow_role_boundaries(self):
         self.assertIn("create role prediction_engine", self.lower)

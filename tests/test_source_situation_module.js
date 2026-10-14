@@ -131,6 +131,29 @@ assert.strictEqual(
   'ok',
 );
 
+const replayPredictions = [
+  { id: 1, base_observed_at: '2026-10-14T10:00:00+08:00', points: [{}, {}] },
+  { id: 2, base_observed_at: '2026-10-14T10:00:30+08:00', points: [{}, {}] },
+  { id: 3, base_observed_at: '2026-10-14T10:01:00+08:00', points: [{}, {}] },
+];
+assert.strictEqual(
+  SourceSituation.pickReplayPrediction(replayPredictions, Date.parse('2026-10-14T10:00:45+08:00')).id,
+  2,
+);
+assert.strictEqual(
+  SourceSituation.pickReplayPrediction(replayPredictions, Date.parse('2026-10-14T10:00:10+08:00')).id,
+  1,
+);
+assert.strictEqual(
+  SourceSituation.pickReplayPrediction(replayPredictions, Date.parse('2026-10-14T09:59:00+08:00')),
+  null,
+);
+assert.strictEqual(
+  SourceSituation.pickReplayPrediction(replayPredictions, Date.parse('2026-10-14T10:05:00+08:00')),
+  null,
+);
+assert.strictEqual(SourceSituation.pickReplayPrediction([], Date.parse('2026-10-14T10:00:45+08:00')), null);
+
 const sourceButtons = ['radar', 'radio_detection'].map((code) => ({
   dataset: { detectionMethod: code },
   getAttribute: () => 'true',

@@ -76,6 +76,21 @@ POST /postgrest/rpc/get_prediction_evaluation_detail
 
 返回 `{"generated_at","prediction_id","evaluations":[{"etaSeconds","errorM","uncertaintyM","withinUncertainty","actualObservedAt","timeOffsetS","evaluatedAt"}]}`。`timeOffsetS` 为实际观测时刻减检查点目标时刻的秒数。预测记录超期清理后明细仍可查；未越过检查点或该时段无实际观测时 `evaluations` 为空数组。
 
+## 6. 航迹历史预测（回放叠加）
+
+```http
+POST /postgrest/rpc/get_track_prediction_history
+```
+
+```json
+{ "p_track_id": 28181, "p_from": "2026-10-14T17:32:00+08:00", "p_to": "2026-10-14T17:53:00+08:00", "p_thin_seconds": 30 }
+```
+
+- `p_thin_seconds`：5–600，每个抽稀时间桶取基准时刻最新的一条，默认 30。
+- 时间窗最长 7 天；预测仅保留 24 小时，超出窗口返回空数组。
+
+返回 `{"generated_at","track_id","thin_seconds","predictions":[{"id","base_observed_at","predicted_at","model_code","speed_mps","heading_deg","turn_rate_dps","points":[...]}]}`，`points` 结构与实时接口一致。仅含 `quality=ok` 且有预测点的记录。大屏历史回放按帧时刻取基准时刻不晚于该帧的最近一条渲染。
+
 ## 关联与口径说明
 
 - 空域目标的 `subject_id` 是 `situation.target_track.id`，目标丢失重建航迹后 ID 变更，跨航迹的长期精度分析需经 `target_id` 二次关联；无人机资产的 `subject_id` 是稳定的 `equipment.asset.id`。

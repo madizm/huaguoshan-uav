@@ -362,7 +362,12 @@
 
   function riskHistoryHtml(history) {
     var assessments = history && history.assessments || [];
-    if (!assessments.length) return '<section class="risk-history"><header><strong>风险评估历史</strong><span>0 条</span></header><p class="source-situation-empty">该时间区间没有风险评估记录。</p></section>';
+    var actions = '<div class="risk-history-actions">' +
+      '<button type="button" class="risk-history-play" data-risk-action="replay">▶ 播放轨迹与风险变化</button>' +
+      '<label class="risk-replay-toggle"><input type="checkbox" data-risk-action="prediction-toggle"> 显示当时预测（仅近 24 小时）</label>' +
+      '</div>';
+    if (!assessments.length) return '<section class="risk-history"><header><strong>风险评估历史</strong><span>0 条</span></header>' +
+      actions + '<p class="source-situation-empty">该时间区间没有风险评估记录。</p></section>';
     var rows = assessments.map(function (assessment, index) {
       var previous = assessments[index - 1];
       var changed = previous && (previous.riskLevel !== assessment.riskLevel || previous.riskScore !== assessment.riskScore || previous.ringCode !== assessment.ringCode);
@@ -374,8 +379,19 @@
         '<div><dt>状态</dt><dd>' + escapeHtml(RISK_STATUS_LABEL[assessment.status] || assessment.status || '未知') + '</dd></div></dl></li>';
     }).join('');
     return '<section class="risk-history"><header><strong>风险评估历史</strong><span>' + formatCount(assessments.length) + ' 条</span></header>' +
-      '<button type="button" class="risk-history-play" data-risk-action="replay">▶ 播放轨迹与风险变化</button>' +
+      actions +
       '<ol class="risk-history-list">' + rows + '</ol></section>';
+  }
+
+  function pickReplayPrediction(predictions, timeMs) {
+    var best = null;
+    (predictions || []).forEach(function (prediction) {
+      var baseMs = Date.parse(prediction.base_observed_at);
+      if (!Number.isFinite(baseMs) || baseMs > timeMs) return;
+      if (timeMs - baseMs > 130000) return;
+      if (!best || baseMs > Date.parse(best.base_observed_at)) best = prediction;
+    });
+    return best;
   }
 
   function riskTrackDetailHtml(detail, history) {
@@ -431,6 +447,9 @@
     var livePolling = false;
     var replayTimer = null;
     var replayDetail = null;
+    var replayPredictionEnabled = false;
+    var replayPredictionTrackId = null;
+    var replayPredictions = null;
     var historyQueried = false;
     var loadButton = $('#sourceSituationLoad');
     var locateButton = $('#sourceSituationLocate');
@@ -712,19 +731,87 @@
       }
     }
 
+    function loadReplayPredictions(detail) {
+      var observations = detail.observations || [];
+      if (replayPredictionTrackId === detail.track.id && replayPredictions) return;
+      replayPredictionTrackId = detail.track.id;
+      replayPredictions = null;
+      if (!observations.length) { replayPredictions = []; return; }
+      rpc('get_track_prediction_history', {
+        p_track_id: Number(detail.track.id),
+        p_from: observations[0].observed_at,
+        p_to: observations[observations.length - 1].observed_at,
+        p_thin_seconds: 30
+      }).then(function (payload) {
+        replayPredictions = (payload && payload.predictions) || [];
+        if (!replayPredictions.length) {
+          log('该航迹时段没有可用的历史预测；预测数据仅保留 24 小时。', 'info');
+        }
+      }).catch(function (error) {
+        replayPredictions = [];
+        log('历史预测加载失败：' + error.message, 'warning');
+      });
+    }
+
+    function renderReplayPrediction(timeMs) {
+      if (!replayPredictionEnabled || !replayPredictions || !replayPredictions.length) return;
+      var prediction = pickReplayPrediction(replayPredictions, timeMs);
+      if (!prediction || !prediction.points || prediction.points.length < 2) return;
+      var dataSource = addDataSource('replay-prediction', '当时预测');
+      var color = CesiumRuntime.Color.fromCssColorString('#e879f9');
+      dataSource.entities.add({
+        id: 'replay-prediction-line-' + prediction.id,
+        name: '当时预测 #' + prediction.id,
+        polyline: {
+          positions: prediction.points.map(function (point) {
+            return CesiumRuntime.Cartesian3.fromDegrees(
+              point.longitude, point.latitude, (point.height_amsl_m || 0) + 100
+            );
+          }),
+          width: 3,
+          material: new CesiumRuntime.PolylineDashMaterialProperty({
+            color: color.withAlpha(0.55),
+            dashLength: 12
+          }),
+          clampToGround: false
+        }
+      });
+      var lastPoint = prediction.points[prediction.points.length - 1];
+      if (lastPoint.uncertainty_m) {
+        dataSource.entities.add({
+          id: 'replay-prediction-uncertainty-' + prediction.id,
+          name: '当时预测不确定范围',
+          position: CesiumRuntime.Cartesian3.fromDegrees(
+            lastPoint.longitude, lastPoint.latitude, (lastPoint.height_amsl_m || 0) + 100
+          ),
+          ellipse: {
+            semiMajorAxis: lastPoint.uncertainty_m,
+            semiMinorAxis: lastPoint.uncertainty_m,
+            material: color.withAlpha(0.08),
+            outline: true,
+            outlineColor: color.withAlpha(0.45),
+            height: (lastPoint.height_amsl_m || 0) + 100
+          }
+        });
+      }
+    }
+
     function startReplay(detail) {
       stopReplay();
       var observations = (detail.observations || []).slice().sort(function (a, b) {
         return Date.parse(a.observed_at) - Date.parse(b.observed_at) || Number(a.observation_id) - Number(b.observation_id);
       });
       var index = 0;
+      if (replayPredictionEnabled) loadReplayPredictions(detail);
       function frame() {
         var visible = observations.slice(0, index + 1);
         var currentRisk = visible.reduce(function (latest, observation) {
           return observation.riskAssessment || latest;
         }, null) || { status: 'pending' };
         renderTrack({ track: Object.assign({}, detail.track, { riskAssessment: currentRisk }), observations: visible }, { silent: true });
-        if (hint) hint.textContent = '回放 ' + (index + 1) + '/' + observations.length + ' · 风险 ' + riskLabel(currentRisk);
+        renderReplayPrediction(Date.parse(observations[index].observed_at));
+        if (hint) hint.textContent = '回放 ' + (index + 1) + '/' + observations.length + ' · 风险 ' + riskLabel(currentRisk) +
+          (replayPredictionEnabled ? ' · 叠加当时预测' : '');
         index += 1;
         if (index >= observations.length) stopReplay();
       }
@@ -973,6 +1060,10 @@
       var action = event.target.closest && event.target.closest('[data-risk-action="replay"]');
       if (action && replayDetail) startReplay(replayDetail);
     });
+    bind(detailContainer, 'change', function (event) {
+      var toggle = event.target.closest && event.target.closest('[data-risk-action="prediction-toggle"]');
+      if (toggle) replayPredictionEnabled = Boolean(toggle.checked);
+    });
     modeButtons.forEach(function (button) {
       bind(button, 'click', function () { setMode(button.dataset.situationMode); });
     });
@@ -1013,6 +1104,7 @@
     riskHistoryHtml: riskHistoryHtml,
     riskTrackDetailHtml: riskTrackDetailHtml,
     riskAssessmentsFromObservations: riskAssessmentsFromObservations,
+    pickReplayPrediction: pickReplayPrediction,
     indexLiveTracks: indexLiveTracks,
     applyLiveChanges: applyLiveChanges,
     _private: {

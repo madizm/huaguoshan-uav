@@ -435,7 +435,10 @@
   .risk-history > header { display: flex; justify-content: space-between; align-items: center; }
   .risk-history > header strong { color: var(--paper-strong); font-size: 13px; }
   .risk-history > header span { color: rgba(255, 247, 223, 0.48); font-size: 11px; }
-  .risk-history-play { justify-self: stretch; padding: 8px 10px; border-color: rgba(94, 234, 212, 0.35); color: var(--jade); font-size: 11px; }
+  .risk-history-actions { display: flex; align-items: center; gap: 10px; }
+  .risk-history-play { flex: 1; padding: 8px 10px; border-color: rgba(94, 234, 212, 0.35); color: var(--jade); font-size: 11px; }
+  .risk-replay-toggle { display: flex; align-items: center; gap: 5px; color: rgba(255, 247, 223, 0.72); font-size: 11px; white-space: nowrap; cursor: pointer; }
+  .risk-replay-toggle input { accent-color: #e879f9; }
   .risk-history-list { display: grid; gap: 0; max-height: 330px; margin: 0; padding: 0; overflow: auto; list-style: none; }
   .risk-history-item { position: relative; display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 8px; padding: 8px 4px 8px 0; }
   .risk-history-item > i { position: relative; width: 9px; height: 9px; margin-top: 5px; border: 2px solid var(--risk-color); border-radius: 50%; background: #10221d; box-shadow: 0 0 8px color-mix(in srgb, var(--risk-color) 55%, transparent); }
