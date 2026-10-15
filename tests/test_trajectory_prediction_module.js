@@ -4,6 +4,9 @@ const pageHtml = fs.readFileSync(require.resolve('../frontend/tianditu-3d.html')
 assert(pageHtml.includes('data-layer="trajectoryPrediction"'));
 assert(pageHtml.indexOf('prediction-timeline.js') < pageHtml.indexOf('source-situation-module.js'));
 assert(pageHtml.includes('trajectoryPredictionStatus'));
+assert(/class="toggle-group-note"[^>]*id="trajectoryPredictionStatus"/.test(pageHtml), '预测状态应复用图层说明样式');
+const controlsCss = fs.readFileSync(require.resolve('../frontend/src/styles/controls.css'), 'utf8');
+assert(/\.toggle-group-note\s*\{[^}]*padding: 0 14px;[^}]*font-size: 11px;[^}]*overflow-wrap: anywhere;/s.test(controlsCss), '预测状态的字号、对齐和长文本换行应保持一致');
 const modulePath = require.resolve('../frontend/src/features/trajectory-prediction/trajectory-prediction-module');
 const TrajectoryPrediction = require(modulePath);
 assert.strictEqual(TrajectoryPrediction.subjectStyle('airspace_target').label, '空域目标');
