@@ -550,6 +550,7 @@ create or replace view api.equipment_statistics as
 select a.category_code, coalesce(s.connectivity_status, 'unknown') as connectivity_status,
        coalesce(s.dispatch_status, 'unknown') as dispatch_status, count(*)::bigint as asset_count
 from equipment.asset a left join equipment.asset_status_current s on s.asset_id = a.id
+where a.is_simulated = false
 group by a.category_code, coalesce(s.connectivity_status, 'unknown'), coalesce(s.dispatch_status, 'unknown');
 
 create or replace view api.equipment_online_statistics as
@@ -563,6 +564,7 @@ select
   )::numeric(5, 2) as online_rate
 from equipment.asset a
 left join equipment.asset_status_current s on s.asset_id = a.id
+where a.is_simulated = false
 group by a.category_code;
 
 create or replace view api.aircraft_assets as
@@ -628,8 +630,8 @@ comment on view api.equipment_asset_status is '设备当前连接、调度和位
 comment on view api.equipment_raw_observations is '设备原始观测查询与追加资源，禁止更新和删除。';
 comment on view api.equipment_asset_capabilities is '设备能力及接入级别只读资源。';
 comment on view api.equipment_asset_coverages is '设备能力空间覆盖及 AMSL 高度范围只读资源。';
-comment on view api.equipment_statistics is '按类别、连接状态和调度状态分组的设备统计资源。';
-comment on view api.equipment_online_statistics is '按设备类别统计设备总数、在线设备数和在线率的只读资源。';
+comment on view api.equipment_statistics is '仅统计非模拟设备，按类别、连接状态和调度状态分组的设备统计资源。';
+comment on view api.equipment_online_statistics is '仅统计非模拟设备，按设备类别统计设备总数、在线设备数和在线率的只读资源。';
 comment on view api.aircraft_assets is '基于统一设备模型的既有无人机兼容查询资源。';
 comment on view api.reported_flights is '外部报备飞行资源，仅保留来源无人机名称快照。';
 comment on view api.inspection_tasks is '关联平台受管理无人机的巡查任务 CRUD 资源。';

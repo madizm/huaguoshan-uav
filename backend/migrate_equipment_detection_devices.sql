@@ -225,11 +225,12 @@ select
 from equipment.asset a
 join equipment.asset_category c on c.code = a.category_code
 left join equipment.asset_status_current s on s.asset_id = a.id
+where a.is_simulated = false
 group by a.category_code, c.name;
 
 comment on view api.equipment_electro_optical_device_profiles is '光电设备专业属性只读资源。';
 comment on view api.equipment_asset_categories is '设施设备类别字典只读资源。';
-comment on view api.equipment_online_statistics is '按设备类别统计设备总数、类别名称、在线设备数和在线率的只读资源。';
+comment on view api.equipment_online_statistics is '仅统计非模拟设备，按设备类别统计设备总数、类别名称、在线设备数和在线率的只读资源。';
 comment on column api.equipment_online_statistics.category_code is '设备类别编码。';
 comment on column api.equipment_online_statistics.catalog_name is '设备类别中文名称，来自设施设备类别字典。';
 

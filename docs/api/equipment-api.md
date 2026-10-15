@@ -80,6 +80,8 @@ export TOKEN='<access_token>'
 
 ### 2.4 在线率
 
+`api.equipment_statistics` 和 `api.equipment_online_statistics` 仅统计 `equipment.asset.is_simulated = false` 的设备。模拟资产或使用模拟位置并标记为模拟的资产不参与统计；没有非模拟设备的类别不返回记录。现有数据库可执行 `backend/migrate_equipment_real_device_statistics.sql` 更新这两个视图。
+
 `online_rate` 是百分比数值，范围为 `0.00`–`100.00`，保留两位小数。连接状态缺失、`offline` 或 `unknown` 的设备均不计入在线设备数，但计入设备总数。
 
 ## 3. 统一设备资产
