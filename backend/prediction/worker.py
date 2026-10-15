@@ -144,6 +144,11 @@ def main() -> None:
     parser.add_argument("--horizon-seconds", type=int, default=120)
     parser.add_argument("--step-seconds", type=int, default=5)
     parser.add_argument("--active-seconds", type=int, default=30)
+    parser.add_argument("--estimator", choices=("least_squares", "kalman_cv"), default="least_squares")
+    parser.add_argument("--measurement-noise-std-m", type=float, default=10.0,
+                        help="Kalman position measurement standard deviation in meters (> 0)")
+    parser.add_argument("--acceleration-noise-density-m2-s3", type=float, default=1.0,
+                        help="Kalman continuous white-acceleration spectral density in m²/s³ (> 0)")
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
     if not args.database_url:
@@ -151,7 +156,14 @@ def main() -> None:
     if args.poll_interval < 0.5:
         parser.error("--poll-interval must be at least 0.5 seconds")
     logging.basicConfig(level=os.environ.get("PREDICTION_LOG_LEVEL", os.environ.get("LOG_LEVEL", "INFO")))
-    config = PredictionConfig(horizon_seconds=args.horizon_seconds, step_seconds=args.step_seconds)
+    try:
+        config = PredictionConfig(
+            horizon_seconds=args.horizon_seconds, step_seconds=args.step_seconds,
+            estimator=args.estimator, measurement_noise_std_m=args.measurement_noise_std_m,
+            acceleration_noise_density_m2_s3=args.acceleration_noise_density_m2_s3,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.once:
         print(asyncio.run(run_once(
             args.database_url, config, args.min_interval_seconds, args.retention_hours,

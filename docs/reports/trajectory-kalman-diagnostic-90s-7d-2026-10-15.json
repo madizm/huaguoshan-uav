@@ -1,0 +1,475 @@
+{
+  "dataset": {
+    "cutoff": "2026-10-15T22:04:17.538461+08:00",
+    "hours": 168.0,
+    "rows": 8554,
+    "sha256": "646b1b58bfe89ea84d17c5e1ef9ff1e262938c7a3e097a1ae222ee43101ff8fe",
+    "start_observed_at": "2026-10-09 07:01:25.039000+08:00",
+    "end_observed_at": "2026-10-15 20:30:37.625000+08:00"
+  },
+  "parameters": {
+    "hours": 168.0,
+    "max_rows": 100000,
+    "window_seconds": 90.0,
+    "cadence_seconds": 5,
+    "tolerance_seconds": 3,
+    "measurement_noise_std_m": 10,
+    "acceleration_noise_density_m2_s3": 1,
+    "output": "docs/reports/trajectory-kalman-diagnostic-90s-7d-2026-10-15.json"
+  },
+  "method": "Arrival-driven causal comparison, once per newest observation base; not worker polling/persistence replay. Paired references within tolerance; spherical horizontal distance; observations are not independent ground truth. Non-default window is diagnostic only.",
+  "subjects": 1791,
+  "subjects_with_paired_samples": 522,
+  "unique_points_per_subject": {
+    "min": 1,
+    "max": 64,
+    "median": 3
+  },
+  "prediction_origins": 8550,
+  "quality": [
+    {
+      "algorithm": "least_squares",
+      "quality": "insufficient_data",
+      "reason": "not_enough_points",
+      "count": 3329
+    },
+    {
+      "algorithm": "kalman_cv",
+      "quality": "insufficient_data",
+      "reason": "not_enough_points",
+      "count": 3329
+    },
+    {
+      "algorithm": "least_squares",
+      "quality": "ok",
+      "reason": null,
+      "count": 5218
+    },
+    {
+      "algorithm": "kalman_cv",
+      "quality": "ok",
+      "reason": null,
+      "count": 5218
+    },
+    {
+      "algorithm": "least_squares",
+      "quality": "insufficient_data",
+      "reason": "unrealistic_speed",
+      "count": 3
+    },
+    {
+      "algorithm": "kalman_cv",
+      "quality": "insufficient_data",
+      "reason": "unrealistic_speed",
+      "count": 3
+    }
+  ],
+  "models": [
+    {
+      "algorithm": "least_squares",
+      "model": "hover",
+      "count": 2342
+    },
+    {
+      "algorithm": "kalman_cv",
+      "model": "hover",
+      "count": 2255
+    },
+    {
+      "algorithm": "kalman_cv",
+      "model": "cv",
+      "count": 2912
+    },
+    {
+      "algorithm": "least_squares",
+      "model": "cv",
+      "count": 2825
+    },
+    {
+      "algorithm": "least_squares",
+      "model": "ct",
+      "count": 51
+    },
+    {
+      "algorithm": "kalman_cv",
+      "model": "ct",
+      "count": 51
+    }
+  ],
+  "paired": [
+    {
+      "eta_seconds": 10,
+      "algorithms": {
+        "least_squares": {
+          "samples": 156,
+          "mean_error_m": 60.548,
+          "median_error_m": 37.791,
+          "p90_error_m": 159.154,
+          "within_uncertainty_rate": 0.8526,
+          "mean_uncertainty_m": 91.997
+        },
+        "kalman_cv": {
+          "samples": 156,
+          "mean_error_m": 31.198,
+          "median_error_m": 22.885,
+          "p90_error_m": 75.501,
+          "within_uncertainty_rate": 0.9038,
+          "mean_uncertainty_m": 81.404
+        }
+      }
+    },
+    {
+      "eta_seconds": 30,
+      "algorithms": {
+        "least_squares": {
+          "samples": 1870,
+          "mean_error_m": 91.42,
+          "median_error_m": 29.487,
+          "p90_error_m": 282.816,
+          "within_uncertainty_rate": 0.692,
+          "mean_uncertainty_m": 85.784
+        },
+        "kalman_cv": {
+          "samples": 1870,
+          "mean_error_m": 84.726,
+          "median_error_m": 29.598,
+          "p90_error_m": 266.991,
+          "within_uncertainty_rate": 0.8813,
+          "mean_uncertainty_m": 178.684
+        }
+      }
+    },
+    {
+      "eta_seconds": 60,
+      "algorithms": {
+        "least_squares": {
+          "samples": 1705,
+          "mean_error_m": 158.848,
+          "median_error_m": 42.504,
+          "p90_error_m": 487.23,
+          "within_uncertainty_rate": 0.6158,
+          "mean_uncertainty_m": 109.338
+        },
+        "kalman_cv": {
+          "samples": 1705,
+          "mean_error_m": 168.338,
+          "median_error_m": 51.937,
+          "p90_error_m": 514.804,
+          "within_uncertainty_rate": 0.8786,
+          "mean_uncertainty_m": 390.135
+        }
+      }
+    },
+    {
+      "eta_seconds": 120,
+      "algorithms": {
+        "least_squares": {
+          "samples": 1305,
+          "mean_error_m": 289.757,
+          "median_error_m": 64.663,
+          "p90_error_m": 911.288,
+          "within_uncertainty_rate": 0.5701,
+          "mean_uncertainty_m": 152.173
+        },
+        "kalman_cv": {
+          "samples": 1305,
+          "mean_error_m": 310.518,
+          "median_error_m": 81.153,
+          "p90_error_m": 938.575,
+          "within_uncertainty_rate": 0.8736,
+          "mean_uncertainty_m": 864.85
+        }
+      }
+    }
+  ],
+  "buckets": [
+    {
+      "algorithm": "kalman_cv",
+      "subject_kind": "airspace_target",
+      "model": "ct",
+      "eta_seconds": 10,
+      "samples": 1,
+      "mean_error_m": 123.169,
+      "median_error_m": 123.169,
+      "p90_error_m": 123.169,
+      "within_uncertainty_rate": 1,
+      "mean_uncertainty_m": 389.8
+    },
+    {
+      "algorithm": "kalman_cv",
+      "subject_kind": "airspace_target",
+      "model": "ct",
+      "eta_seconds": 30,
+      "samples": 14,
+      "mean_error_m": 226.85,
+      "median_error_m": 242.873,
+      "p90_error_m": 423.545,
+      "within_uncertainty_rate": 0.5714,
+      "mean_uncertainty_m": 194.929
+    },
+    {
+      "algorithm": "kalman_cv",
+      "subject_kind": "airspace_target",
+      "model": "ct",
+      "eta_seconds": 60,
+      "samples": 11,
+      "mean_error_m": 235.895,
+      "median_error_m": 215.078,
+      "p90_error_m": 368.718,
+      "within_uncertainty_rate": 0.5455,
+      "mean_uncertainty_m": 222.373
+    },
+    {
+      "algorithm": "kalman_cv",
+      "subject_kind": "airspace_target",
+      "model": "ct",
+      "eta_seconds": 120,
+      "samples": 9,
+      "mean_error_m": 158.958,
+      "median_error_m": 127.316,
+      "p90_error_m": 363.306,
+      "within_uncertainty_rate": 0.8889,
+      "mean_uncertainty_m": 350.189
+    },
+    {
+      "algorithm": "kalman_cv",
+      "subject_kind": "airspace_target",
+      "model": "cv",
+      "eta_seconds": 10,
+      "samples": 107,
+      "mean_error_m": 40.363,
+      "median_error_m": 30.878,
+      "p90_error_m": 94.693,
+      "within_uncertainty_rate": 0.8972,
+      "mean_uncertainty_m": 96.488
+    },
+    {
+      "algorithm": "kalman_cv",
+      "subject_kind": "airspace_target",
+      "model": "cv",
+      "eta_seconds": 30,
+      "samples": 908,
+      "mean_error_m": 151.226,
+      "median_error_m": 101.659,
+      "p90_error_m": 345.166,
+      "within_uncertainty_rate": 0.8866,
+      "mean_uncertainty_m": 329.796
+    },
+    {
+      "algorithm": "kalman_cv",
+      "subject_kind": "airspace_target",
+      "model": "cv",
+      "eta_seconds": 60,
+      "samples": 769,
+      "mean_error_m": 318.16,
+      "median_error_m": 247.371,
+      "p90_error_m": 700.024,
+      "within_uncertainty_rate": 0.9311,
+      "mean_uncertainty_m": 804.222
+    },
+    {
+      "algorithm": "kalman_cv",
+      "subject_kind": "airspace_target",
+      "model": "cv",
+      "eta_seconds": 120,
+      "samples": 514,
+      "mean_error_m": 648.498,
+      "median_error_m": 522.009,
+      "p90_error_m": 1318.692,
+      "within_uncertainty_rate": 0.9805,
+      "mean_uncertainty_m": 2070.815
+    },
+    {
+      "algorithm": "kalman_cv",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 10,
+      "samples": 48,
+      "mean_error_m": 8.85,
+      "median_error_m": 1.337,
+      "p90_error_m": 27.793,
+      "within_uncertainty_rate": 0.9167,
+      "mean_uncertainty_m": 41.354
+    },
+    {
+      "algorithm": "kalman_cv",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 30,
+      "samples": 948,
+      "mean_error_m": 18.934,
+      "median_error_m": 0.522,
+      "p90_error_m": 46.859,
+      "within_uncertainty_rate": 0.8808,
+      "mean_uncertainty_m": 33.708
+    },
+    {
+      "algorithm": "kalman_cv",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 60,
+      "samples": 925,
+      "mean_error_m": 42.98,
+      "median_error_m": 0.634,
+      "p90_error_m": 136.516,
+      "within_uncertainty_rate": 0.8389,
+      "mean_uncertainty_m": 47.878
+    },
+    {
+      "algorithm": "kalman_cv",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 120,
+      "samples": 782,
+      "mean_error_m": 90.112,
+      "median_error_m": 0.637,
+      "p90_error_m": 369.809,
+      "within_uncertainty_rate": 0.8031,
+      "mean_uncertainty_m": 78.106
+    },
+    {
+      "algorithm": "least_squares",
+      "subject_kind": "airspace_target",
+      "model": "ct",
+      "eta_seconds": 10,
+      "samples": 1,
+      "mean_error_m": 123.169,
+      "median_error_m": 123.169,
+      "p90_error_m": 123.169,
+      "within_uncertainty_rate": 1,
+      "mean_uncertainty_m": 389.8
+    },
+    {
+      "algorithm": "least_squares",
+      "subject_kind": "airspace_target",
+      "model": "ct",
+      "eta_seconds": 30,
+      "samples": 14,
+      "mean_error_m": 226.85,
+      "median_error_m": 242.873,
+      "p90_error_m": 423.545,
+      "within_uncertainty_rate": 0.5714,
+      "mean_uncertainty_m": 194.929
+    },
+    {
+      "algorithm": "least_squares",
+      "subject_kind": "airspace_target",
+      "model": "ct",
+      "eta_seconds": 60,
+      "samples": 11,
+      "mean_error_m": 235.895,
+      "median_error_m": 215.078,
+      "p90_error_m": 368.718,
+      "within_uncertainty_rate": 0.5455,
+      "mean_uncertainty_m": 222.373
+    },
+    {
+      "algorithm": "least_squares",
+      "subject_kind": "airspace_target",
+      "model": "ct",
+      "eta_seconds": 120,
+      "samples": 9,
+      "mean_error_m": 158.958,
+      "median_error_m": 127.316,
+      "p90_error_m": 363.306,
+      "within_uncertainty_rate": 0.8889,
+      "mean_uncertainty_m": 350.189
+    },
+    {
+      "algorithm": "least_squares",
+      "subject_kind": "airspace_target",
+      "model": "cv",
+      "eta_seconds": 10,
+      "samples": 98,
+      "mean_error_m": 85.299,
+      "median_error_m": 60.548,
+      "p90_error_m": 172.787,
+      "within_uncertainty_rate": 0.8163,
+      "mean_uncertainty_m": 115.942
+    },
+    {
+      "algorithm": "least_squares",
+      "subject_kind": "airspace_target",
+      "model": "cv",
+      "eta_seconds": 30,
+      "samples": 847,
+      "mean_error_m": 170.84,
+      "median_error_m": 137.843,
+      "p90_error_m": 356.744,
+      "within_uncertainty_rate": 0.4829,
+      "mean_uncertainty_m": 144.437
+    },
+    {
+      "algorithm": "least_squares",
+      "subject_kind": "airspace_target",
+      "model": "cv",
+      "eta_seconds": 60,
+      "samples": 698,
+      "mean_error_m": 310.503,
+      "median_error_m": 265.339,
+      "p90_error_m": 633.383,
+      "within_uncertainty_rate": 0.3166,
+      "mean_uncertainty_m": 192.211
+    },
+    {
+      "algorithm": "least_squares",
+      "subject_kind": "airspace_target",
+      "model": "cv",
+      "eta_seconds": 120,
+      "samples": 470,
+      "mean_error_m": 637.747,
+      "median_error_m": 557.587,
+      "p90_error_m": 1201.267,
+      "within_uncertainty_rate": 0.1447,
+      "mean_uncertainty_m": 278.209
+    },
+    {
+      "algorithm": "least_squares",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 10,
+      "samples": 57,
+      "mean_error_m": 16.897,
+      "median_error_m": 1.498,
+      "p90_error_m": 50.189,
+      "within_uncertainty_rate": 0.9123,
+      "mean_uncertainty_m": 45.604
+    },
+    {
+      "algorithm": "least_squares",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 30,
+      "samples": 1009,
+      "mean_error_m": 22.872,
+      "median_error_m": 0.524,
+      "p90_error_m": 65.032,
+      "within_uncertainty_rate": 0.8692,
+      "mean_uncertainty_m": 35.033
+    },
+    {
+      "algorithm": "least_squares",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 60,
+      "samples": 996,
+      "mean_error_m": 51.718,
+      "median_error_m": 0.652,
+      "p90_error_m": 159.127,
+      "within_uncertainty_rate": 0.8263,
+      "mean_uncertainty_m": 50.012
+    },
+    {
+      "algorithm": "least_squares",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 120,
+      "samples": 826,
+      "mean_error_m": 93.173,
+      "median_error_m": 0.825,
+      "p90_error_m": 374.798,
+      "within_uncertainty_rate": 0.8087,
+      "mean_uncertainty_m": 78.3
+    }
+  ]
+}

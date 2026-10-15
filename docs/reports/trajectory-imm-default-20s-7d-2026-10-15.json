@@ -1,0 +1,64 @@
+{
+  "dataset": {
+    "cutoff": "2026-10-15T22:33:32.944996+08:00",
+    "hours": 168.0,
+    "rows": 8559,
+    "sha256": "b23909501c031e51531cf814b14da52ab7547d963a9f47fe0a67c9e665f22251",
+    "start_observed_at": "2026-10-09 07:01:25.039000+08:00",
+    "end_observed_at": "2026-10-15 22:24:17.884000+08:00"
+  },
+  "parameters": {
+    "hours": 168.0,
+    "max_rows": 100000,
+    "window_seconds": 20.0,
+    "cadence_seconds": 5,
+    "horizon_seconds": 30,
+    "include_imm": true,
+    "tolerance_seconds": 3,
+    "measurement_noise_std_m": 10,
+    "acceleration_noise_density_m2_s3": 1,
+    "output": "docs/reports/trajectory-imm-default-20s-7d-2026-10-15.json"
+  },
+  "experimental_parameters": {
+    "imm_model_time_constant_seconds": 60.0,
+    "imm_initial_turn_std_rad_s": 0.05235987755982989,
+    "imm_turn_diffusion_std_rad_s_sqrt_s": 0.008726646259971648,
+    "imm_max_ekf_step_seconds": 1.0,
+    "imm_forecast": "dominant posterior component, fixed probabilities over horizon"
+  },
+  "method": "Arrival-driven causal comparison, once per newest observation base; not worker polling/persistence replay. Paired references within tolerance; spherical horizontal distance; observations are not independent ground truth. Non-default window is diagnostic only.",
+  "subjects": 1792,
+  "subjects_with_paired_samples": 0,
+  "unique_points_per_subject": {
+    "min": 1,
+    "max": 64,
+    "median": 3.0
+  },
+  "prediction_origins": 8555,
+  "quality": [
+    {
+      "algorithm": "least_squares",
+      "quality": "insufficient_data",
+      "reason": "not_enough_points",
+      "count": 8555
+    },
+    {
+      "algorithm": "kalman_cv",
+      "quality": "insufficient_data",
+      "reason": "not_enough_points",
+      "count": 8555
+    },
+    {
+      "algorithm": "imm_cv_ct",
+      "quality": "insufficient_data",
+      "reason": "not_enough_points",
+      "count": 8555
+    }
+  ],
+  "models": [],
+  "paired": [],
+  "paired_partitions": [],
+  "paired_by_reference_model": [],
+  "paired_subject_macro": [],
+  "buckets": []
+}

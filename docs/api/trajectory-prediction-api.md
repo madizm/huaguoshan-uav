@@ -6,6 +6,15 @@
 
 两个表都在 `situation` 内部层，前端只通过以下 `api` RPC 访问。所有接口需要 admin 角色 JWT。
 
+## 状态估计版本
+
+- 默认 `least_squares`：原最小二乘状态估计，`model_version=1`。
+- 可选 `kalman_cv`：CV/悬停使用有限窗口卡尔曼水平状态估计，`model_version=2`；CT 外推和高度拟合保留原算法。版本 2 不代表每条记录都使用了卡尔曼（CT 仍沿用原模型）。
+- 版本 2 的 CV `uncertainty_m` 是模型协方差对应的 95% 水平误差椭圆外接圆半径，未做经验覆盖率校准，不受原启发式半径上限约束。CT/悬停仍用启发式半径，不能将所有模型的半径都解释为 95% 置信范围。
+- `fit_residual_m` 仍为最小二乘窗口位置残差，不是卡尔曼创新残差。接口返回结构不变。
+- 现有准确度 RPC 不按 `model_version` 分桶，不能用它直接比较两版效果。请先用只读回放，见 [实施与验证报告](../reports/trajectory-kalman-validation-2026-10-15.md)。
+- IMM CV/CT 仅作为 `replay --include-imm` 的离线实验，实验版本号 3，不可通过 worker 选择，也未写入线上预测表。见 [IMM 历史验证报告](../reports/trajectory-imm-validation-2026-10-15.md)。
+
 ## 1. 大屏实时预测
 
 ```http

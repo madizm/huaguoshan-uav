@@ -6,12 +6,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from math import atan2, cos, degrees, hypot, pi, radians, sin, sqrt
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from .kalman import replay_cv, validate_noise
 
 EARTH_RADIUS_M = 6_371_008.8
 MODEL_VERSION = 1
@@ -54,6 +56,14 @@ class PredictionConfig:
     uncertainty_ratio: float = 0.25
     uncertainty_growth_speed_mps: float = 2.0
     uncertainty_max_m: float = 2000.0
+    estimator: Literal["least_squares", "kalman_cv"] = "least_squares"
+    measurement_noise_std_m: float = 10.0
+    acceleration_noise_density_m2_s3: float = 1.0
+
+    def __post_init__(self) -> None:
+        if self.estimator not in ("least_squares", "kalman_cv"):
+            raise ValueError("estimator must be least_squares or kalman_cv")
+        validate_noise(self.measurement_noise_std_m, self.acceleration_noise_density_m2_s3)
 
 
 class PredictedPoint(BaseModel):
@@ -114,6 +124,26 @@ def _heading_deg(velocity_east: float, velocity_north: float) -> float:
 
 def prepare_window(points: list[ObservationPoint], config: PredictionConfig) -> list[ObservationPoint]:
     """去重、排序并截取最近 window_seconds 的窗口；返回按时间升序的点列。"""
+    if config.estimator == "kalman_cv":
+        # One measurement per instant. Highest intake ID wins; coordinate/height
+        # tie-breakers also make missing/equal IDs independent of input order.
+        def winner_key(point: ObservationPoint) -> tuple:
+            return (
+                point.observation_id is not None, point.observation_id or 0,
+                point.longitude, point.latitude,
+                point.height_amsl_m is not None, point.height_amsl_m or 0.0,
+            )
+
+        by_time: dict[datetime, ObservationPoint] = {}
+        for point in points:
+            previous = by_time.get(point.observed_at)
+            if previous is None or winner_key(point) > winner_key(previous):
+                by_time[point.observed_at] = point
+        ordered = sorted(by_time.values(), key=lambda point: point.observed_at)
+        if not ordered:
+            return []
+        cutoff = ordered[-1].observed_at - timedelta(seconds=config.window_seconds)
+        return [point for point in ordered if point.observed_at >= cutoff]
     keyed: dict[tuple[object, ...], ObservationPoint] = {}
     for point in points:
         # New intake IDs do not make a repeated physical measurement independent.
@@ -284,13 +314,14 @@ def predict_trajectory(
 ) -> Prediction:
     """对单个对象的一段观测窗口做短期外推；数据不足时返回空预测并注明原因。"""
     config = config or PredictionConfig()
+    model_version = 2 if config.estimator == "kalman_cv" else MODEL_VERSION
     window = prepare_window([point for point in points if point.observed_at <= predicted_at], config)
 
     def insufficient(reason: str) -> Prediction:
         return Prediction(
             subject_kind=subject_kind, subject_id=subject_id,
             base_observed_at=window[-1].observed_at if window else predicted_at,
-            predicted_at=predicted_at, model_code="cv", quality="insufficient_data",
+            predicted_at=predicted_at, model_code="cv", model_version=model_version, quality="insufficient_data",
             reason=reason, horizon_seconds=config.horizon_seconds, step_seconds=config.step_seconds,
             window_seconds=int(config.window_seconds), window_point_count=len(window),
         )
@@ -306,9 +337,46 @@ def predict_trajectory(
     if fit.speed_mps > config.max_speed_mps:
         return insufficient("unrealistic_speed")
 
+    # Keep the existing CT selector and instantaneous CT fit. Only non-CT
+    # horizontal state is replaced; height and fit_residual_m remain LS values.
+    turn_rate = None
+    speed = fit.speed_mps
+    heading_rad = radians(fit.heading_deg or 0.0)
+    if fit.speed_mps >= config.hover_speed_mps and fit.heading_deg is not None:
+        turn_rate = _estimate_turn_rate_dps(window, config)
+        if turn_rate is not None:
+            segment = _last_segment(window)
+            segment_speed = _mean_segment_speed(window, radians(turn_rate))
+            if segment is not None and segment_speed is not None:
+                if segment_speed > config.max_speed_mps:
+                    return insufficient("unrealistic_speed")
+                speed = segment_speed
+                heading_rad = segment.chord_heading_rad + radians(turn_rate) * (segment.elapsed_seconds / 2)
+            else:
+                turn_rate = None
+
+    kalman_state = None
+    if config.estimator == "kalman_cv" and turn_rate is None:
+        samples = [
+            ((point.observed_at - window[0].observed_at).total_seconds(),
+             *_local_xy(point.longitude, point.latitude, base.longitude, base.latitude))
+            for point in window
+        ]
+        kalman_state = replay_cv(samples, config.measurement_noise_std_m, config.acceleration_noise_density_m2_s3)
+        east, north = kalman_state.east, kalman_state.north
+        speed = hypot(east.velocity, north.velocity)
+        if speed > config.max_speed_mps:
+            return insufficient("unrealistic_speed")
+        fit = replace(
+            fit, base_east=east.position, base_north=north.position,
+            velocity_east=east.velocity, velocity_north=north.velocity,
+            speed_mps=speed, heading_deg=_heading_deg(east.velocity, north.velocity) if speed > 0.1 else None,
+        )
+        heading_rad = radians(fit.heading_deg or 0.0)
+
     common = dict(
         subject_kind=subject_kind, subject_id=subject_id,
-        base_observed_at=base.observed_at, predicted_at=predicted_at,
+        base_observed_at=base.observed_at, predicted_at=predicted_at, model_version=model_version,
         quality="ok", horizon_seconds=config.horizon_seconds, step_seconds=config.step_seconds,
         speed_mps=round(fit.speed_mps, 2), window_seconds=int(config.window_seconds),
         window_point_count=len(window), fit_residual_m=round(fit.residual_m, 2),
@@ -317,9 +385,13 @@ def predict_trajectory(
     steps = [t for t in range(config.step_seconds, config.horizon_seconds + 1, config.step_seconds)]
 
     if fit.speed_mps < config.hover_speed_mps or fit.heading_deg is None:
+        hover_lon, hover_lat = (
+            _lon_lat(fit.base_east, fit.base_north, base.longitude, base.latitude)
+            if kalman_state is not None else (base.longitude, base.latitude)
+        )
         points_out = [
             PredictedPoint(
-                eta_seconds=float(eta), longitude=base.longitude, latitude=base.latitude,
+                eta_seconds=float(eta), longitude=hover_lon, latitude=hover_lat,
                 height_amsl_m=None if fit.base_height_amsl_m is None else round(fit.base_height_amsl_m, 1),
                 uncertainty_m=_uncertainty_m(fit.speed_mps, fit.residual_m, eta, config),
             )
@@ -327,21 +399,7 @@ def predict_trajectory(
         ]
         return Prediction(model_code="hover", **common, points=points_out)
 
-    turn_rate = _estimate_turn_rate_dps(window, config)
     origin_lon, origin_lat = base.longitude, base.latitude
-    speed = fit.speed_mps
-    heading_rad = radians(fit.heading_deg)
-    if turn_rate is not None:
-        segment = _last_segment(window)
-        segment_speed = _mean_segment_speed(window, radians(turn_rate))
-        if segment is not None and segment_speed is not None:
-            if segment_speed > config.max_speed_mps:
-                return insufficient("unrealistic_speed")
-            # 弦航向加半段转向修正得到基准时刻切向航向；速率取弦速度均值。
-            speed = segment_speed
-            heading_rad = segment.chord_heading_rad + radians(turn_rate) * (segment.elapsed_seconds / 2)
-        else:
-            turn_rate = None
     model_code: ModelCode = "ct" if turn_rate is not None else "cv"
     alpha0 = pi / 2 - heading_rad
     omega = radians(turn_rate) if turn_rate is not None else 0.0
@@ -361,7 +419,9 @@ def predict_trajectory(
             height = round(fit.base_height_amsl_m + fit.vertical_speed_mps * eta, 1)
         points_out.append(PredictedPoint(
             eta_seconds=float(eta), longitude=round(longitude, 7), latitude=round(latitude, 7),
-            height_amsl_m=height, uncertainty_m=_uncertainty_m(speed, fit.residual_m, eta, config),
+            height_amsl_m=height,
+            uncertainty_m=(kalman_state.radius_95_m(eta) if kalman_state is not None
+                           else _uncertainty_m(speed, fit.residual_m, eta, config)),
         ))
     heading_deg = degrees(heading_rad) % 360.0
     return Prediction(

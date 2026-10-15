@@ -1,0 +1,46 @@
+{
+  "dataset": {
+    "cutoff": "2026-10-15T22:04:15.407224+08:00",
+    "hours": 24.0,
+    "rows": 1807,
+    "sha256": "f1511a1dc83f233c4992bc8021d51407947ce56c0a3009cbcdbdc596f00b7b99",
+    "start_observed_at": "2026-10-15 05:12:10.972000+08:00",
+    "end_observed_at": "2026-10-15 20:30:37.625000+08:00"
+  },
+  "parameters": {
+    "hours": 24.0,
+    "max_rows": 100000,
+    "window_seconds": 20,
+    "cadence_seconds": 5,
+    "tolerance_seconds": 3,
+    "measurement_noise_std_m": 10,
+    "acceleration_noise_density_m2_s3": 1,
+    "output": "docs/reports/trajectory-kalman-default-24h-2026-10-15.json"
+  },
+  "method": "Arrival-driven causal comparison, once per newest observation base; not worker polling/persistence replay. Paired references within tolerance; spherical horizontal distance; observations are not independent ground truth. Non-default window is diagnostic only.",
+  "subjects": 400,
+  "subjects_with_paired_samples": 0,
+  "unique_points_per_subject": {
+    "min": 1,
+    "max": 49,
+    "median": 3.0
+  },
+  "prediction_origins": 1807,
+  "quality": [
+    {
+      "algorithm": "least_squares",
+      "quality": "insufficient_data",
+      "reason": "not_enough_points",
+      "count": 1807
+    },
+    {
+      "algorithm": "kalman_cv",
+      "quality": "insufficient_data",
+      "reason": "not_enough_points",
+      "count": 1807
+    }
+  ],
+  "models": [],
+  "paired": [],
+  "buckets": []
+}
