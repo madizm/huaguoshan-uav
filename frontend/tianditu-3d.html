@@ -35,6 +35,8 @@
   <script src="./src/features/airspace-grid/grid-geometry.js"></script>
   <script src="./src/features/airspace-grid/airspace-grid-ui.js"></script>
   <script src="./src/features/suitable-footprint/suitable-footprint-module.js"></script>
+  <script src="./src/features/trajectory-prediction/prediction-timeline.js"></script>
+  <script src="./src/features/trajectory-prediction/prediction-selection.js"></script>
   <script src="./src/features/source-situation/source-situation-module.js"></script>
   <script src="./src/features/trajectory-prediction/trajectory-prediction-module.js"></script>
   <script src="./src/features/defense-rings/defense-ring-layer.js"></script>
@@ -139,8 +141,10 @@
       </div>
       <div class="toggle-group" aria-label="轨迹预测图层">
         <h3>预测</h3>
+        <p id="trajectoryPredictionStatus" role="status" aria-live="polite">预测图层已关闭</p>
         <div class="toggles">
           <button type="button" data-layer="trajectoryPrediction" aria-pressed="false" data-requires-auth>轨迹预测</button>
+          <button type="button" id="predictionLocateSubject" disabled data-requires-auth>定位关联目标</button>
         </div>
       </div>
     </details>

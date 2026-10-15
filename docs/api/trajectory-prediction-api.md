@@ -26,9 +26,15 @@ POST /postgrest/rpc/get_trajectory_predictions
 ```
 
 - `p_subject_kinds`：`airspace_target`、`aircraft_asset` 子集或 NULL（全部）。
-- `p_max_prediction_age_seconds`：5–600，只返回预测时刻在该秒数内的记录。
+- `p_max_subjects`：1–2000，默认 200；先按类别过滤，取近 10 分钟内每个对象的最新计算记录（不限质量），再按这些记录的 `predicted_at DESC, id DESC` 选取最多该数量的对象，形成两个数组共用的对象池。优先选择最近计算的对象，不按对象类别或 ID 截取。
+- `p_max_prediction_age_seconds`：5–600，仅限制 `predictions` 的预测计算时刻，不影响 `states` 的固定 10 分钟窗口。
 
-返回 `{"generated_at","predictions":[...]}`，每条含 `subject_kind`、`subject_id`、`base_observed_at`、`predicted_at`、`model_code`、`model_version`、`horizon_seconds`、`step_seconds`、`speed_mps`、`heading_deg`、`turn_rate_dps`、`window_point_count`、`fit_residual_m` 和 `points`（`[{"eta_seconds","longitude","latitude","height_amsl_m","uncertainty_m"}]`）。仅含 `quality=ok` 的记录。
+返回 `{"generated_at","predictions":[...],"states":[...]}`，无记录时相应数组为 `[]`。两个数组均按 `(subject_kind, subject_id)` 分组，每组按 `predicted_at DESC, id DESC` 确定最新记录；返回数组按对象类别与 ID 升序排列。
+
+- `predictions`：共同对象池内、预测年龄窗口内最新的 `quality=ok` 记录，保留现有有效预测契约。每条含 `id`、`subject_kind`、`subject_id`、`base_observed_at`、`predicted_at`、`model_code`、`model_version`、`horizon_seconds`、`step_seconds`、`speed_mps`、`heading_deg`、`turn_rate_dps`、`window_point_count`、`fit_residual_m` 和 `points`（`[{"eta_seconds","longitude","latitude","height_amsl_m","uncertainty_m"}]`）。
+- `states`：共同对象池内全部对象的最新计算记录，不按质量过滤。每条仅含 `id`、`subject_kind`、`subject_id`、`quality`、`reason`、`base_observed_at`、`predicted_at`、`horizon_seconds`、`model_code`、`model_version`、`step_seconds`，不含 `points`。`quality` 为 `ok` 或 `insufficient_data`；`reason` 可为 NULL。
+
+每条返回的 `predictions` 都保证有相同 `(subject_kind, subject_id)` 的 `states`；`states` 可以包含没有近期有效预测的对象。`id` 是预测记录 ID，不是对象 ID；两个数组应按 `(subject_kind, subject_id)` 关联。同一对象最新计算为 `insufficient_data` 时，`states` 仍返回该状态；若较早的有效预测未超龄，`predictions` 仍可返回它，此时两个 ID 不同。前端应以 `states` 判断最新计算状态，并单独检查预测是否过期或已走完预测时长。未返回的对象可能是无近期计算、类别过滤或共同对象池数量截断，不能推断为数据不足；旧服务未返回 `states` 时，缺失预测也应显示状态未知，而非数据不足。
 
 ## 2. 引擎健康状态
 

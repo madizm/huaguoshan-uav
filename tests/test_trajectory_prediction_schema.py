@@ -57,6 +57,84 @@ class TrajectoryPredictionSchemaTests(unittest.TestCase):
         for field in ("subject_kind", "points", "uncertainty_m", "eta_seconds"):
             self.assertIn(field, comment)
 
+    def realtime_rpc(self):
+        return self.lower.split(
+            "create or replace function api.get_trajectory_predictions(", 1,
+        )[1].split("$$;", 1)[0]
+
+    def test_realtime_rpc_signature_is_unchanged(self):
+        self.assertIn(
+            "p_subject_kinds text[] default null,\n"
+            "  p_max_subjects integer default 200,\n"
+            "  p_max_prediction_age_seconds integer default 30\n"
+            ") returns jsonb", self.realtime_rpc(),
+        )
+
+    def test_realtime_predictions_keep_latest_valid_contract_and_include_id(self):
+        predictions = self.realtime_rpc().split("'predictions',", 1)[1].split("'states',", 1)[0]
+        self.assertIn("'id', latest.id", predictions)
+        self.assertIn("where p.quality = 'ok'", predictions)
+        self.assertIn("make_interval(secs => p_max_prediction_age_seconds)", predictions)
+        self.assertIn("'points', latest.points", predictions)
+
+    def test_realtime_states_are_latest_regardless_of_quality_without_points(self):
+        states = self.realtime_rpc().split("'states',", 1)[1]
+        fields = re.findall(r"'([a-z_]+)', latest\.([a-z_]+)", states)
+        expected = (
+            "id", "subject_kind", "subject_id", "quality", "reason",
+            "base_observed_at", "predicted_at", "horizon_seconds",
+            "model_code", "model_version", "step_seconds",
+        )
+        self.assertEqual(fields, [(field, field) for field in expected])
+        self.assertIn("from selected_subjects latest", states)
+        self.assertNotIn("p_max_prediction_age_seconds", states)
+        # No quality predicate or join to valid predictions: a newer insufficient
+        # record must remain visible even when predictions contains an older OK row.
+        self.assertNotRegex(states, r"(?:p|latest)\.quality\s*=")
+        self.assertNotIn("join", states)
+        self.assertNotIn("'points'", states)
+
+    def test_realtime_common_pool_filters_and_deduplicates_before_recency_limit(self):
+        # Static SQL contract checks only; these do not execute PostgreSQL.
+        rpc = self.realtime_rpc()
+        pool = rpc.split("with latest_states as (", 1)[1].split("select jsonb_build_object", 1)[0]
+        latest_states, selected = pool.split("), selected_subjects as (", 1)
+        self.assertIn("select distinct on (p.subject_kind, p.subject_id) p.*", latest_states)
+        self.assertIn("p.predicted_at >= now() - interval '10 minutes'", latest_states)
+        self.assertIn("p_subject_kinds is null or p.subject_kind = any(p_subject_kinds)", latest_states)
+        self.assertIn(
+            "order by p.subject_kind, p.subject_id, p.predicted_at desc, p.id desc",
+            latest_states,
+        )
+        self.assertNotRegex(latest_states, r"p\.quality\s*=")
+        self.assertNotIn("limit", latest_states)
+        self.assertRegex(
+            selected,
+            r"select \* from latest_states\s+order by predicted_at desc, id desc"
+            r"\s+limit p_max_subjects",
+        )
+        self.assertEqual(rpc.count("limit p_max_subjects"), 1)
+
+    def test_realtime_every_prediction_has_its_latest_state_even_at_subject_limit(self):
+        rpc = self.realtime_rpc()
+        predictions, states = rpc.split("'predictions',", 1)[1].split("'states',", 1)
+        # A newer failed state cannot be displaced by an independent prediction limit.
+        self.assertIn("join selected_subjects s", predictions)
+        self.assertIn(
+            "on s.subject_kind = p.subject_kind and s.subject_id = p.subject_id",
+            predictions,
+        )
+        self.assertIn("select distinct on (p.subject_kind, p.subject_id) p.*", predictions)
+        self.assertIn(
+            "order by p.subject_kind, p.subject_id, p.predicted_at desc, p.id desc",
+            predictions,
+        )
+        self.assertIn("from selected_subjects latest", states)
+        for array in (predictions, states):
+            self.assertNotIn("limit", array)
+            self.assertIn("order by latest.subject_kind, latest.subject_id", array)
+            self.assertIn("'[]'::jsonb", array)
+
     def test_worker_runtime_table_with_chinese_comment(self):
         self.assertIn("create table if not exists situation.prediction_worker_runtime", self.lower)
         self.assertRegex(

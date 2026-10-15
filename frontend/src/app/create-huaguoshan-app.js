@@ -60,6 +60,7 @@
         sourceSituation: null,
         defenseRings: null,
         trajectoryPrediction: null,
+        predictionSelection: null,
         airspaceEnabled: false,
         featurePropertyCache: {},
         featureGridCache: {},
@@ -332,7 +333,10 @@
           viewer: state.viewer,
           rpc: postgrestRpc,
           log: log,
-          showDetail: panelShow('source-risk', '航迹风险')
+          showDetail: panelShow('source-risk', '航迹风险'),
+          onSubjectSelected: function (kind, id) {
+            if (state.predictionSelection) state.predictionSelection.selectSubject(kind, id);
+          }
         });
       }
 
@@ -346,6 +350,15 @@
           CesiumRuntime: Cesium,
           viewer: state.viewer,
           rpc: postgrestRpc,
+          log: log,
+          statusElement: document.getElementById('trajectoryPredictionStatus')
+        });
+        if (state.predictionSelection) state.predictionSelection.destroy();
+        state.predictionSelection = window.HuaguoshanPredictionSelection.createModule({
+          viewer: state.viewer,
+          sourceSituation: state.sourceSituation,
+          trajectoryPrediction: state.trajectoryPrediction,
+          locateButton: document.getElementById('predictionLocateSubject'),
           log: log
         });
       }
@@ -643,6 +656,7 @@
         appEvents.clear();
         panelRouter.destroy();
         statusCenter.destroy();
+        if (state.predictionSelection) state.predictionSelection.destroy();
         if (state.sourceSituation) state.sourceSituation.destroy();
         if (state.defenseRings) state.defenseRings.destroy();
         if (state.trajectoryPrediction) state.trajectoryPrediction.destroy();
@@ -677,6 +691,10 @@
         window.HuaguoshanHud.setAuthRequiredLocked(!(event && event.loggedIn));
         if (state.defenseRings) state.defenseRings.setAuthenticated(Boolean(event && event.loggedIn)).catch(function () {});
         if (state.trajectoryPrediction) state.trajectoryPrediction.setAuthenticated(Boolean(event && event.loggedIn)).catch(function () {});
+        if (!(event && event.loggedIn)) {
+          if (state.predictionSelection) state.predictionSelection.selectSubject(null, null);
+          if (state.viewer) state.viewer.selectedEntity = undefined;
+        }
       });
 
       disposers.push(window.HuaguoshanHud.initHudSections({ storageKey: 'hud.sections.open' }));

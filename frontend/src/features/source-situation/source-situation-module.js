@@ -1,9 +1,11 @@
 (function (global, factory) {
   'use strict';
-  var api = factory();
+  var timeline = typeof module !== 'undefined' && module.exports ?
+    require('../trajectory-prediction/prediction-timeline') : global.HuaguoshanPredictionTimeline;
+  var api = factory(timeline);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (global) global.HuaguoshanSourceSituation = api;
-})(typeof window !== 'undefined' ? window : globalThis, function () {
+})(typeof window !== 'undefined' ? window : globalThis, function (timeline) {
   'use strict';
 
   var SOURCE_STYLE = {
@@ -384,14 +386,7 @@
   }
 
   function pickReplayPrediction(predictions, timeMs) {
-    var best = null;
-    (predictions || []).forEach(function (prediction) {
-      var baseMs = Date.parse(prediction.base_observed_at);
-      if (!Number.isFinite(baseMs) || baseMs > timeMs) return;
-      if (timeMs - baseMs > 130000) return;
-      if (!best || baseMs > Date.parse(best.base_observed_at)) best = prediction;
-    });
-    return best;
+    return timeline.pickReplayPrediction(predictions, timeMs);
   }
 
   function riskTrackDetailHtml(detail, history) {
@@ -450,6 +445,46 @@
     var replayPredictionEnabled = false;
     var replayPredictionTrackId = null;
     var replayPredictions = null;
+    var replayPredictionSequence = 0;
+    var detailSequence = 0;
+    var selectedSubject = null;
+    var subjectEntities = [];
+
+    function invalidateReplayPredictions() {
+      replayPredictionSequence += 1;
+      replayPredictionTrackId = null;
+      replayPredictions = null;
+    }
+
+    function subjectMatches(kind, id) {
+      return selectedSubject && selectedSubject.kind === kind && selectedSubject.id === String(id);
+    }
+
+    function selectSubject(kind, id) {
+      var nextSubject = kind && id != null ? { kind: kind, id: String(id) } : null;
+      if (!nextSubject || (selectedSubject && selectedSubject.kind) !== (nextSubject && nextSubject.kind) ||
+          (selectedSubject && selectedSubject.id) !== (nextSubject && nextSubject.id)) detailSequence += 1;
+      selectedSubject = nextSubject;
+      subjectEntities.forEach(function (entry) {
+        var selected = subjectMatches('airspace_target', entry.id);
+        if (entry.entity.point) entry.entity.point.pixelSize = selected ? entry.size + 5 : entry.size;
+        if (entry.entity.polyline) entry.entity.polyline.width = selected ? entry.size + 3 : entry.size;
+      });
+    }
+
+    function getSubjectEntity(kind, id) {
+      if (kind !== 'airspace_target') return null;
+      var entry = subjectEntities.find(function (item) { return item.id === String(id) && item.entity.point; });
+      return entry ? entry.entity : null;
+    }
+
+    function isSubjectVisible(kind, id) {
+      var entity = getSubjectEntity(kind, id);
+      return Boolean(entity) && Object.keys(dataSources).some(function (key) {
+        var source = dataSources[key];
+        return source.show !== false && source.entities.getById(entity.id) === entity;
+      });
+    }
     var historyQueried = false;
     var loadButton = $('#sourceSituationLoad');
     var locateButton = $('#sourceSituationLocate');
@@ -488,6 +523,7 @@
     function removeLayers() {
       Object.keys(dataSources).forEach(function (key) { viewer.dataSources.remove(dataSources[key], true); });
       dataSources = {};
+      subjectEntities = [];
       lastBounds = null;
       if (locateButton) locateButton.disabled = true;
       if (clearButton) clearButton.disabled = true;
@@ -497,6 +533,8 @@
       stopRefresh();
       stopReplay();
       requestSequence += 1;
+      detailSequence += 1;
+      invalidateReplayPredictions();
       removeLayers();
       if (summary) summary.innerHTML = '<p class="source-situation-empty">尚未加载侦测态势。</p>';
       liveTracks = {};
@@ -547,7 +585,31 @@
     }
 
     function renderRealtime(payload) {
-      removeLayers();
+      // Reconcile by ID: removing a data source destroys Cesium's selected entity.
+      // The desired set also excludes any historical/replay entities left behind.
+      var desired = new Map();
+      subjectEntities = [];
+      lastBounds = null;
+      function upsert(dataSource, definition) {
+        if (!desired.has(dataSource)) desired.set(dataSource, new Set());
+        desired.get(dataSource).add(definition.id);
+        var entity = dataSource.entities.getById(definition.id);
+        if (!entity) {
+          Object.keys(dataSources).some(function (key) {
+            var previous = dataSources[key];
+            entity = previous.entities.getById(definition.id);
+            if (!entity) return false;
+            previous.entities.removeById(definition.id);
+            return true;
+          });
+          if (entity) dataSource.entities.add(entity);
+        }
+        if (!entity) return dataSource.entities.add(definition);
+        Object.keys(definition).forEach(function (key) {
+          if (key !== 'id') entity[key] = definition[key];
+        });
+        return entity;
+      }
       var tracks = payload.tracks || [];
       tracks.forEach(function (track) {
         var points = track.points || [];
@@ -562,8 +624,9 @@
         points.forEach(extendBounds);
         remotePilotPoints.forEach(extendBounds);
         split.segments.forEach(function (segment, index) {
-          dataSource.entities.add({
+          var trailEntity = upsert(dataSource, {
             id: 'detection-live-trail-' + track.track_id + '-' + index,
+            properties: { subject_kind: 'airspace_target', subject_id: track.track_id },
             name: (track.track_code || track.source_target_id) + ' 实时尾迹',
             polyline: {
               positions: segment.map(function (point) { return pointPosition(point, 100); }),
@@ -572,11 +635,12 @@
               clampToGround: false
             }
           });
+          subjectEntities.push({ id: String(track.track_id), entity: trailEntity, size: lost ? 2 : 3 });
         });
         if (remotePilotPoints.length) {
           var remotePilot = remotePilotPoints[remotePilotPoints.length - 1];
           var remotePilotDataSource = addRemotePilotDataSource();
-          remotePilotDataSource.entities.add({
+          upsert(remotePilotDataSource, {
             id: 'detection-remote-pilot-' + track.track_id,
             name: '飞手位置 · ' + track.source_target_id,
             position: pointPosition(remotePilot, 5),
@@ -600,7 +664,7 @@
           var matchingTarget = points.find(function (point) {
             return String(point.observation_id) === String(remotePilot.observation_id);
           });
-          if (matchingTarget) remotePilotDataSource.entities.add({
+          if (matchingTarget) upsert(remotePilotDataSource, {
             id: 'detection-target-pilot-link-' + track.track_id,
             name: '目标—飞手关联',
             polyline: {
@@ -615,8 +679,9 @@
         var target = points[points.length - 1];
         var position = pointPosition(target, 100);
         if (!position) return;
-        dataSource.entities.add({
+        var targetEntity = upsert(dataSource, {
           id: 'detection-target-' + track.track_id,
+          properties: { subject_kind: 'airspace_target', subject_id: track.track_id },
           name: (track.model || style.label) + ' ' + track.source_target_id,
           position: position,
           point: {
@@ -639,7 +704,16 @@
             '；高度：' + (target.altitude_amsl_m == null ? '未知' : target.altitude_amsl_m + ' m AMSL') +
             '；风险：' + escapeHtml(riskLabel(track.riskAssessment))
         });
+        subjectEntities.push({ id: String(track.track_id), entity: targetEntity, size: lost ? 8 : 11 });
       });
+      Object.keys(dataSources).forEach(function (key) {
+        var dataSource = dataSources[key];
+        var ids = desired.get(dataSource);
+        dataSource.entities.values.slice().forEach(function (entity) {
+          if (!ids || !ids.has(entity.id)) dataSource.entities.removeById(entity.id);
+        });
+      });
+      selectSubject(selectedSubject && selectedSubject.kind, selectedSubject && selectedSubject.id);
       if (summary) summary.innerHTML = realtimeSummaryHtml(payload);
       var activeCount = tracks.filter(function (track) { return track.status !== 'lost'; }).length;
       var pointCount = tracks.reduce(function (total, track) { return total + (track.points || []).length; }, 0);
@@ -734,6 +808,8 @@
     function loadReplayPredictions(detail) {
       var observations = detail.observations || [];
       if (replayPredictionTrackId === detail.track.id && replayPredictions) return;
+      invalidateReplayPredictions();
+      var sequence = replayPredictionSequence;
       replayPredictionTrackId = detail.track.id;
       replayPredictions = null;
       if (!observations.length) { replayPredictions = []; return; }
@@ -743,11 +819,14 @@
         p_to: observations[observations.length - 1].observed_at,
         p_thin_seconds: 30
       }).then(function (payload) {
+        // Only the current track request may populate the replay cache.
+        if (destroyed || sequence !== replayPredictionSequence) return;
         replayPredictions = (payload && payload.predictions) || [];
         if (!replayPredictions.length) {
           log('该航迹时段没有可用的历史预测；预测数据仅保留 24 小时。', 'info');
         }
       }).catch(function (error) {
+        if (destroyed || sequence !== replayPredictionSequence) return;
         replayPredictions = [];
         log('历史预测加载失败：' + error.message, 'warning');
       });
@@ -756,16 +835,18 @@
     function renderReplayPrediction(timeMs) {
       if (!replayPredictionEnabled || !replayPredictions || !replayPredictions.length) return;
       var prediction = pickReplayPrediction(replayPredictions, timeMs);
-      if (!prediction || !prediction.points || prediction.points.length < 2) return;
+      if (!prediction) return;
+      var clipped = timeline.clipPrediction(prediction, timeMs, { maxPredictionAgeSeconds: null });
+      if (clipped.state !== 'valid' || clipped.points.length < 2) return;
       var dataSource = addDataSource('replay-prediction', '当时预测');
       var color = CesiumRuntime.Color.fromCssColorString('#e879f9');
       dataSource.entities.add({
         id: 'replay-prediction-line-' + prediction.id,
         name: '当时预测 #' + prediction.id,
         polyline: {
-          positions: prediction.points.map(function (point) {
+          positions: clipped.points.map(function (point) {
             return CesiumRuntime.Cartesian3.fromDegrees(
-              point.longitude, point.latitude, (point.height_amsl_m || 0) + 100
+              point.longitude, point.latitude, timeline.pointHeight(point)
             );
           }),
           width: 3,
@@ -776,13 +857,13 @@
           clampToGround: false
         }
       });
-      var lastPoint = prediction.points[prediction.points.length - 1];
+      var lastPoint = clipped.points[clipped.points.length - 1];
       if (lastPoint.uncertainty_m) {
         dataSource.entities.add({
           id: 'replay-prediction-uncertainty-' + prediction.id,
           name: '当时预测不确定范围',
           position: CesiumRuntime.Cartesian3.fromDegrees(
-            lastPoint.longitude, lastPoint.latitude, (lastPoint.height_amsl_m || 0) + 100
+            lastPoint.longitude, lastPoint.latitude, timeline.pointHeight(lastPoint)
           ),
           ellipse: {
             semiMajorAxis: lastPoint.uncertainty_m,
@@ -790,7 +871,7 @@
             material: color.withAlpha(0.08),
             outline: true,
             outlineColor: color.withAlpha(0.45),
-            height: (lastPoint.height_amsl_m || 0) + 100
+            height: timeline.pointHeight(lastPoint)
           }
         });
       }
@@ -974,7 +1055,7 @@
       }).finally(function () { setLoading(false, '查询历史航迹'); });
     }
 
-    function loadTrack(trackId) {
+    function fetchTrackDetail(trackId) {
       var payload;
       try {
         payload = buildHistoryPayload(startInput && startInput.value, endInput && endInput.value, null);
@@ -982,26 +1063,73 @@
         log(error.message, 'error');
         return Promise.reject(error);
       }
-      if (hint) hint.textContent = '加载航迹';
       return rpc('get_target_track_detail', {
         p_track_id: Number(trackId),
         p_start_at: payload.p_start_at,
         p_end_at: payload.p_end_at,
         p_max_points: 5000
-      }).then(function (detail) {
-        var riskHistory = { assessments: riskAssessmentsFromObservations(detail.observations) };
-        replayDetail = detail;
-        showDetail(riskTrackDetailHtml(detail, riskHistory));
-        renderTrack(detail);
+      });
+    }
+
+    function displayTrackDetail(detail) {
+      showDetail(riskTrackDetailHtml(detail, {
+        assessments: riskAssessmentsFromObservations(detail.observations)
+      }));
+    }
+
+    // Detail-only picking must not replace realtime layers or stop their polling.
+    function showSubjectDetail(kind, id) {
+      if (destroyed) return Promise.resolve(null);
+      if (kind !== 'airspace_target' || id == null) {
+        log('没有可用的目标航迹详情。', 'info');
+        return Promise.resolve(null);
+      }
+      var sequence = ++detailSequence;
+      return fetchTrackDetail(id).then(function (detail) {
+        if (destroyed || sequence !== detailSequence) return null;
+        if (!detail || !detail.track) {
+          log('没有可用的目标航迹详情。', 'info');
+          return null;
+        }
+        displayTrackDetail(detail);
         return detail;
       }).catch(function (error) {
-        if (hint) hint.textContent = '加载失败';
-        log('航迹详情加载失败：' + error.message, 'error');
+        if (!destroyed && sequence === detailSequence) log('航迹详情加载失败：' + error.message, 'error');
+        return null;
+      });
+    }
+
+    function loadTrack(trackId) {
+      var sequence = ++detailSequence;
+      stopReplay();
+      replayDetail = null;
+      invalidateReplayPredictions();
+      if (hint) hint.textContent = '加载航迹';
+      return fetchTrackDetail(trackId).then(function (detail) {
+        if (destroyed || sequence !== detailSequence) return null;
+        if (!detail || !detail.track) {
+          log('没有可用的目标航迹详情。', 'info');
+          return null;
+        }
+        replayDetail = detail;
+        displayTrackDetail(detail);
+        renderTrack(detail);
+        selectSubject('airspace_target', trackId);
+        if (options.onSubjectSelected) options.onSubjectSelected('airspace_target', trackId);
+        return detail;
+      }).catch(function (error) {
+        if (!destroyed && sequence === detailSequence) {
+          if (hint) hint.textContent = '加载失败';
+          log('航迹详情加载失败：' + error.message, 'error');
+        }
         throw error;
       });
     }
 
     function setMode(nextMode) {
+      requestSequence += 1;
+      detailSequence += 1;
+      invalidateReplayPredictions();
       mode = nextMode;
       stopRefresh();
       stopReplay();
@@ -1082,9 +1210,15 @@
     return {
       load: function () { return mode === 'history' ? loadHistory() : loadRealtime(false); },
       locate: locate,
+      selectSubject: selectSubject,
+      getSubjectEntity: getSubjectEntity,
+      isSubjectVisible: isSubjectVisible,
+      showSubjectDetail: showSubjectDetail,
       clear: reset,
       destroy: function () {
         destroyed = true;
+        detailSequence += 1;
+        invalidateReplayPredictions();
         stopRefresh();
         stopReplay();
         disposers.splice(0).forEach(function (dispose) { dispose(); });

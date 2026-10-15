@@ -102,10 +102,23 @@ begin
   if p_subject_kinds is not null and exists(
     select 1 from unnest(p_subject_kinds) k where k not in ('airspace_target','aircraft_asset')
   ) then raise exception 'subject kinds must be airspace_target or aircraft_asset'; end if;
+  -- 先按最新计算状态选定共同对象池，避免独立截断遗漏有效预测对应的新失败状态。
+  with latest_states as (
+    select distinct on (p.subject_kind, p.subject_id) p.*
+    from situation.trajectory_prediction p
+    where p.predicted_at >= now() - interval '10 minutes'
+      and (p_subject_kinds is null or p.subject_kind = any(p_subject_kinds))
+    order by p.subject_kind, p.subject_id, p.predicted_at desc, p.id desc
+  ), selected_subjects as (
+    select * from latest_states
+    order by predicted_at desc, id desc
+    limit p_max_subjects
+  )
   select jsonb_build_object(
     'generated_at', now(),
     'predictions', coalesce((
       select jsonb_agg(jsonb_build_object(
+        'id', latest.id,
         'subject_kind', latest.subject_kind,
         'subject_id', latest.subject_id,
         'base_observed_at', latest.base_observed_at,
@@ -124,18 +137,34 @@ begin
       from (
         select distinct on (p.subject_kind, p.subject_id) p.*
         from situation.trajectory_prediction p
+        join selected_subjects s
+          on s.subject_kind = p.subject_kind and s.subject_id = p.subject_id
         where p.quality = 'ok'
           and p.predicted_at >= now() - make_interval(secs => p_max_prediction_age_seconds)
-          and (p_subject_kinds is null or p.subject_kind = any(p_subject_kinds))
         order by p.subject_kind, p.subject_id, p.predicted_at desc, p.id desc
       ) latest
-      limit p_max_subjects
+    ), '[]'::jsonb),
+    'states', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', latest.id,
+        'subject_kind', latest.subject_kind,
+        'subject_id', latest.subject_id,
+        'quality', latest.quality,
+        'reason', latest.reason,
+        'base_observed_at', latest.base_observed_at,
+        'predicted_at', latest.predicted_at,
+        'horizon_seconds', latest.horizon_seconds,
+        'model_code', latest.model_code,
+        'model_version', latest.model_version,
+        'step_seconds', latest.step_seconds
+      ) order by latest.subject_kind, latest.subject_id)
+      from selected_subjects latest
     ), '[]'::jsonb)
   ) into v_result;
   return v_result;
 end;
 $$;
-comment on function api.get_trajectory_predictions(text[],integer,integer) is '查询各预测对象最新有效轨迹预测。返回 {"generated_at","predictions":[{"subject_kind","subject_id","base_observed_at","predicted_at","model_code","model_version","horizon_seconds","step_seconds","speed_mps","heading_deg","turn_rate_dps","window_point_count","fit_residual_m","points":[{"eta_seconds","longitude","latitude","height_amsl_m","uncertainty_m"}]}]}；仅含 quality=ok 且预测时刻不超过 p_max_prediction_age_seconds 的记录。';
+comment on function api.get_trajectory_predictions(text[],integer,integer) is '查询预测与最新计算状态。返回 {"generated_at","predictions":[{"id","subject_kind","subject_id","base_observed_at","predicted_at","model_code","model_version","horizon_seconds","step_seconds","speed_mps","heading_deg","turn_rate_dps","window_point_count","fit_residual_m","points":[{"eta_seconds","longitude","latitude","height_amsl_m","uncertainty_m"}]}],"states":[{"id","subject_kind","subject_id","quality","reason","base_observed_at","predicted_at","horizon_seconds","model_code","model_version","step_seconds"}]}；先按对象取近10分钟最新记录（不限质量），再按 predicted_at、id 倒序选最多 p_max_subjects 个对象作为共同对象池；states 返回池内全部最新状态（无预测点），predictions 仅取池内有效且不超过 p_max_prediction_age_seconds 秒的最新记录，每条预测必有对应状态；数组按对象类别与 ID 升序，空集返回空数组。';
 
 do $$ begin
   if not exists(select 1 from pg_roles where rolname='prediction_engine') then
