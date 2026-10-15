@@ -130,7 +130,7 @@ class TestInsufficientData:
 
     def test_window_span_too_short(self):
         points = make_points([(0.0, 0.0, 0.0), (1.0, 20.0, 0.0), (2.0, 40.0, 0.0)])
-        prediction = predict_trajectory("airspace_target", 3, points, BASE_TIME)
+        prediction = predict_trajectory("airspace_target", 3, points, BASE_TIME + timedelta(seconds=2))
         assert prediction.quality == "insufficient_data"
         assert prediction.reason == "window_span_too_short"
 

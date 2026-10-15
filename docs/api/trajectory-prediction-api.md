@@ -95,4 +95,5 @@ POST /postgrest/rpc/get_track_prediction_history
 
 - 空域目标的 `subject_id` 是 `situation.target_track.id`，目标丢失重建航迹后 ID 变更，跨航迹的长期精度分析需经 `target_id` 二次关联；无人机资产的 `subject_id` 是稳定的 `equipment.asset.id`。
 - 实际观测匹配容差为检查点目标时刻前后 3 秒，取最近一条。
-- 源时钟偏差会直接污染误差统计：评估前应在管理后台「侦测来源」页确认相关来源的源时钟偏差在阈值内。
+- 观测与接收时差包含快照陈旧、传输延迟与时钟差，不能单独证明源时钟偏差。连接器、worker 和数据库均应校时；worker 的 `predicted_at` 使用 worker 本机时间，并非数据库时间。
+- 平均观测至预测时差为 `predicted_at - base_observed_at`，包含位置陈旧和等待，不是算法耗时。新预测窗口与准确度匹配排除离线、缺失/非法位置时间与未来样本，重复物理观测不增加拟合权重。既有预测和评估不重建，未标记的旧错误时间不能由过滤器自动纠正。

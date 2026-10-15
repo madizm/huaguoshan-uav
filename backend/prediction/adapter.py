@@ -57,10 +57,12 @@ async def fetch_target_windows(
             'longitude',st_x(p.geom),'latitude',st_y(p.geom),'height_amsl_m',p.height_amsl_m
           ) order by p.observed_at,p.id) points
           from (
-            select r.id,r.observed_at,r.geom,r.height_amsl_m
+            select distinct on (r.observed_at) r.id,r.observed_at,r.geom,r.height_amsl_m
             from situation.track_observation x
             join equipment.raw_observation r on r.id=x.observation_id
             where x.track_id=t.id and r.geom is not null
+              and situation.position_time_valid(r.observed_at,r.received_at,r.observation_type,r.raw_payload)
+              and r.observed_at<=now()
               and r.observed_at>=now()-make_interval(secs=>%s)
             order by r.observed_at desc,r.id desc limit %s
           ) p
@@ -93,9 +95,11 @@ async def fetch_asset_windows(
             'longitude',st_x(p.geom),'latitude',st_y(p.geom),'height_amsl_m',p.height_amsl_m
           ) order by p.observed_at,p.id) points
           from (
-            select r.id,r.observed_at,r.geom,r.height_amsl_m
+            select distinct on (r.observed_at) r.id,r.observed_at,r.geom,r.height_amsl_m
             from equipment.raw_observation r
             where r.asset_id=a.id and r.geom is not null
+              and situation.position_time_valid(r.observed_at,r.received_at,r.observation_type,r.raw_payload)
+              and r.observed_at<=now()
               and r.observed_at>=now()-make_interval(secs=>%s)
             order by r.observed_at desc,r.id desc limit %s
           ) p
@@ -104,6 +108,8 @@ async def fetch_asset_windows(
           and exists(
             select 1 from equipment.raw_observation r
             where r.asset_id=a.id and r.geom is not null
+              and situation.position_time_valid(r.observed_at,r.received_at,r.observation_type,r.raw_payload)
+              and r.observed_at<=now()
               and r.observed_at>=now()-make_interval(secs=>%s)
           )
         order by a.id
@@ -225,9 +231,13 @@ async def evaluate_due_predictions(
             select r.observed_at,r.geom from situation.track_observation x
               join equipment.raw_observation r on r.id=x.observation_id
               where p.subject_kind='airspace_target' and x.track_id=p.subject_id and r.geom is not null
+                and situation.position_time_valid(r.observed_at,r.received_at,r.observation_type,r.raw_payload)
+                and r.observed_at<=now()
             union all
             select r.observed_at,r.geom from equipment.raw_observation r
               where p.subject_kind='aircraft_asset' and r.asset_id=p.subject_id and r.geom is not null
+                and situation.position_time_valid(r.observed_at,r.received_at,r.observation_type,r.raw_payload)
+                and r.observed_at<=now()
           ) a
           where a.observed_at between p.base_observed_at+make_interval(secs=>ck.eta_seconds)-make_interval(secs=>%s)
                                   and p.base_observed_at+make_interval(secs=>ck.eta_seconds)+make_interval(secs=>%s)

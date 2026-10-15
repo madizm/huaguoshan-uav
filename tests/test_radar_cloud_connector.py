@@ -92,7 +92,8 @@ class RadarCloudConnectorTests(unittest.TestCase):
                 "serial": "A",
                 "stationId": 90,
                 "sourceType": 20,
-                "currentTime": "2026-09-20 17:46:08",
+                "currentTime": "2026-09-20 17:40:00",
+                "lastTime": "2026-09-20 17:46:08",
                 "lng": 119.196,
                 "lat": 34.592,
                 "altitude": 32,
@@ -148,7 +149,7 @@ class RadarCloudConnectorTests(unittest.TestCase):
         )
         self.assertEqual(
             normalized["qualityFlags"],
-            ["missing_source_type", "missing_position", "missing_source_time"],
+            ["missing_source_type", "missing_position", "missing_source_time", "invalid_position_time"],
         )
         self.assertIsNone(normalized["detectionMethodCode"])
 

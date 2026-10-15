@@ -35,17 +35,33 @@ class DetectionSituationSchemaTests(unittest.TestCase):
                 rf"comment on table situation\.{table} is '[^']*[\u4e00-\u9fff]",
             )
 
-    def test_source_clock_skew_is_measured_and_flagged(self):
+    def test_time_difference_does_not_claim_clock_skew(self):
         self.assertIn("skew_median_seconds", self.lower)
         self.assertIn("skew_abs_max_seconds", self.lower)
         self.assertIn("skew_sample_count", self.lower)
         self.assertIn("r.observed_at-r.received_at", self.lower)
-        self.assertIn("source_clock_skew", self.lower)
+        self.assertNotIn("'source_clock_skew'", self.lower)
+        self.assertIn("'late_observation'", self.lower)
+        self.assertIn("'future_source_time'", self.lower)
+        self.assertIn("situation.position_time_valid", self.lower)
+        self.assertIn("last_received_at", self.lower)
         for column in ("skew_median_seconds", "skew_abs_max_seconds", "skew_sample_count"):
             self.assertRegex(
                 self.lower,
                 rf"comment on column api\.detection_observation_sources\.{column} is '[^']*[\u4e00-\u9fff]",
             )
+    def test_forward_only_migration_matches_canonical_functions_without_backfill(self):
+        sql = (ROOT / "backend" / "migrate_detection_observation_time.sql").read_text(encoding="utf-8")
+        for name in ("position_time_valid", "ingest_target_observation", "reconcile_detection_targets"):
+            pattern = rf"create or replace function situation\.{name}\(.*?\n\$\$;"
+            self.assertEqual(re.search(pattern, sql, re.S).group(), re.search(pattern, self.sql, re.S).group())
+        ddl_only = re.sub(r"create or replace function .*?\n\$\$;", "", sql, flags=re.S).lower()
+        self.assertNotRegex(ddl_only, r"(?m)^\s*(update|delete|insert|truncate)\b")
+        self.assertNotIn("create or replace function event_response", sql)
+        risk_sql = (ROOT / "backend" / "create_target_risk_assessment.sql").read_text(encoding="utf-8")
+        pattern = r"create or replace function api\.get_risk_engine_status\(.*?\n\$\$;"
+        self.assertEqual(re.search(pattern, sql, re.S).group(), re.search(pattern, risk_sql, re.S).group())
+
     def test_reuses_append_only_equipment_observations(self):
         self.assertIn("insert into equipment.raw_observation", self.lower)
         self.assertIn("references equipment.raw_observation(id)", self.lower)

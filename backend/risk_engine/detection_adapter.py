@@ -140,17 +140,28 @@ async def fetch_pending_observations(conn: AsyncConnection, after_id: int, limit
             'longitude',st_x(h.geom),'latitude',st_y(h.geom)
           ) order by h.observed_at,h.id) trajectory
           from (
-            select pr.id,pr.observed_at,pr.geom
+            select distinct on (pr.observed_at) pr.id,pr.observed_at,pr.geom
             from situation.track_observation pt
             join equipment.raw_observation pr on pr.id=pt.observation_id
             where pt.track_id=t.track_id and pr.geom is not null
               and pr.observation_type <> 'detection_offline_remove'
+              and situation.position_time_valid(pr.observed_at,pr.received_at,pr.observation_type,pr.raw_payload)
+              and pr.observed_at<=now()
               and (pr.observed_at,pr.id)<=(r.observed_at,r.id)
               and pr.observed_at>=r.observed_at-interval '120 seconds'
             order by pr.observed_at desc,pr.id desc limit 100
           ) h
         ) history on true
         where r.observation_type <> 'detection_offline_remove'
+          and situation.position_time_valid(r.observed_at,r.received_at,r.observation_type,r.raw_payload)
+          and r.observed_at<=now()
+          and not exists (
+            select 1 from situation.track_observation dx
+            join equipment.raw_observation dr on dr.id=dx.observation_id
+            where dx.track_id=t.track_id and dr.observed_at=r.observed_at and dr.id<r.id
+              and dr.asset_id=r.asset_id and dr.geom is not distinct from r.geom
+              and situation.position_time_valid(dr.observed_at,dr.received_at,dr.observation_type,dr.raw_payload)
+          )
           and (r.id > %s or not exists (
             select 1 from event_response.target_risk_assessment a where a.observation_id=r.id
           ))
@@ -180,17 +191,27 @@ async def fetch_observation(conn: AsyncConnection, observation_id: int) -> dict[
             'longitude',st_x(h.geom),'latitude',st_y(h.geom)
           ) order by h.observed_at,h.id) trajectory
           from (
-            select pr.id,pr.observed_at,pr.geom
+            select distinct on (pr.observed_at) pr.id,pr.observed_at,pr.geom
             from situation.track_observation pt
             join equipment.raw_observation pr on pr.id=pt.observation_id
             where pt.track_id=t.track_id and pr.geom is not null
               and pr.observation_type <> 'detection_offline_remove'
+              and situation.position_time_valid(pr.observed_at,pr.received_at,pr.observation_type,pr.raw_payload)
+              and pr.observed_at<=now()
               and (pr.observed_at,pr.id)<=(r.observed_at,r.id)
               and pr.observed_at>=r.observed_at-interval '120 seconds'
             order by pr.observed_at desc,pr.id desc limit 100
           ) h
         ) history on true
-        where r.id=%s
+        where r.id=%s and situation.position_time_valid(r.observed_at,r.received_at,r.observation_type,r.raw_payload)
+          and r.observed_at<=now()
+          and not exists (
+            select 1 from situation.track_observation dx
+            join equipment.raw_observation dr on dr.id=dx.observation_id
+            where dx.track_id=t.track_id and dr.observed_at=r.observed_at and dr.id<r.id
+              and dr.asset_id=r.asset_id and dr.geom is not distinct from r.geom
+              and situation.position_time_valid(dr.observed_at,dr.received_at,dr.observation_type,dr.raw_payload)
+          )
         """,
         (observation_id,),
     )

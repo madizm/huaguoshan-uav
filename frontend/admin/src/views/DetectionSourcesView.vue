@@ -265,11 +265,11 @@ onMounted(() => {
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="源时钟偏差" width="150">
+        <el-table-column label="观测与接收时差" width="150">
           <template #default="{ row }">
             <el-tooltip
               v-if="clockSkewLevel(row) !== 'unknown'"
-              :content="`近 15 分钟 ${row.skew_sample_count} 个样本，绝对偏差最大 ${row.skew_abs_max_seconds} 秒；偏差会污染航迹时间窗与轨迹预测，请在来源侧校时`"
+              :content="`近 15 分钟 ${row.skew_sample_count} 个样本，绝对时差最大 ${row.skew_abs_max_seconds} 秒；观测时间减连接器接收时间，包含快照重复、传输延迟与时钟差，不能据此判定源时钟偏差`"
               placement="top"
             >
               <el-tag :type="clockSkewTagType(row)" effect="light">{{ formatClockSkew(row) }}</el-tag>

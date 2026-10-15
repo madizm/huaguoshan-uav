@@ -223,7 +223,7 @@ def test_worker_ignores_offline_above_and_below_cursor_but_assesses_real_missing
     offline = ingest(db, target, at + timedelta(seconds=1), "offline_remove", coords=offline_has_location)
     conn = SyncDatabase(db)
     offline_row = asyncio.run(fetch_observation(conn, offline["observationId"]))
-    assert offline_row["observation_type"] == "detection_offline_remove"
+    assert offline_row is None  # Lifecycle events are excluded at the read boundary.
     rows = asyncio.run(fetch_pending_observations(conn, real["observationId"], 5000))
     assert offline["observationId"] not in {row["observation_id"] for row in rows}
     # The missing-history OR branch must not bring this lifecycle event back.

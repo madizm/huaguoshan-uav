@@ -20,13 +20,16 @@ const predictions = ref<TrajectoryPredictionRow[]>([])
 const accuracy = ref<PredictionAccuracyStats | null>(null)
 const evaluations = ref<Record<number, PredictionEvaluation[]>>({})
 const loading = ref(false)
+const loadFailed = ref(false)
 let refreshTimer: number | undefined
 
-const stateMeta = computed(() => ({
+const stateMeta = computed(() => !status.value
+  ? { label: loadFailed.value ? '状态获取失败' : '状态加载中', type: 'info' as const }
+  : ({
   healthy: { label: '运行正常', type: 'success' },
   degraded: { label: '运行降级', type: 'warning' },
   offline: { label: '心跳离线', type: 'danger' },
-}[status.value?.state ?? 'offline'] as { label: string; type: TagProps['type'] }))
+}[status.value.state] as { label: string; type: TagProps['type'] }))
 
 const insufficientRate = computed(() => {
   const throughput = status.value?.throughput
@@ -90,10 +93,13 @@ async function load(showSuccess = false) {
       getPredictionAccuracyStats(),
     ])
     status.value = nextStatus
+    loadFailed.value = false
     predictions.value = list.predictions
     accuracy.value = nextAccuracy
     if (showSuccess) ElMessage.success('轨迹预测引擎状态已刷新')
   } catch (error) {
+    status.value = null
+    loadFailed.value = true
     ElMessage.error((error as Error).message)
   } finally {
     loading.value = false
@@ -130,7 +136,7 @@ onBeforeUnmount(() => {
     </div>
 
     <el-alert
-      v-if="status?.state !== 'healthy'"
+      v-if="status && status.state !== 'healthy'"
       :title="status?.state === 'offline' ? '轨迹预测 worker 心跳已中断' : '轨迹预测 worker 运行降级'"
       :description="status?.worker.lastErrorMessage || '请检查 prediction worker 进程与数据库连接。'"
       :type="status?.state === 'offline' ? 'error' : 'warning'"
@@ -186,9 +192,10 @@ onBeforeUnmount(() => {
           <el-descriptions-item label="恒定转向">{{ formatCount(status?.models.ct) }}</el-descriptions-item>
           <el-descriptions-item label="悬停">{{ formatCount(status?.models.hover) }}</el-descriptions-item>
           <el-descriptions-item label="有效预测">{{ formatCount(status?.throughput.writtenLastHour) }}</el-descriptions-item>
-          <el-descriptions-item label="平均预测延迟" :span="2">
+          <el-descriptions-item label="平均观测至预测时差" :span="2">
             {{ status?.throughput.averageLatencySeconds == null ? '--' : `${status.throughput.averageLatencySeconds} 秒` }}
           </el-descriptions-item>
+          <el-descriptions-item label="时差口径" :span="2">worker 本机预测时间减位置观测时间，含观测陈旧与处理等待，不是算法耗时；需各主机校时。</el-descriptions-item>
           <el-descriptions-item label="状态生成时间" :span="2">{{ formatTime(status?.generatedAt) }}</el-descriptions-item>
         </el-descriptions>
       </el-card>

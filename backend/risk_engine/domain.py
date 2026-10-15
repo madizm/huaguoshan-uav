@@ -160,9 +160,7 @@ def _trajectory_state(target: TargetInput, protected_object: ProtectedObjectInpu
     )
     keyed: dict[tuple[object, ...], TrajectoryPoint] = {}
     for point in [*target.trajectory, current]:
-        key = ("id", point.observation_id) if point.observation_id is not None else (
-            "point", point.observed_at, point.longitude, point.latitude,
-        )
+        key = (point.observed_at, point.longitude, point.latitude)
         keyed[key] = point
     window_seconds = _parameter(rules, "approach_window_seconds", 10)
     cutoff = target.observed_at - timedelta(seconds=window_seconds)

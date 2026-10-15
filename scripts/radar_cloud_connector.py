@@ -79,11 +79,11 @@ def optional_source_time(value: Any) -> datetime | None:
         return None
     try:
         parsed = datetime.fromisoformat(value.strip().replace(" ", "T").replace("Z", "+00:00"))
-    except ValueError:
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=SOURCE_TIMEZONE)
+        return parsed.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
         return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=SOURCE_TIMEZONE)
-    return parsed.astimezone(timezone.utc)
 
 
 def normalize_vendor_box(item: dict[str, Any], station_id: str,
@@ -225,7 +225,12 @@ def normalize_vendor_item(message_type: str, item: dict[str, Any], station_id: s
     event_type = {"uav_online_remove": "offline_remove", "uav_online_upsert": "online_upsert"}.get(
         message_type, "snapshot"
     )
-    observed_at, missing_time = source_time(item.get("currentTime", item.get("lastTime")), received_at)
+    # lastTime timestamps the latest coordinate; currentTime is detection metadata.
+    position_time = optional_source_time(item.get("lastTime"))
+    detected_at = optional_source_time(item.get("currentTime"))
+    missing_time = position_time is None
+    observed_at = received_at if event_type == "offline_remove" else (position_time or received_at)
+    position_time_valid = event_type != "offline_remove" and not missing_time and observed_at <= received_at
     longitude, latitude = safe_number(item.get("lng")), safe_number(item.get("lat"))
     if (longitude is None or latitude is None) and isinstance(item.get("gps"), str):
         parts = item["gps"].split("/", 1)
@@ -248,8 +253,15 @@ def normalize_vendor_item(message_type: str, item: dict[str, Any], station_id: s
         quality_flags.append("missing_source_type")
     if longitude is None and event_type != "offline_remove":
         quality_flags.append("missing_position")
-    if missing_time:
-        quality_flags.append("missing_source_time")
+    if event_type == "offline_remove":
+        quality_flags.append("lifecycle_event")
+        longitude = latitude = None
+    elif missing_time:
+        quality_flags.extend(["missing_source_time", "invalid_position_time"])
+    elif observed_at > received_at:
+        quality_flags.append("future_source_time")
+    elif (received_at - observed_at).total_seconds() > 5:
+        quality_flags.append("late_observation")
     canonical = json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     fingerprint = "|".join((SOURCE_SYSTEM, item_station, str(source_type_code), serial, event_type,
                              observed_at.isoformat(), canonical))
@@ -261,6 +273,8 @@ def normalize_vendor_item(message_type: str, item: dict[str, Any], station_id: s
         "sourceTypeCode": source_type_code, "detectionMethodCode": detection_method_code,
         "eventType": event_type,
         "observedAt": observed_at.isoformat(), "receivedAt": received_at.isoformat(),
+        "detectedAt": detected_at.isoformat() if detected_at else None,
+        "positionTimeValid": position_time_valid,
         "longitude": longitude, "latitude": latitude,
         "altitudeAmslM": safe_number(item.get("altitude")),
         "relativeHeightM": safe_number(item.get("height")),

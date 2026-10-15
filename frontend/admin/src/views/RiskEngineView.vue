@@ -14,13 +14,16 @@ import {
 const status = ref<RiskEngineStatus | null>(null)
 const failures = ref<RiskEngineFailure[]>([])
 const loading = ref(false)
+const loadFailed = ref(false)
 let refreshTimer: number | undefined
 
-const stateMeta = computed(() => ({
+const stateMeta = computed(() => !status.value
+  ? { label: loadFailed.value ? '状态获取失败' : '状态加载中', type: 'info' as const }
+  : ({
   healthy: { label: '运行正常', type: 'success' },
   degraded: { label: '运行降级', type: 'warning' },
   offline: { label: '心跳离线', type: 'danger' },
-}[status.value?.state ?? 'offline'] as { label: string; type: TagProps['type'] }))
+}[status.value.state] as { label: string; type: TagProps['type'] }))
 
 const backlogTone = computed(() => {
   const age = status.value?.backlog.oldestPendingAgeSeconds ?? 0
@@ -56,9 +59,12 @@ async function load(showSuccess = false) {
       listRiskEngineFailures(),
     ])
     status.value = nextStatus
+    loadFailed.value = false
     failures.value = failureResult.failures
     if (showSuccess) ElMessage.success('风险评估引擎状态已刷新')
   } catch (error) {
+    status.value = null
+    loadFailed.value = true
     ElMessage.error((error as Error).message)
   } finally {
     loading.value = false
@@ -87,7 +93,7 @@ onBeforeUnmount(() => {
     </div>
 
     <el-alert
-      v-if="status?.state !== 'healthy'"
+      v-if="status && status.state !== 'healthy'"
       :title="status?.state === 'offline' ? '风险评估 worker 心跳已中断' : '风险评估处理存在积压或最近批次失败'"
       :description="status?.worker.lastErrorMessage || '请检查积压时长、最近错误及 systemd 服务日志。'"
       :type="status?.state === 'offline' ? 'error' : 'warning'"
@@ -144,7 +150,8 @@ onBeforeUnmount(() => {
           <el-descriptions-item label="遗漏修复">{{ formatCount(status?.backlog.repairPendingCount) }}</el-descriptions-item>
           <el-descriptions-item label="最老待处理" :span="2">{{ formatTime(status?.backlog.oldestPendingAt) }}</el-descriptions-item>
           <el-descriptions-item label="一小时处理">{{ formatCount(status?.throughput.assessedLastHour) }}</el-descriptions-item>
-          <el-descriptions-item label="平均延迟">{{ Number(status?.throughput.averageLatencySeconds ?? 0).toFixed(2) }} 秒</el-descriptions-item>
+          <el-descriptions-item label="平均观测至研判时差">{{ status?.throughput.averageLatencySeconds == null ? '--' : `${status.throughput.averageLatencySeconds.toFixed(2)} 秒` }}</el-descriptions-item>
+          <el-descriptions-item label="时差口径" :span="2">worker 本机研判时间减位置观测时间，含观测陈旧与处理等待，不是算法耗时；需各主机校时。</el-descriptions-item>
           <el-descriptions-item label="规则版本">v{{ status?.configuration.ruleVersion ?? '--' }}</el-descriptions-item>
           <el-descriptions-item label="保护对象">{{ formatCount(status?.configuration.protectedObjectCount) }}</el-descriptions-item>
           <el-descriptions-item label="有效防御圈">{{ formatCount(status?.configuration.defenseRingCount) }}</el-descriptions-item>

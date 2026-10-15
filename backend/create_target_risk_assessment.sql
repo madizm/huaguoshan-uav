@@ -226,6 +226,15 @@ with worker_cursor as (
   join situation.target_observation o on o.observation_id=r.id
   left join event_response.target_risk_assessment a on a.observation_id=r.id
   where r.observation_type <> 'detection_offline_remove'
+    and situation.position_time_valid(r.observed_at,r.received_at,r.observation_type,r.raw_payload)
+    and r.observed_at<=now()
+    and not exists (
+      select 1 from situation.track_observation dx
+      join equipment.raw_observation dr on dr.id=dx.observation_id
+      where dx.track_id=tr.track_id and dr.observed_at=r.observed_at and dr.id<r.id
+        and dr.asset_id=r.asset_id and dr.geom is not distinct from r.geom
+        and situation.position_time_valid(dr.observed_at,dr.received_at,dr.observation_type,dr.raw_payload)
+    )
     and (r.id>c.last_observation_id or a.id is null)
   order by r.id limit 10001
 ), backlog as (

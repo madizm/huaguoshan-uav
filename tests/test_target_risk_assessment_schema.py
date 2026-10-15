@@ -67,16 +67,20 @@ def test_engine_uses_published_thresholds_parameters_and_versioned_centers():
     assert "target.speed_mps >= 15" not in domain
 
 
-def test_offline_migration_and_fresh_schema_use_identical_monitoring_definition():
-    migration = (ROOT / "backend/migrate_target_risk_offline_events.sql").read_text(encoding="utf-8").lower()
+def test_latest_time_migration_and_fresh_schema_use_identical_monitoring_definition():
+    migration = (ROOT / "backend/migrate_detection_observation_time.sql").read_text(encoding="utf-8").lower()
     start = "create or replace function api.get_risk_engine_status"
-    end = "grant execute on function api.get_risk_engine_status(text) to admin;"
+    end = "\n$$;"
 
     def monitoring(sql):
-        return sql[sql.index(start):sql.index(end) + len(end)]
+        offset = sql.index(start)
+        return sql[offset:sql.index(end, offset) + len(end)]
 
     assert monitoring(migration) == monitoring(RISK_SQL)
-    assert "where r.observation_type <> 'detection_offline_remove'\n    and (r.id>c.last_observation_id or a.id is null)" in monitoring(migration)
+    assert "where r.observation_type <> 'detection_offline_remove'" in monitoring(migration)
+    assert "situation.position_time_valid" in monitoring(migration)
+    assert "dr.geom is not distinct from r.geom" in monitoring(migration)
+    assert "and (r.id>c.last_observation_id or a.id is null)" in monitoring(migration)
 
 
 def test_offline_repair_is_transactional_scoped_and_preserves_evidence():

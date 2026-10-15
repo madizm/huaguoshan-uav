@@ -116,9 +116,8 @@ def prepare_window(points: list[ObservationPoint], config: PredictionConfig) -> 
     """去重、排序并截取最近 window_seconds 的窗口；返回按时间升序的点列。"""
     keyed: dict[tuple[object, ...], ObservationPoint] = {}
     for point in points:
-        key = ("id", point.observation_id) if point.observation_id is not None else (
-            "point", point.observed_at, point.longitude, point.latitude,
-        )
+        # New intake IDs do not make a repeated physical measurement independent.
+        key = (point.observed_at, point.longitude, point.latitude, point.height_amsl_m)
         keyed[key] = point
     ordered = sorted(keyed.values(), key=lambda point: (point.observed_at, point.observation_id or 0))
     if not ordered:
@@ -285,7 +284,7 @@ def predict_trajectory(
 ) -> Prediction:
     """对单个对象的一段观测窗口做短期外推；数据不足时返回空预测并注明原因。"""
     config = config or PredictionConfig()
-    window = prepare_window(points, config)
+    window = prepare_window([point for point in points if point.observed_at <= predicted_at], config)
 
     def insufficient(reason: str) -> Prediction:
         return Prediction(

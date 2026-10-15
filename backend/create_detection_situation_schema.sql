@@ -576,6 +576,24 @@ drop function if exists situation.source_timestamp(text,text,timestamptz);
 
 drop function if exists situation.ingest_detection_message(text,text,text,text,timestamptz,jsonb);
 
+-- Shared by ingestion, prediction, evaluation and risk adapters. Legacy normal
+-- payloads without an explicit validity bit remain supported (e.g. Lizheng).
+alter table situation.source_target_session add column if not exists last_received_at timestamptz;
+comment on column situation.source_target_session.last_received_at is '来源目标最近接收时间，用于存活对账，不代表位置更新。';
+
+create or replace function situation.position_time_valid(
+  p_observed_at timestamptz,p_received_at timestamptz,p_type text,p_payload jsonb
+) returns boolean language sql immutable as $$
+  select coalesce(p_observed_at is not null and isfinite(p_observed_at)
+    and p_observed_at<=p_received_at
+    and p_type<>'detection_offline_remove'
+    and (p_payload#>>'{_normalized,positionTimeValid}') is distinct from 'false'
+    and not (coalesce(p_payload#>'{_normalized,qualityFlags}','[]'::jsonb)
+      ?| array['missing_source_time','invalid_position_time','future_source_time','lifecycle_event']),false);
+$$;
+comment on function situation.position_time_valid(timestamptz,timestamptz,text,jsonb)
+  is '判断位置时间是否可信；离线、缺失时间和晚于接收时间的观测不作为运动样本；迟到不等于时钟偏差。';
+
 create or replace function situation.ingest_target_observation(p_observation jsonb)
 returns jsonb
 language plpgsql security definer
@@ -607,6 +625,7 @@ declare
   v_target_id bigint;
   v_track_id bigint;
   v_change_cursor bigint;
+  v_time_valid boolean;
 begin
   if p_observation is null or jsonb_typeof(p_observation)<>'object' then
     raise exception 'normalized observation must be a JSON object';
@@ -668,11 +687,16 @@ begin
     ST_SetSRID(ST_MakePoint(v_pilot_lng,v_pilot_lat),4326) end;
   select coalesce(array_agg(value),array[]::text[]) into v_quality
   from jsonb_array_elements_text(coalesce(p_observation->'qualityFlags','[]'::jsonb));
-  if v_observed_at is not null and v_received_at is not null
-    and abs(extract(epoch from v_observed_at-v_received_at))>5
-    and not ('source_clock_skew'=any(v_quality)) then
-    v_quality := array_append(v_quality,'source_clock_skew');
+  if v_observed_at>least(v_received_at,clock_timestamp()) then
+    v_quality := array_append(v_quality,'future_source_time');
+  elsif v_received_at-v_observed_at>interval '5 seconds' then
+    v_quality := array_append(v_quality,'late_observation');
   end if;
+  v_time_valid := situation.position_time_valid(v_observed_at,v_received_at,
+    'detection_'||v_event_type,jsonb_build_object('_normalized',
+      p_observation||jsonb_build_object('qualityFlags',to_jsonb(v_quality))));
+  -- Raw evidence keeps supplied coordinates, but lifecycle messages never do.
+  if v_event_type='offline_remove' then v_geom:=null; end if;
 
   select * into v_source from situation.observation_source
   where source_system=v_source_system and external_station_id=v_station_id and enabled
@@ -688,6 +712,9 @@ begin
   end if;
 
   perform pg_advisory_xact_lock(hashtextextended(v_source.id::text||':'||v_serial,0));
+  -- Even an idempotent snapshot confirms source presence, not a new position.
+  update situation.source_target_session set last_received_at=greatest(last_received_at,least(v_received_at,clock_timestamp()))
+  where observation_source_id=v_source.id and source_target_id=v_serial and state='active';
   insert into situation.observation_source_status_current(observation_source_id,connector_state,last_message_at,updated_at)
   values(v_source.id,'connected',v_received_at,now())
   on conflict(observation_source_id) do update set connector_state='connected',
@@ -700,7 +727,8 @@ begin
     v_source.asset_id,v_source_system,v_observation_key,'detection_'||v_event_type,
     v_observed_at,v_received_at,v_geom,situation.safe_numeric(p_observation->>'altitudeAmslM'),'AMSL',
     case when cardinality(v_quality)>0 then 'needs_review' else 'normalized' end,
-    p_observation->'rawPayload'||jsonb_build_object('_normalized',p_observation-'rawPayload'),false
+    p_observation->'rawPayload'||jsonb_build_object('_normalized',
+      (p_observation-'rawPayload')||jsonb_build_object('qualityFlags',to_jsonb(v_quality))),false
   ) on conflict(source_system,source_observation_id) do nothing returning id into v_observation_id;
   if v_observation_id is null then
     select id into v_observation_id from equipment.raw_observation
@@ -718,6 +746,16 @@ begin
     situation.safe_numeric(p_observation->>'azimuthDeg'),situation.safe_numeric(p_observation->>'elevationDeg'),
     situation.safe_numeric(p_observation->>'speedMps'),situation.safe_numeric(p_observation->>'listType')::smallint,v_pilot_geom,v_quality
   );
+
+  -- Invalid position times remain auditable raw records, not invented motion.
+  -- In particular, a future time must never reach a greatest() watermark.
+  if not v_time_valid and v_event_type<>'offline_remove' then
+    return jsonb_build_object('status','accepted','observationId',v_observation_id,
+      'trackId',null,'changeCursor',null,'positionTimeValid',false);
+  end if;
+  if v_event_type='offline_remove' then
+    v_observed_at:=least(v_observed_at,v_received_at,clock_timestamp());
+  end if;
 
   select * into v_session from situation.source_target_session
   where observation_source_id=v_source.id and source_target_id=v_serial and state='active'
@@ -745,23 +783,31 @@ begin
         end_reason=coalesce(nullif(p_observation->>'endReason',''),'source_remove'),
         current_observation_id=v_observation_id,version=version+1 where id=v_session.id;
       update situation.target_track set status='closed',lost_at=v_observed_at,
-        last_observed_at=greatest(last_observed_at,v_observed_at),version=version+1,updated_at=now() where id=v_track_id;
-      update situation.airspace_target set active=false,
-        last_observed_at=greatest(last_observed_at,v_observed_at),updated_at=now() where id=v_target_id;
+        version=version+1,updated_at=now() where id=v_track_id;
+      update situation.airspace_target set active=false,updated_at=now() where id=v_target_id;
     elsif v_event_type<>'offline_remove' then
       update situation.source_target_session set source_type_code=coalesce(source_type_code,v_source_type),
         source_session_id=coalesce(source_session_id,nullif(p_observation->>'sourceSessionId','')),
-        last_observed_at=greatest(last_observed_at,v_observed_at),
-        current_observation_id=case when v_observed_at>=last_observed_at then v_observation_id else current_observation_id end,
+        last_observed_at=case when last_observed_at>clock_timestamp() then v_observed_at else greatest(last_observed_at,v_observed_at) end,
+        current_observation_id=case when v_observed_at>=last_observed_at or last_observed_at>clock_timestamp() then v_observation_id else current_observation_id end,
         version=version+1 where id=v_session.id;
-      update situation.target_track set status='tracking',last_observed_at=greatest(last_observed_at,v_observed_at),
-        current_observation_id=case when v_geom is not null and v_observed_at>=last_observed_at then v_observation_id else current_observation_id end,
+      -- A non-spatial sample cannot repair the position watermark while keeping
+      -- its old future pointer: a later-arriving, older real position must win.
+      update situation.target_track set status='tracking',
+        last_observed_at=case when v_geom is null then last_observed_at
+          when current_observation_id is null or last_observed_at>clock_timestamp() then v_observed_at else greatest(last_observed_at,v_observed_at) end,
+        current_observation_id=case when v_geom is not null and (current_observation_id is null or v_observed_at>last_observed_at or last_observed_at>clock_timestamp()) then v_observation_id else current_observation_id end,
         version=version+1,updated_at=now() where id=v_track_id;
-      update situation.airspace_target set active=true,last_observed_at=greatest(last_observed_at,v_observed_at),
+      update situation.airspace_target set active=true,
+        last_observed_at=case when last_observed_at>clock_timestamp() then v_observed_at else greatest(last_observed_at,v_observed_at) end,
         updated_at=now() where id=v_target_id;
     end if;
   end if;
 
+  if v_session.id is not null then
+    update situation.source_target_session set last_received_at=greatest(last_received_at,least(v_received_at,clock_timestamp()))
+    where id=v_session.id;
+  end if;
   if v_track_id is not null then
     insert into situation.track_observation(track_id,observation_id,association_method,association_confidence)
     values(v_track_id,v_observation_id,'source_session',1);
@@ -1107,7 +1153,7 @@ begin
     join situation.target_track t on t.source_session_id=s.id
     where s.observation_source_id=v_source.id and s.state='active'
       and not (s.source_target_id=any(coalesce(p_present_target_ids,array[]::text[])))
-      and s.last_observed_at < p_observed_at-make_interval(secs=>v_source.lost_timeout_seconds)
+      and coalesce(s.last_received_at,s.last_observed_at) < p_observed_at-make_interval(secs=>v_source.lost_timeout_seconds)
     for update of s,t
   loop
     update situation.source_target_session set state='lost',ended_at=p_observed_at,end_reason='reconciled_absent',version=version+1
@@ -1350,8 +1396,8 @@ comment on column api.detection_observation_sources.asset_id is '来源映射的
 comment on column api.detection_observation_sources.lost_timeout_seconds is '目标未出现在来源快照后判定丢失的宽限秒数。';
 comment on column api.detection_observation_sources.last_error_code is '连接器最近一次错误编码，不包含敏感错误详情。';
 comment on column api.detection_observation_sources.capability_codes is '来源映射设备当前启用的能力编码；仅描述能力，不代表每条观测均有对应结果。';
-comment on column api.detection_observation_sources.skew_median_seconds is '近 15 分钟该来源观测的源时钟偏差中位数（秒）：observed_at 减 received_at；正值表示来源时钟快于接收时钟，NULL 表示窗口内无样本。';
-comment on column api.detection_observation_sources.skew_abs_max_seconds is '近 15 分钟源时钟偏差绝对值的最大值（秒）；偏差口径依赖连接器与数据库时钟一致。';
+comment on column api.detection_observation_sources.skew_median_seconds is '近 15 分钟观测时间减连接器接收时间的中位数（秒）；含传输、快照陈旧和时钟差，不能单独证明源时钟偏差；NULL 表示无样本。';
+comment on column api.detection_observation_sources.skew_abs_max_seconds is '近 15 分钟观测与接收时差绝对值最大值（秒）；不是已确认的源时钟偏差。';
 comment on column api.detection_observation_sources.skew_sample_count is '近 15 分钟参与偏差统计的观测样本数。';
 
 create or replace function api.get_detection_situation_snapshot(

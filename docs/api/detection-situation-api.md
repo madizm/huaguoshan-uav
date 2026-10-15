@@ -5,6 +5,7 @@
 当前实现由以下文件组成：
 
 - 数据库迁移：`backend/create_detection_situation_schema.sql`
+- 既有库后续时间契约升级：`backend/migrate_detection_observation_time.sql`（仅 DDL/函数替换，无历史回填；先于连接器和 worker 部署）
 - 风险评估迁移：`backend/create_target_risk_assessment.sql`
 - 来源架次统计迁移：`backend/create_source_sortie_statistics.sql`
 - 风险评估服务：`backend/risk_engine/`
@@ -79,7 +80,9 @@ situation.ingest_target_observation(p_observation jsonb) returns jsonb
 
 返回 `status`、`observationId`、`targetId`、`trackId` 和 `changeCursor`。重复幂等键返回 `status=duplicate`，不会重复写入航迹和增量事件。
 
-接入时函数比较 `observedAt` 与 `receivedAt`：偏差绝对值大于 5 秒的观测追加 `source_clock_skew` 质量标记，观测本身不修改、不拒绝。偏差口径假设连接器与数据库时钟一致；该标记用于暴露厂商设备时钟偏差，运维应在来源侧校时。
+雷达云位置的 `observedAt` 只取 `lastTime`，`currentTime` 转为 `detectedAt` 元数据。缺失/非法 `lastTime` 时，以接收时刻作为原始表存储占位并写 `positionTimeValid=false` 与 `invalid_position_time`；不创建或推进位置航迹。离线消息是生命周期，不是运动样本。其他来源的正常规范载荷无需新增有效性字段即可继续接入。
+
+接入函数将迟到超过 5 秒标记为 `late_observation`，不把迟到认定为时钟偏差；将晚于接收时刻或数据库当前时刻的观测标记为 `future_source_time`，只保留证据、不推进位置水位。重复快照可以刷新来源存活的 `last_received_at`，但不刷新位置指针。预测、准确度评估和风险适配器共用时间有效性过滤，并对重复物理样本去重。已有未来水位仅在下一条时间有效的正常观测接入时恢复；航迹位置水位和指针还要求该观测含有效位置。该变更不回填历史记录，也无法识别未标记、语义错误但不在未来的旧时间。完整契约和协议示例局限见 `docs/雷达云平台/云平台侦测接入设计.md` 第 2.1 节。
 
 ### 3.2 同步盒子台账和状态
 
@@ -337,7 +340,7 @@ Content-Type: application/json
 - 停用后接入函数拒绝该来源的新观测，并将连接器状态重置为 `unknown`。
 - 每次配置变更产生一条 `source_status` 增量事件。
 
-`detection_observation_sources` 视图同时返回设备资产映射、来源时区、丢失宽限、连接时间和最近错误，供管理后台诊断使用。视图还按来源聚合近 15 分钟的源时钟偏差：`skew_median_seconds`（偏差中位数，秒）、`skew_abs_max_seconds`（绝对值最大值，秒）和 `skew_sample_count`（样本数）；正值表示来源时钟快于接收时钟，无样本时为 NULL。管理后台按 5 秒警告、15 秒严重着色展示。
+`detection_observation_sources` 视图同时返回设备资产映射、来源时区、丢失宽限、连接时间和最近错误，供管理后台诊断使用。为兼容接口，近 15 分钟的观测与接收时差仍使用 `skew_median_seconds`（中位数，秒）、`skew_abs_max_seconds`（绝对值最大值，秒）和 `skew_sample_count`（样本数）字段；口径是 `observed_at - received_at`，无样本时为 NULL。该值混合快照陈旧、传输延迟与主机时钟差，不是已确认的源时钟偏差。管理后台仍按 5 秒警告、15 秒严重着色，作为排查提示。
 
 ### 6.8 管理侦测方式与厂商映射
 
