@@ -83,7 +83,8 @@ export async function requestPaged<T>(
 
 export const http = {
   get: <T>(path: string, query?: Record<string, string>) => request<T>(path, { query }),
-  post: <T>(path: string, body: unknown, prefer?: string[]) => request<T>(path, { method: 'POST', body, prefer }),
+  post: <T>(path: string, body: unknown, prefer?: string[], signal?: AbortSignal) =>
+    request<T>(path, { method: 'POST', body, prefer, signal }),
   patch: <T>(path: string, query: Record<string, string>, body: unknown) =>
     request<T>(path, { method: 'PATCH', query, body }),
   delete: <T>(path: string, query: Record<string, string>) => request<T>(path, { method: 'DELETE', query }),

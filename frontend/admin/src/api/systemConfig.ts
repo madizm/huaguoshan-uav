@@ -41,3 +41,13 @@ export async function saveMapBasemapConfig(config: MapBasemapConfig): Promise<vo
     ['resolution=merge-duplicates'],
   )
 }
+
+export interface SystemTimeResponse {
+  server_time: string
+  source: 'database'
+}
+
+/** 读取数据库服务器 UTC 时间，不缓存；signal 用于超时或离开页面时取消请求。 */
+export function getSystemTime(signal?: AbortSignal): Promise<SystemTimeResponse> {
+  return http.post<SystemTimeResponse>('/rpc/get_system_time', {}, undefined, signal)
+}

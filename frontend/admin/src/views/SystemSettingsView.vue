@@ -1,12 +1,26 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getMapBasemapConfig, saveMapBasemapConfig, type MapBasemapConfig } from '../api/systemConfig'
+import { useServerClock } from '../components/useServerClock'
 
 const loading = ref(false)
 const saving = ref(false)
 const basemap = reactive<MapBasemapConfig>({ provider: 'osm', tiandituToken: '', customUrl: '' })
 const updatedAt = ref('')
+const { currentTime, status: clockStatus, syncing: clockSyncing, syncError: clockSyncError, sync: syncClock } = useServerClock()
+const clockFormatter = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+  timeZoneName: 'short',
+})
+const clockText = computed(() => currentTime.value ? clockFormatter.format(currentTime.value) : '等待服务器时间…')
 
 async function load() {
   loading.value = true
@@ -45,8 +59,22 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="settings-page" v-loading="loading">
-    <el-card shadow="never">
+  <div class="settings-page">
+    <el-card shadow="never" class="clock-card">
+      <template #header>
+        <div class="card-header"><span>系统时钟</span><el-tag type="info">只读</el-tag></div>
+      </template>
+      <time v-if="currentTime" class="system-clock" :datetime="currentTime.toISOString()">{{ clockText }}</time>
+      <span v-else class="system-clock">{{ clockText }}</span>
+      <div class="clock-status">
+        <el-tag :type="clockStatus === '已同步' ? 'success' : 'warning'">{{ clockStatus }}</el-tag>
+        <el-button text :loading="clockSyncing" @click="syncClock">重新同步</el-button>
+      </div>
+      <div class="form-hint">数据库服务器时间 · 北京时间（UTC+8）。每秒刷新，每 30 秒校准，只读。</div>
+      <div v-if="clockStatus === '同步已过期'" class="form-hint">当前显示为上次同步后的估算时间，请重新同步。</div>
+      <div v-else-if="clockSyncError" class="form-hint">无法获取服务器时间，请检查网络或服务器接口。</div>
+    </el-card>
+    <el-card shadow="never" v-loading="loading">
       <template #header>
         <div class="card-header">
           <span>地图底图配置</span>
@@ -103,6 +131,20 @@ onMounted(load)
 <style scoped>
 .settings-page {
   max-width: 800px;
+}
+.clock-card {
+  margin-bottom: 20px;
+}
+.clock-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.system-clock {
+  font-size: 24px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 .card-header {
   display: flex;
