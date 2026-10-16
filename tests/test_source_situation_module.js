@@ -104,10 +104,10 @@ assert.deepStrictEqual(
     connector_state: 'connected',
     last_message_at: '2026-09-21T10:00:00+08:00',
     lost_timeout_seconds: 60,
-    skew_abs_max_seconds: 24.3,
+    skew_median_seconds: 24.3,
     skew_sample_count: 40,
   }, '2026-09-21T10:01:00+08:00'),
-  { code: 'warning', label: '源时钟偏差严重' },
+  { code: 'warning', label: '观测与接收时差严重' },
 );
 assert.deepStrictEqual(
   SourceSituation.sourceState({
@@ -115,10 +115,10 @@ assert.deepStrictEqual(
     connector_state: 'connected',
     last_message_at: '2026-09-21T10:00:00+08:00',
     lost_timeout_seconds: 60,
-    skew_abs_max_seconds: 8.2,
+    skew_median_seconds: -8.2,
     skew_sample_count: 40,
   }, '2026-09-21T10:01:00+08:00'),
-  { code: 'warning', label: '源时钟偏差' },
+  { code: 'warning', label: '观测与接收时差过大' },
 );
 assert.strictEqual(
   SourceSituation.sourceState({
@@ -126,11 +126,37 @@ assert.strictEqual(
     connector_state: 'connected',
     last_message_at: '2026-09-21T10:00:00+08:00',
     lost_timeout_seconds: 60,
-    skew_abs_max_seconds: 2.1,
+    skew_median_seconds: 0,
+    skew_abs_max_seconds: 24.3,
     skew_sample_count: 40,
   }, '2026-09-21T10:01:00+08:00').code,
   'ok',
 );
+
+// 中位数决定告警；最大值不参与。保持严格大于阈值，并忽略无效统计。
+for (const [median, sampleCount, label] of [
+  [5, 40, '接入正常'],
+  [-5, 40, '接入正常'],
+  [5.1, 40, '观测与接收时差过大'],
+  [15, 40, '观测与接收时差过大'],
+  [-15, 40, '观测与接收时差过大'],
+  [-15.1, 40, '观测与接收时差严重'],
+  [null, 40, '接入正常'],
+  [undefined, 40, '接入正常'],
+  ['invalid', 40, '接入正常'],
+  [24, 0, '接入正常'],
+  ['8.2', 40, '观测与接收时差过大'],
+]) {
+  assert.strictEqual(SourceSituation.sourceState({
+    enabled: true,
+    connector_state: 'connected',
+    last_message_at: '2026-09-21T10:00:00+08:00',
+    lost_timeout_seconds: 60,
+    skew_median_seconds: median,
+    skew_abs_max_seconds: 100,
+    skew_sample_count: sampleCount,
+  }, '2026-09-21T10:01:00+08:00').label, label, `median=${median}, samples=${sampleCount}`);
+}
 
 const replayPredictions = [
   { id: 1, base_observed_at: '2026-10-14T10:00:00+08:00' },
