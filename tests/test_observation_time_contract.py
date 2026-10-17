@@ -23,15 +23,15 @@ NOW = datetime(2026, 9, 20, 10, tzinfo=timezone.utc)
 def normalize(**fields):
     return normalize_vendor_item("uav_dashboard_snapshot", {
         "serial": "A", "stationId": 90, "sourceType": 10,
-        "currentTime": "2026-09-20 17:00:00", "lastTime": "2026-09-20 17:59:58.123",
+        "currentTime": "2026-09-20 17:59:58.123", "lastTime": "2026-09-20 17:00:00",
         "lng": 119.2, "lat": 34.6, **fields,
     }, "90", NOW)
 
 
-def test_latest_coordinate_time_is_not_detection_time():
+def test_current_time_is_coordinate_time_and_takes_precedence_over_last_time():
     result = normalize()
     assert result["observedAt"] == "2026-09-20T09:59:58.123000+00:00"
-    assert result["detectedAt"] == "2026-09-20T09:00:00+00:00"
+    assert result["detectedAt"] == result["observedAt"]
     assert result["receivedAt"] == NOW.isoformat()
     assert result["positionTimeValid"] is True
     later = normalize_vendor_item("uav_online_upsert", result["rawPayload"], "90", NOW + timedelta(seconds=30))
@@ -39,18 +39,48 @@ def test_latest_coordinate_time_is_not_detection_time():
     assert later["qualityFlags"] == ["late_observation"]
 
 
-@pytest.mark.parametrize("last_time", [None, "", "bad", 1719123456789, "0001-01-01T00:00:00"])
-def test_missing_or_invalid_time_never_claims_position_measurement(last_time):
-    result = normalize(lastTime=last_time)
+@pytest.mark.parametrize("current_time", [None, "", "bad", 1719123456789, "0001-01-01T00:00:00"])
+def test_explicit_invalid_current_time_does_not_fall_back_to_valid_last_time(current_time):
+    result = normalize(currentTime=current_time)
     assert result["positionTimeValid"] is False
     assert "invalid_position_time" in result["qualityFlags"]
-    assert result["rawPayload"]["lastTime"] == last_time
+    assert result["rawPayload"]["currentTime"] == current_time
     # Required raw timestamp is only a storage fallback, not a motion timestamp.
     assert result["observedAt"] == result["receivedAt"]
 
 
+@pytest.mark.parametrize("last_time", [None, "bad", "2026-09-20T10:00:01Z"])
+def test_valid_current_time_is_not_rejected_by_invalid_or_future_last_time(last_time):
+    result = normalize(lastTime=last_time)
+    assert result["positionTimeValid"] is True
+    assert result["observedAt"] == "2026-09-20T09:59:58.123000+00:00"
+    assert result["qualityFlags"] == []
+
+
+def test_snapshot_with_only_current_time_is_a_valid_position():
+    item = normalize()["rawPayload"].copy()
+    del item["lastTime"]
+    result = normalize_vendor_item("uav_dashboard_snapshot", item, "90", NOW)
+    assert result["positionTimeValid"] is True
+    assert result["observedAt"] == "2026-09-20T09:59:58.123000+00:00"
+    assert result["qualityFlags"] == []
+
+
+@pytest.mark.parametrize("message_type", ["uav_online_upsert", "online_list_snapshot"])
+@pytest.mark.parametrize("last_time", ["2026-09-20 17:59:58.123", None, "bad"])
+def test_last_time_compatibility_when_current_time_is_absent(message_type, last_time):
+    item = normalize(lastTime=last_time)["rawPayload"].copy()
+    del item["currentTime"]
+    result = normalize_vendor_item(message_type, item, "90", NOW)
+    assert result["positionTimeValid"] is (last_time == "2026-09-20 17:59:58.123")
+    assert result["detectedAt"] is None
+    assert result["observedAt"] == (
+        "2026-09-20T09:59:58.123000+00:00" if result["positionTimeValid"] else NOW.isoformat()
+    )
+
+
 def test_future_is_not_lateness_and_offline_is_not_motion():
-    result = normalize(lastTime="2026-09-20T10:00:00.001Z")
+    result = normalize(currentTime="2026-09-20T10:00:00.001Z")
     assert result["qualityFlags"] == ["future_source_time"]
     assert not result["positionTimeValid"]
     result = normalize_vendor_item("uav_online_remove", normalize()["rawPayload"], "90", NOW)

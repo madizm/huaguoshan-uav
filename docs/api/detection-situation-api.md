@@ -80,7 +80,7 @@ situation.ingest_target_observation(p_observation jsonb) returns jsonb
 
 返回 `status`、`observationId`、`targetId`、`trackId` 和 `changeCursor`。重复幂等键返回 `status=duplicate`，不会重复写入航迹和增量事件。
 
-雷达云位置的 `observedAt` 只取 `lastTime`，`currentTime` 转为 `detectedAt` 元数据。缺失/非法 `lastTime` 时，以接收时刻作为原始表存储占位并写 `positionTimeValid=false` 与 `invalid_position_time`；不创建或推进位置航迹。离线消息是生命周期，不是运动样本。其他来源的正常规范载荷无需新增有效性字段即可继续接入。
+雷达云位置的 `observedAt` 优先取 `currentTime`；仅在报文未提供该字段时，兼容上线消息与 HTTP 在线列表的 `lastTime`。已提供但非法或为空的 `currentTime` 不回退到 `lastTime`。`detectedAt` 保留解析后的 `currentTime`，不再将其视为与位置无关的元数据。选定时间缺失或非法时，以接收时刻作为原始表存储占位并写 `positionTimeValid=false` 与 `invalid_position_time`；不创建或推进位置航迹。未来时间仍为无效位置时间。离线消息是生命周期，不是运动样本。其他来源的正常规范载荷无需新增有效性字段即可继续接入。
 
 接入函数将迟到超过 5 秒标记为 `late_observation`，不把迟到认定为时钟偏差；将晚于接收时刻或数据库当前时刻的观测标记为 `future_source_time`，只保留证据、不推进位置水位。重复快照可以刷新来源存活的 `last_received_at`，但不刷新位置指针。预测、准确度评估和风险适配器共用时间有效性过滤，并对重复物理样本去重。已有未来水位仅在下一条时间有效的正常观测接入时恢复；航迹位置水位和指针还要求该观测含有效位置。该变更不回填历史记录，也无法识别未标记、语义错误但不在未来的旧时间。完整契约和协议示例局限见 `docs/雷达云平台/云平台侦测接入设计.md` 第 2.1 节。
 

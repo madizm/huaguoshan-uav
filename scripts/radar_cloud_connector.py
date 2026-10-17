@@ -225,8 +225,9 @@ def normalize_vendor_item(message_type: str, item: dict[str, Any], station_id: s
     event_type = {"uav_online_remove": "offline_remove", "uav_online_upsert": "online_upsert"}.get(
         message_type, "snapshot"
     )
-    # lastTime timestamps the latest coordinate; currentTime is detection metadata.
-    position_time = optional_source_time(item.get("lastTime"))
+    # Snapshots timestamp coordinates with currentTime; online-list/upsert payloads
+    # may only provide lastTime. An explicit invalid currentTime must not fall back.
+    position_time = optional_source_time(item.get("currentTime", item.get("lastTime")))
     detected_at = optional_source_time(item.get("currentTime"))
     missing_time = position_time is None
     observed_at = received_at if event_type == "offline_remove" else (position_time or received_at)
