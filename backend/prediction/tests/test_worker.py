@@ -38,3 +38,37 @@ def test_cli_rejects_invalid_config_before_connecting(monkeypatch, extra):
     with pytest.raises(SystemExit) as exc:
         worker.main()
     assert exc.value.code == 2
+
+
+def test_cli_adaptive_config(monkeypatch):
+    captured = []
+
+    async def fake_run_once(database_url, config, *args):
+        captured.append(config)
+        return {}
+
+    monkeypatch.setattr(worker, "run_once", fake_run_once)
+    monkeypatch.setattr(sys, "argv", ["prediction", "--once", "--database-url", "unused",
+        "--adaptive-horizon", "--adaptive-max-uncertainty-m", "180",
+        "--adaptive-max-observation-age-seconds", "25", "--adaptive-max-turn-degrees", "60",
+        "--window-seconds", "90"])
+    worker.main()
+    config = captured[0]
+    assert config.adaptive_horizon
+    assert config.adaptive_max_uncertainty_m == 180
+    assert config.adaptive_max_observation_age_seconds == 25
+    assert config.adaptive_max_turn_degrees == 60
+    assert config.window_seconds == 90
+
+
+@pytest.mark.parametrize("extra", [
+    ["--adaptive-max-uncertainty-m", "nan"],
+    ["--adaptive-max-observation-age-seconds", "0"],
+    ["--adaptive-max-turn-degrees", "-1"],
+    ["--horizon-seconds", "0"], ["--step-seconds", "0"], ["--window-seconds", "nan"],
+])
+def test_invalid_horizon_cli(monkeypatch, extra):
+    monkeypatch.setattr(sys, "argv", ["prediction", "--once", "--database-url", "unused"] + extra)
+    with pytest.raises(SystemExit) as exc:
+        worker.main()
+    assert exc.value.code == 2

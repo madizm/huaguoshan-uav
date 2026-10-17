@@ -133,3 +133,25 @@ def test_experimental_imm_is_opt_in_and_paired_on_identical_references():
     assert {r["reference_model"] for r in result["paired_by_reference_model"]} == {"cv"}
     with pytest.raises(ValueError, match="predictor names"):
         replay([], configs(), BASE_TIME, predictors={"unknown": predict_imm_trajectory})
+
+
+def test_adaptive_replay_reports_stops_and_does_not_evaluate_truncated_points():
+    config = PredictionConfig(adaptive_horizon=True, adaptive_max_uncertainty_m=100)
+    result = replay(data(), {"adaptive": config}, BASE_TIME + timedelta(seconds=170), tolerance_seconds=0)
+    assert result["actual_horizons"]["adaptive"]["samples"] == result["prediction_origins"]
+    assert {row["reason"] for row in result["horizon_stops"]} == {"not_enough_points", "uncertainty_limit"}
+    assert [row["eta_seconds"] for row in result["paired"]] == [10]
+
+
+@pytest.mark.parametrize("extra", [
+    ["--adaptive-horizon", "--include-imm"],
+    ["--adaptive-max-uncertainty-m", "nan"],
+])
+def test_replay_cli_rejects_invalid_adaptive_config_before_database(monkeypatch, extra):
+    import sys
+    from backend.prediction import replay as module
+
+    monkeypatch.setattr(sys, "argv", ["replay", "--output", "/unused.json"] + extra)
+    with pytest.raises(SystemExit) as exc:
+        module.main()
+    assert exc.value.code == 2

@@ -25,7 +25,7 @@ class TrajectoryPredictionSchemaTests(unittest.TestCase):
         for column in (
             "subject_kind", "subject_id", "base_observed_at", "predicted_at",
             "model_code", "model_version", "quality", "reason",
-            "horizon_seconds", "step_seconds", "speed_mps", "heading_deg",
+            "horizon_seconds", "horizon_policy", "step_seconds", "speed_mps", "heading_deg",
             "turn_rate_dps", "window_seconds", "window_point_count",
             "fit_residual_m", "points", "geom",
         ):
@@ -33,6 +33,34 @@ class TrajectoryPredictionSchemaTests(unittest.TestCase):
                 self.lower,
                 rf"comment on column situation\.trajectory_prediction\.{column} is '[^']*[\u4e00-\u9fff]",
             )
+
+    def test_horizon_policy_has_idempotent_upgrade_and_preserves_positive_configured_horizon(self):
+        declaration = "horizon_policy jsonb not null default '{}'::jsonb"
+        self.assertIn(declaration, self.lower)
+        self.assertRegex(
+            self.lower,
+            r"alter table situation\.trajectory_prediction\s+add column if not exists "
+            + re.escape(declaration),
+        )
+        self.assertIn("horizon_seconds integer not null check (horizon_seconds > 0)", self.lower)
+        comment = self.lower.split(
+            "comment on column situation.trajectory_prediction.horizon_policy is '", 1,
+        )[1].split("';", 1)[0]
+        for field in (
+            "horizon_seconds", "mode", "actual_horizon_seconds", "remaining_horizon_seconds",
+            "stop_reason", "rule_version", "thresholds", "metrics",
+        ):
+            self.assertIn(field, comment)
+
+    def test_horizon_policy_exposed_in_realtime_and_admin_queries(self):
+        predictions, states = self.realtime_rpc().split("'predictions',", 1)[1].split("'states',", 1)
+        for section in (predictions, states):
+            self.assertIn("'horizon_policy', latest.horizon_policy", section)
+        for name, alias in (("list_trajectory_predictions", "p"), ("get_track_prediction_history", "t")):
+            rpc = self.lower.split(f"create or replace function api.{name}(", 1)[1].split("$$;", 1)[0]
+            self.assertIn(f"'horizon_policy', {alias}.horizon_policy", rpc)
+        comment = self.lower.split("comment on function api.get_trajectory_predictions", 1)[1].split("';", 1)[0]
+        self.assertEqual(comment.count('"horizon_policy"'), 2)
 
     def test_subject_kind_constraint(self):
         self.assertIn("subject_kind in ('airspace_target','aircraft_asset')", self.lower)
@@ -82,7 +110,7 @@ class TrajectoryPredictionSchemaTests(unittest.TestCase):
         fields = re.findall(r"'([a-z_]+)', latest\.([a-z_]+)", states)
         expected = (
             "id", "subject_kind", "subject_id", "quality", "reason",
-            "base_observed_at", "predicted_at", "horizon_seconds",
+            "base_observed_at", "predicted_at", "horizon_seconds", "horizon_policy",
             "model_code", "model_version", "step_seconds",
         )
         self.assertEqual(fields, [(field, field) for field in expected])

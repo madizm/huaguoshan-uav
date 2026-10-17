@@ -261,6 +261,8 @@ def uncertainty_radius_m(state: IMMState, chosen_mean: Vector) -> float:
 
 
 def _validate_config(config: PredictionConfig) -> None:
+    if config.adaptive_horizon:
+        raise ValueError("adaptive horizon is not supported by experimental IMM")
     validate_noise(config.measurement_noise_std_m, config.acceleration_noise_density_m2_s3)
     for name in ("window_seconds", "max_speed_mps", "max_vertical_speed_mps"):
         value = getattr(config, name)

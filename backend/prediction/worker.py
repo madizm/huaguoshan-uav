@@ -144,6 +144,13 @@ def main() -> None:
     parser.add_argument("--horizon-seconds", type=int, default=120)
     parser.add_argument("--step-seconds", type=int, default=5)
     parser.add_argument("--active-seconds", type=int, default=30)
+    parser.add_argument("--window-seconds", type=float, default=20,
+                        help="Historical fit window; unchanged unless explicitly configured")
+    parser.add_argument("--adaptive-horizon", action="store_true",
+                        help="Opt in to uncalibrated confidence-bound forecast truncation")
+    parser.add_argument("--adaptive-max-uncertainty-m", type=float, default=250.0)
+    parser.add_argument("--adaptive-max-observation-age-seconds", type=float, default=30.0)
+    parser.add_argument("--adaptive-max-turn-degrees", type=float, default=90.0)
     parser.add_argument("--estimator", choices=("least_squares", "kalman_cv"), default="least_squares")
     parser.add_argument("--measurement-noise-std-m", type=float, default=10.0,
                         help="Kalman position measurement standard deviation in meters (> 0)")
@@ -159,6 +166,11 @@ def main() -> None:
     try:
         config = PredictionConfig(
             horizon_seconds=args.horizon_seconds, step_seconds=args.step_seconds,
+            window_seconds=args.window_seconds,
+            adaptive_horizon=args.adaptive_horizon,
+            adaptive_max_uncertainty_m=args.adaptive_max_uncertainty_m,
+            adaptive_max_observation_age_seconds=args.adaptive_max_observation_age_seconds,
+            adaptive_max_turn_degrees=args.adaptive_max_turn_degrees,
             estimator=args.estimator, measurement_noise_std_m=args.measurement_noise_std_m,
             acceleration_noise_density_m2_s3=args.acceleration_noise_density_m2_s3,
         )

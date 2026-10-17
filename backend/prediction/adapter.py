@@ -157,6 +157,7 @@ def _prediction_params(prediction: Prediction) -> tuple[Any, ...]:
         prediction.window_point_count,
         prediction.fit_residual_m,
         json.dumps([point.model_dump() for point in prediction.points]),
+        json.dumps(prediction.horizon_policy),
         geom,
     )
 
@@ -180,8 +181,8 @@ async def persist_predictions(
             insert into situation.trajectory_prediction(
               subject_kind,subject_id,base_observed_at,predicted_at,model_code,model_version,
               quality,reason,horizon_seconds,step_seconds,speed_mps,heading_deg,turn_rate_dps,
-              window_seconds,window_point_count,fit_residual_m,points,geom
-            ) values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::geometry)
+              window_seconds,window_point_count,fit_residual_m,points,horizon_policy,geom
+            ) values(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::geometry)
             """,
             _prediction_params(prediction),
         )

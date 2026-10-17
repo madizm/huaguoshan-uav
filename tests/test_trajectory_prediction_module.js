@@ -95,3 +95,8 @@ async function run() {
   console.log('trajectory-prediction module tests passed');
 }
 run().catch(e=>{console.error(e);process.exit(1);});
+
+assert(TrajectoryPrediction.formatPredictionSummary({
+  subject_kind: 'airspace_target', subject_id: 42, model_code: 'cv', speed_mps: 20,
+  horizon_seconds: 120, horizon_policy: { mode: 'adaptive', actual_horizon_seconds: 45 }
+}).includes('观测后 +45s'));

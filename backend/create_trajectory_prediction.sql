@@ -19,6 +19,7 @@ create table if not exists situation.trajectory_prediction (
   quality text not null check (quality in ('ok','insufficient_data')),
   reason text,
   horizon_seconds integer not null check (horizon_seconds > 0),
+  horizon_policy jsonb not null default '{}'::jsonb,
   step_seconds integer not null check (step_seconds > 0),
   speed_mps numeric check (speed_mps is null or speed_mps >= 0),
   heading_deg numeric check (heading_deg is null or (heading_deg >= 0 and heading_deg < 360)),
@@ -30,6 +31,8 @@ create table if not exists situation.trajectory_prediction (
   geom geometry(LineString, 4326),
   created_at timestamptz not null default now()
 );
+alter table situation.trajectory_prediction
+  add column if not exists horizon_policy jsonb not null default '{}'::jsonb;
 comment on table situation.trajectory_prediction is '空域目标与无人机资产的短期轨迹预测追加记录；由预测 worker 写入并定期清理，仅用于大屏展示。';
 comment on column situation.trajectory_prediction.subject_kind is '预测对象类别：airspace_target 空域目标航迹，aircraft_asset 无人机资产。';
 comment on column situation.trajectory_prediction.subject_id is '预测对象标识：subject_kind 为 airspace_target 时是 situation.target_track.id，为 aircraft_asset 时是 equipment.asset.id。';
@@ -40,6 +43,7 @@ comment on column situation.trajectory_prediction.model_version is '预测算法
 comment on column situation.trajectory_prediction.quality is '预测质量：ok 有效预测，insufficient_data 数据不足不生成预测点。';
 comment on column situation.trajectory_prediction.reason is 'quality 为 insufficient_data 时的原因编码。';
 comment on column situation.trajectory_prediction.horizon_seconds is '预测时长上限，单位秒。';
+comment on column situation.trajectory_prediction.horizon_policy is '预测时长策略元数据；配置的时长上限仍为 horizon_seconds，固定模式为 {}。自适应模式包含 mode、actual_horizon_seconds（末个输出点 ETA，无点为 0）、remaining_horizon_seconds（max(末个 ETA - 计算时的观测年龄秒数, 0)）、stop_reason、rule_version、thresholds（阈值）和 metrics（指标）。';
 comment on column situation.trajectory_prediction.step_seconds is '预测点间隔，单位秒。';
 comment on column situation.trajectory_prediction.speed_mps is '窗口拟合地速，单位米每秒。';
 comment on column situation.trajectory_prediction.heading_deg is '窗口拟合航向，真北顺时针角度。';
@@ -126,6 +130,7 @@ begin
         'model_code', latest.model_code,
         'model_version', latest.model_version,
         'horizon_seconds', latest.horizon_seconds,
+        'horizon_policy', latest.horizon_policy,
         'step_seconds', latest.step_seconds,
         'speed_mps', latest.speed_mps,
         'heading_deg', latest.heading_deg,
@@ -154,6 +159,7 @@ begin
         'base_observed_at', latest.base_observed_at,
         'predicted_at', latest.predicted_at,
         'horizon_seconds', latest.horizon_seconds,
+        'horizon_policy', latest.horizon_policy,
         'model_code', latest.model_code,
         'model_version', latest.model_version,
         'step_seconds', latest.step_seconds
@@ -164,7 +170,7 @@ begin
   return v_result;
 end;
 $$;
-comment on function api.get_trajectory_predictions(text[],integer,integer) is '查询预测与最新计算状态。返回 {"generated_at","predictions":[{"id","subject_kind","subject_id","base_observed_at","predicted_at","model_code","model_version","horizon_seconds","step_seconds","speed_mps","heading_deg","turn_rate_dps","window_point_count","fit_residual_m","points":[{"eta_seconds","longitude","latitude","height_amsl_m","uncertainty_m"}]}],"states":[{"id","subject_kind","subject_id","quality","reason","base_observed_at","predicted_at","horizon_seconds","model_code","model_version","step_seconds"}]}；先按对象取近10分钟最新记录（不限质量），再按 predicted_at、id 倒序选最多 p_max_subjects 个对象作为共同对象池；states 返回池内全部最新状态（无预测点），predictions 仅取池内有效且不超过 p_max_prediction_age_seconds 秒的最新记录，每条预测必有对应状态；数组按对象类别与 ID 升序，空集返回空数组。';
+comment on function api.get_trajectory_predictions(text[],integer,integer) is '查询预测与最新计算状态。返回 {"generated_at","predictions":[{"id","subject_kind","subject_id","base_observed_at","predicted_at","model_code","model_version","horizon_seconds","horizon_policy","step_seconds","speed_mps","heading_deg","turn_rate_dps","window_point_count","fit_residual_m","points":[{"eta_seconds","longitude","latitude","height_amsl_m","uncertainty_m"}]}],"states":[{"id","subject_kind","subject_id","quality","reason","base_observed_at","predicted_at","horizon_seconds","horizon_policy","model_code","model_version","step_seconds"}]}；horizon_policy 为时长策略元数据对象，固定模式为 {}，字段含 mode、actual_horizon_seconds、remaining_horizon_seconds、stop_reason、rule_version、thresholds、metrics；先按对象取近10分钟最新记录（不限质量），再按 predicted_at、id 倒序选最多 p_max_subjects 个对象作为共同对象池；states 返回池内全部最新状态（无预测点），predictions 仅取池内有效且不超过 p_max_prediction_age_seconds 秒的最新记录，每条预测必有对应状态；数组按对象类别与 ID 升序，空集返回空数组。';
 
 do $$ begin
   if not exists(select 1 from pg_roles where rolname='prediction_engine') then
@@ -299,6 +305,7 @@ begin
         'quality', p.quality,
         'reason', p.reason,
         'horizon_seconds', p.horizon_seconds,
+        'horizon_policy', p.horizon_policy,
         'speed_mps', p.speed_mps,
         'heading_deg', p.heading_deg,
         'turn_rate_dps', p.turn_rate_dps,
@@ -316,7 +323,7 @@ begin
   );
 end;
 $$;
-comment on function api.list_trajectory_predictions(integer,text[]) is '按预测时间倒序列出最近的轨迹预测记录（不含预测点几何）。返回 {"generated_at","predictions":[{"id","subject_kind","subject_id","base_observed_at","predicted_at","model_code","model_version","quality","reason","horizon_seconds","speed_mps","heading_deg","turn_rate_dps","window_point_count","fit_residual_m","point_count"}]}，用于后台管理的预测质量核查。';
+comment on function api.list_trajectory_predictions(integer,text[]) is '按预测时间倒序列出最近的轨迹预测记录（不含预测点几何）。返回 {"generated_at","predictions":[{"id","subject_kind","subject_id","base_observed_at","predicted_at","model_code","model_version","quality","reason","horizon_seconds","horizon_policy","speed_mps","heading_deg","turn_rate_dps","window_point_count","fit_residual_m","point_count"}]}，用于后台管理的预测质量核查。';
 
 revoke all on situation.prediction_worker_runtime from public, anonymous, admin, prediction_engine;
 grant select on situation.prediction_worker_runtime to admin;
@@ -419,6 +426,8 @@ begin
         'base_observed_at', t.base_observed_at,
         'predicted_at', t.predicted_at,
         'model_code', t.model_code,
+        'horizon_seconds', t.horizon_seconds,
+        'horizon_policy', t.horizon_policy,
         'speed_mps', t.speed_mps,
         'heading_deg', t.heading_deg,
         'turn_rate_dps', t.turn_rate_dps,
@@ -427,7 +436,7 @@ begin
       from (
         select distinct on (floor(extract(epoch from p.base_observed_at)/p_thin_seconds))
           p.id, p.base_observed_at, p.predicted_at, p.model_code,
-          p.speed_mps, p.heading_deg, p.turn_rate_dps, p.points
+          p.speed_mps, p.heading_deg, p.turn_rate_dps, p.points, p.horizon_seconds, p.horizon_policy
         from situation.trajectory_prediction p
         where p.subject_kind='airspace_target' and p.subject_id=p_track_id
           and p.quality='ok' and p.points<>'[]'::jsonb
@@ -439,7 +448,7 @@ begin
   );
 end;
 $$;
-comment on function api.get_track_prediction_history(bigint,timestamptz,timestamptz,integer) is '按航迹抽稀查询历史轨迹预测，用于大屏历史回放叠加"当时的预测"。返回 {"generated_at","track_id","thin_seconds","predictions":[{"id","base_observed_at","predicted_at","model_code","speed_mps","heading_deg","turn_rate_dps","points":[{"eta_seconds","longitude","latitude","height_amsl_m","uncertainty_m"}]}]}；每个抽稀时间桶取基准时刻最新的一条，仅含 quality=ok 且有预测点的记录；预测仅保留 24 小时，超出窗口返回空数组。';
+comment on function api.get_track_prediction_history(bigint,timestamptz,timestamptz,integer) is '按航迹抽稀查询历史轨迹预测，用于大屏历史回放叠加"当时的预测"。返回 {"generated_at","track_id","thin_seconds","predictions":[{"id","base_observed_at","predicted_at","model_code","horizon_seconds","horizon_policy","speed_mps","heading_deg","turn_rate_dps","points":[{"eta_seconds","longitude","latitude","height_amsl_m","uncertainty_m"}]}]}；horizon_policy 为时长策略元数据对象，固定模式为 {}，字段含 mode、actual_horizon_seconds、remaining_horizon_seconds、stop_reason、rule_version、thresholds、metrics；每个抽稀时间桶取基准时刻最新的一条，仅含 quality=ok 且有预测点的记录；预测仅保留 24 小时，超出窗口返回空数组。';
 
 grant execute on function api.get_track_prediction_history(bigint,timestamptz,timestamptz,integer) to admin;
 

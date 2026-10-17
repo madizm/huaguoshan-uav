@@ -12,14 +12,21 @@
   };
   var MODEL_LABEL = { cv: '恒速', ct: '转向', hover: '悬停' };
   var STATUS_LABEL = { valid: '有效', expired: '预测已结束', stale: '预测未更新', observation_stale: '基准观测已陈旧', insufficient_data: '无法生成预测', unknown: '暂无预测（原因未知）', invalid: '预测时间无效', future: '预测时间尚未到达' };
-  var REASONS = { not_enough_points: '有效观测点不足', window_span_too_short: '观测时间跨度不足', unrealistic_speed: '速度异常，已拒绝预测' };
+  var REASONS = { not_enough_points: '有效观测点不足', window_span_too_short: '观测时间跨度不足', unrealistic_speed: '速度异常，已拒绝预测', no_reliable_future: '可信边界内无未来预测点' };
+  var STOP_REASONS = { configured_horizon: '达到配置上限', stale_observation: '观测已陈旧', no_future_points: '预测点均已过去', uncertainty_limit: '不确定半径超限', motion_instability: '运动不稳定', turn_angle_limit: '累计转角超限' };
+  function policyDescription(prediction) {
+    var policy = prediction.horizon_policy;
+    return policy && policy.mode === 'adaptive' ? '；自适应截断：' + (STOP_REASONS[policy.stop_reason] || REASONS[policy.stop_reason] || policy.stop_reason) : '';
+  }
   function escapeHtml(value) {
     return String(value == null ? '' : value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
   }
   function subjectStyle(kind) { return SUBJECT_STYLE[kind] || { color: '#94a3b8', label: kind || '未知' }; }
   function formatPredictionSummary(prediction) {
+    var policy = prediction.horizon_policy;
+    var horizon = policy && policy.mode === 'adaptive' ? policy.actual_horizon_seconds : prediction.horizon_seconds;
     return subjectStyle(prediction.subject_kind).label + ' #' + prediction.subject_id + ' · ' + (MODEL_LABEL[prediction.model_code] || prediction.model_code) + ' · ' +
-      (prediction.speed_mps == null ? '--' : Number(prediction.speed_mps).toFixed(1)) + ' m/s · 观测后 +' + Number(prediction.horizon_seconds || 0) + 's';
+      (prediction.speed_mps == null ? '--' : Number(prediction.speed_mps).toFixed(1)) + ' m/s · 观测后 +' + Number(horizon || 0) + 's';
   }
   function createModule(options) {
     var CesiumRuntime = options.CesiumRuntime, viewer = options.viewer;
@@ -57,7 +64,7 @@
       var description = '关联对象：' + escapeHtml(key) + '；基准观测：' + escapeHtml(prediction.base_observed_at) +
         '；观测年龄：' + Math.floor(clipped.observationAgeSeconds) + ' 秒；剩余未来：' + Math.ceil(clipped.remainingSeconds) + ' 秒' +
         '；模型：' + escapeHtml(MODEL_LABEL[prediction.model_code] || prediction.model_code) +
-        '；窗口点数：' + escapeHtml(prediction.window_point_count) + '；拟合残差：' + escapeHtml(prediction.fit_residual_m == null ? '--' : prediction.fit_residual_m + ' m');
+        '；窗口点数：' + escapeHtml(prediction.window_point_count) + '；拟合残差：' + escapeHtml(prediction.fit_residual_m == null ? '--' : prediction.fit_residual_m + ' m') + escapeHtml(policyDescription(prediction));
       if (clipped.points.length >= 2) upsert(collection, desired, {
         id: prefix + '-line', name: formatPredictionSummary(prediction), properties: properties, description: description,
         polyline: { positions: clipped.points.map(position), width: selected ? 5 : 3,
@@ -91,6 +98,7 @@
         var record = records[selectedKey];
         message = selectedKey + ' · ' + STATUS_LABEL[status.state];
         if (record && record.reason) message += ' · ' + (REASONS[record.reason] || record.reason);
+        if (record) message += policyDescription(record);
         if (Number.isFinite(status.observationAgeSeconds)) message += ' · 观测已过 ' + Math.floor(status.observationAgeSeconds) + 's';
         if (status.state === 'valid') message += ' · 剩余 ' + Math.ceil(status.remainingSeconds) + 's';
       } else {

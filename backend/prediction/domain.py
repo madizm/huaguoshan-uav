@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from math import atan2, cos, degrees, hypot, pi, radians, sin, sqrt
+from math import atan2, cos, degrees, hypot, isfinite, pi, radians, sin, sqrt
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -59,8 +59,24 @@ class PredictionConfig:
     estimator: Literal["least_squares", "kalman_cv"] = "least_squares"
     measurement_noise_std_m: float = 10.0
     acceleration_noise_density_m2_s3: float = 1.0
+    adaptive_horizon: bool = False
+    adaptive_max_uncertainty_m: float = 250.0
+    adaptive_max_observation_age_seconds: float = 30.0
+    adaptive_max_turn_degrees: float = 90.0
 
     def __post_init__(self) -> None:
+        for name in ("horizon_seconds", "step_seconds"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        if self.step_seconds > self.horizon_seconds:
+            raise ValueError("step_seconds must not exceed horizon_seconds")
+        if not isfinite(self.window_seconds) or self.window_seconds <= 0:
+            raise ValueError("window_seconds must be finite and > 0")
+        for name in ("adaptive_max_uncertainty_m", "adaptive_max_observation_age_seconds", "adaptive_max_turn_degrees"):
+            value = getattr(self, name)
+            if not isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and > 0")
         if self.estimator not in ("least_squares", "kalman_cv"):
             raise ValueError("estimator must be least_squares or kalman_cv")
         validate_noise(self.measurement_noise_std_m, self.acceleration_noise_density_m2_s3)
@@ -100,6 +116,7 @@ class Prediction(BaseModel):
     window_point_count: int = 0
     fit_residual_m: float | None = None
     points: list[PredictedPoint] = Field(default_factory=list)
+    horizon_policy: dict = Field(default_factory=dict)
 
 
 def _local_xy(longitude: float, latitude: float, origin_longitude: float, origin_latitude: float) -> tuple[float, float]:
@@ -305,7 +322,7 @@ def _mean_segment_speed(window: list[ObservationPoint], omega_rad_per_s: float) 
     return None if not speeds else sum(speeds) / len(speeds)
 
 
-def predict_trajectory(
+def _predict_trajectory(
     subject_kind: SubjectKind,
     subject_id: int,
     points: list[ObservationPoint],
@@ -429,3 +446,21 @@ def predict_trajectory(
         turn_rate_dps=None if turn_rate is None else round(turn_rate, 2),
         **common, points=points_out,
     )
+
+
+def predict_trajectory(
+    subject_kind: SubjectKind,
+    subject_id: int,
+    points: list[ObservationPoint],
+    predicted_at: datetime,
+    config: PredictionConfig | None = None,
+) -> Prediction:
+    """生成候选轨迹；可选可信边界截断，ETA 始终相对最新观测。"""
+    config = config or PredictionConfig()
+    prediction = _predict_trajectory(subject_kind, subject_id, points, predicted_at, config)
+    if not config.adaptive_horizon:
+        return prediction
+    from .adaptive import apply_adaptive_horizon
+
+    window = prepare_window([p for p in points if p.observed_at <= predicted_at], config)
+    return apply_adaptive_horizon(prediction, window, config)

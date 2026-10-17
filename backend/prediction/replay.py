@@ -11,7 +11,7 @@ import argparse
 from bisect import bisect_left
 from collections import Counter, defaultdict
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 import hashlib
 import json
@@ -81,6 +81,8 @@ def replay(observations: list[ReplayObservation], configs: dict[str, PredictionC
     paired_subjects = defaultdict(lambda: defaultdict(list))
     quality = Counter()
     models = Counter()
+    horizon_stops = Counter()
+    actual_horizons = defaultdict(list)
     origins = 0
     used_subjects = set()
     point_counts = []
@@ -119,6 +121,10 @@ def replay(observations: list[ReplayObservation], configs: dict[str, PredictionC
                            for name, config in configs.items()}
             for name, prediction in predictions.items():
                 quality[(name, prediction.quality, prediction.reason)] += 1
+                if prediction.horizon_policy:
+                    policy = prediction.horizon_policy
+                    horizon_stops[(name, policy["stop_reason"])] += 1
+                    actual_horizons[name].append(policy["actual_horizon_seconds"])
                 if prediction.quality == "ok":
                     models[(name, prediction.model_code)] += 1
             for eta in CHECKPOINTS:
@@ -158,6 +164,11 @@ def replay(observations: list[ReplayObservation], configs: dict[str, PredictionC
         "unique_points_per_subject": {"min": min(point_counts, default=0), "max": max(point_counts, default=0),
                                       "median": median(point_counts) if point_counts else 0},
         "prediction_origins": origins,
+        "horizon_stops": [{"algorithm": name, "reason": reason, "count": count}
+                          for (name, reason), count in sorted(horizon_stops.items())],
+        "actual_horizons": {name: {"samples": len(values), "mean_seconds": round(mean(values), 3),
+                                  "median_seconds": median(values)}
+                            for name, values in actual_horizons.items()},
         "quality": [{"algorithm": k[0], "quality": k[1], "reason": k[2], "count": v} for k, v in quality.items()],
         "models": [{"algorithm": k[0], "model": k[1], "count": v} for k, v in models.items()],
         "paired": [{"eta_seconds": eta, "algorithms": {name: summarize(values) for name, values in entries.items()}}
@@ -226,6 +237,10 @@ def main() -> None:
     parser.add_argument("--window-seconds", type=float, default=20)
     parser.add_argument("--cadence-seconds", type=int, default=5)
     parser.add_argument("--horizon-seconds", type=int, default=120)
+    parser.add_argument("--adaptive-horizon", action="store_true")
+    parser.add_argument("--adaptive-max-uncertainty-m", type=float, default=250.0)
+    parser.add_argument("--adaptive-max-observation-age-seconds", type=float, default=30.0)
+    parser.add_argument("--adaptive-max-turn-degrees", type=float, default=90.0)
     parser.add_argument("--include-imm", action="store_true", help="Include experimental offline IMM CV/CT")
     parser.add_argument("--tolerance-seconds", type=float, default=3)
     parser.add_argument("--measurement-noise-std-m", type=float, default=10)
@@ -239,6 +254,17 @@ def main() -> None:
     configs = {"least_squares": PredictionConfig(window_seconds=args.window_seconds, horizon_seconds=args.horizon_seconds), "kalman_cv": PredictionConfig(
         estimator="kalman_cv", window_seconds=args.window_seconds, horizon_seconds=args.horizon_seconds, measurement_noise_std_m=args.measurement_noise_std_m,
         acceleration_noise_density_m2_s3=args.acceleration_noise_density_m2_s3)}
+    if args.include_imm and args.adaptive_horizon:
+        parser.error("adaptive horizon is supported for LS/Kalman only, not experimental IMM")
+    try:
+        configs = {name: replace(config,
+            adaptive_horizon=args.adaptive_horizon,
+            adaptive_max_uncertainty_m=args.adaptive_max_uncertainty_m,
+            adaptive_max_observation_age_seconds=args.adaptive_max_observation_age_seconds,
+            adaptive_max_turn_degrees=args.adaptive_max_turn_degrees,
+        ) for name, config in configs.items()}
+    except ValueError as exc:
+        parser.error(str(exc))
     predictors = {}
     experimental_parameters = {}
     if args.include_imm:
