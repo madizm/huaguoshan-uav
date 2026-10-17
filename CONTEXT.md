@@ -1,7 +1,7 @@
 # Low-Altitude Airspace Large-Screen Decision-Support Platform（低空空域大屏展示与辅助决策平台）
 
-This project is positioned as a large-screen display and decision-support platform for low-altitude airspace, not as a full operational command system or direct device-control platform. This context names the business concepts used to display situation, assess risks, prioritize events, recommend responses, and review decisions involving targets, constraints, observations, response capabilities, emergency resources, and UAV inspection activities.
-本项目定位为低空空域大屏展示与辅助决策平台，而不是完整作战指挥系统或直接设备控制平台。本上下文用于统一态势展示、风险研判、事件优先级、处置建议、决策复盘，以及空域目标、空域约束、观测、处置能力、应急资源和无人机巡查活动相关的业务语言。
+This project is positioned as a large-screen display and decision-support platform for low-altitude airspace, with support for lawfully authorized Countermeasure Capability integration rather than a full operational command system or unrestricted device-control platform. Countermeasure capability use is subject to Device Access Level, explicit authorization, safety constraints, state confirmation, and auditability; technical connectivity alone does not constitute authorization. This context names the business concepts used to display situation, assess risks, prioritize events, recommend responses, integrate countermeasure capabilities, and review decisions involving targets, constraints, observations, response capabilities, emergency resources, and UAV inspection activities.
+本项目定位为低空空域大屏展示与辅助决策平台，现需支持依法授权的反制能力接入，但不定位为完整作战指挥系统或不受限制的设备控制平台。反制能力的使用受设备接入级别、明确授权、安全约束、状态确认和可审计性要求约束；技术连通不等于获得使用授权。本上下文用于统一态势展示、风险研判、事件优先级、处置建议、反制能力接入、决策复盘，以及空域目标、空域约束、观测、处置能力、应急资源和无人机巡查活动相关的业务语言。
 
 ## Language
 
@@ -91,6 +91,11 @@ _Avoid_: Obstacle Layer, Building, No-Fly Zone, 障碍图层、建筑物、禁�
 The effective spatiotemporal coverage of a detection, identification, tracking, jamming, spoofing, forced-landing, or capture capability.
 某种探测、识别、跟踪、干扰、诱骗、迫降或捕获能力在特定时空范围内的有效覆盖。
 _Avoid_: Countermeasure Range, Device Coverage, 反制范围、设备覆盖区
+
+**Countermeasure Capability（反制能力）**:
+A registered capability provided by counter-UAS equipment or a third-party platform that may participate in an authorized response within its Device Access Level and safety constraints. Capability registration is distinct from authorization to use it, and its state and results must be observable and auditable.
+由反无设备或第三方平台提供并登记的能力，可在设备接入级别和安全约束范围内参与经授权的处置。能力登记不等于获得使用授权，其状态和结果应可观测、可审计。
+_Avoid_: Counter-UAS Asset, Unrestricted Device Control, Automatic Countermeasure, 反无资产、不受限制的设备控制、自动反制
 
 **Response Orchestration（处置编排）**:
 The process of selecting response strategies, matching Response Capability Coverage, generating recommended actions, or triggering authorized linkage actions for an Airspace Event.
@@ -217,6 +222,17 @@ The business judgment selecting at most one eligible Defense Ring for an Airspac
 每次研判对空域目标至多选中一个适用防御圈，或判定为圈外、数据不足的业务判断。
 _Avoid_: Grid Hit, Geometry Intersection, 网格命中、几何相交
 
+**Source Track Fragment（来源航迹片段）**:
+A continuous sequence of observations asserted by one Observation Source for one source-side target occurrence. It preserves that source's target and lifecycle boundaries but does not by itself establish physical identity across sources.
+单一观测来源对某个来源侧目标活动连续给出的一组观测。它保留该来源的目标标识和生命周期边界，但自身不能证明不同来源指向同一物理目标。
+_Avoid_: Target Track, Physical Target, Fused Track, 目标航迹、物理目标、融合航迹
+
+**Fused Target Activity（融合目标活动）**:
+The platform's evidence-backed judgment that one or more Source Track Fragments or source tracks belong to the same physical Airspace Target during one continuous activity. It retains association confidence, supporting evidence, conflicts, and human corrections, and does not imply that the target has the same identity in a later activity.
+平台基于证据作出的判断：一个或多个来源航迹片段或来源航迹，属于同一物理空域目标在同一次连续活动中的过程。它必须保留关联置信度、支持证据、冲突和人工修正，也不推定该目标在后续另一次活动中仍具有同一身份。
+_Avoid_: Source Session, Source Sortie, Permanent Target Identity, 来源会话、来源架次、永久目标身份
+
+**Target Track（目标航迹）**:
 **Target Track（目标航迹）**:
 The platform's continuous tracking result for the same Airspace Target over a period of time, including current state and historical observations.
 平台对同一个空域目标在一段时间内的连续跟踪结果，包含当前状态和历史观测。
@@ -348,8 +364,8 @@ The latest known connection state of an Equipment Asset, such as online, offline
 _Avoid_: Availability Status, Dispatch Status, 可用状态、调度状态
 
 **Dispatchable Equipment（可调度设备）**:
-An Equipment Asset that is also registered as an Emergency Resource and may be assigned to a response activity. In the current scope, UAVs, unmanned vehicles, vehicle-mounted surveillance, and video surveillance are dispatchable; counter-UAS devices are display-and-recommend only and are not directly controlled by the platform.
-同时登记为应急资源、可以分配给处置活动的设施设备资产。当前范围内，无人机、无人车、车载监控和视频监控可调度；反无设备仅用于展示和推荐，平台不直接控制。
+An Equipment Asset that is also registered as an Emergency Resource and may be assigned to a response activity. In the current scope, UAVs, unmanned vehicles, vehicle-mounted surveillance, and video surveillance are dispatchable; counter-UAS equipment may provide authorized Countermeasure Capabilities according to its Device Access Level, but capability integration alone does not make it a Dispatchable Equipment resource.
+同时登记为应急资源、可以分配给处置活动的设施设备资产。当前范围内，无人机、无人车、车载监控和视频监控可调度；反无设备可按设备接入级别提供经授权的反制能力，但能力接入不使其自动成为可调度设备资源。
 _Avoid_: All Equipment, Direct Device Control, 所有设备、设备直接控制
 
 **Vehicle-Mounted Surveillance（车载监控）**:
