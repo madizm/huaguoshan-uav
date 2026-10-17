@@ -1,0 +1,1040 @@
+{
+  "dataset": {
+    "cutoff": "2026-10-17T15:29:49.798169+08:00",
+    "hours": 24,
+    "rows": 1941,
+    "sha256": "33e8e663ee7794a1bf75a2d41f42b25f2319680de123e896efa7ff64724074bf",
+    "start_observed_at": "2026-10-16 15:30:01.469000+08:00",
+    "end_observed_at": "2026-10-17 15:29:49+08:00"
+  },
+  "parameters": {
+    "hours": 24,
+    "estimator": "kalman_cv",
+    "window_seconds": 20,
+    "horizon_seconds": 90,
+    "step_seconds": 5,
+    "max_uncertainty_m": 250,
+    "max_observation_age_seconds": 30,
+    "v1_max_turn_degrees": 90,
+    "v2_max_turn_degrees": null,
+    "measurement_noise_std_m": 10,
+    "legacy_ref": "bd9aee1"
+  },
+  "method": "Read-only arrival-driven causal replay. Legacy code loaded from the specified local Git ref. Same candidates for all strategies. Per-algorithm error buckets have different retained populations; not an accuracy improvement claim. Paired results are common checkpoints only. Observations are not independent truth.",
+  "lengths": {
+    "fixed": {
+      "origins": 1173,
+      "valid_origins": 270,
+      "valid_up_to_5s": 0,
+      "valid_remaining_up_to_5s": 0,
+      "valid_actual_median_s": 90.0,
+      "valid_remaining_median_s": 89.46186750000001,
+      "motion_evidence": {},
+      "valid_by_model": {
+        "ct": {
+          "samples": 31,
+          "actual_median_s": 90.0,
+          "remaining_median_s": 89.556787,
+          "up_to_5s": 0
+        },
+        "cv": {
+          "samples": 118,
+          "actual_median_s": 90.0,
+          "remaining_median_s": 89.406665,
+          "up_to_5s": 0
+        },
+        "hover": {
+          "samples": 121,
+          "actual_median_s": 90.0,
+          "remaining_median_s": 89.487188,
+          "up_to_5s": 0
+        }
+      }
+    },
+    "adaptive_v1": {
+      "origins": 1173,
+      "valid_origins": 219,
+      "valid_up_to_5s": 79,
+      "valid_remaining_up_to_5s": 83,
+      "valid_actual_median_s": 10.0,
+      "valid_remaining_median_s": 9.706339,
+      "motion_evidence": {},
+      "valid_by_model": {
+        "ct": {
+          "samples": 21,
+          "actual_median_s": 5.0,
+          "remaining_median_s": 4.616667,
+          "up_to_5s": 18
+        },
+        "cv": {
+          "samples": 85,
+          "actual_median_s": 5.0,
+          "remaining_median_s": 4.737404,
+          "up_to_5s": 47
+        },
+        "hover": {
+          "samples": 113,
+          "actual_median_s": 25.0,
+          "remaining_median_s": 24.557763,
+          "up_to_5s": 14
+        }
+      }
+    },
+    "adaptive_v2": {
+      "origins": 1173,
+      "valid_origins": 269,
+      "valid_up_to_5s": 0,
+      "valid_remaining_up_to_5s": 6,
+      "valid_actual_median_s": 90.0,
+      "valid_remaining_median_s": 67.25455,
+      "motion_evidence": {
+        "insufficient_samples": 929,
+        "below_noise_floor": 212,
+        "supported_trend": 32
+      },
+      "valid_by_model": {
+        "ct": {
+          "samples": 31,
+          "actual_median_s": 90.0,
+          "remaining_median_s": 84.251693,
+          "up_to_5s": 0
+        },
+        "cv": {
+          "samples": 117,
+          "actual_median_s": 25.0,
+          "remaining_median_s": 24.225169,
+          "up_to_5s": 0
+        },
+        "hover": {
+          "samples": 121,
+          "actual_median_s": 90.0,
+          "remaining_median_s": 89.481233,
+          "up_to_5s": 0
+        }
+      }
+    }
+  },
+  "subjects": 189,
+  "subjects_with_paired_samples": 10,
+  "unique_points_per_subject": {
+    "min": 1,
+    "max": 312,
+    "median": 3
+  },
+  "prediction_origins": 1173,
+  "horizon_stops": [
+    {
+      "algorithm": "adaptive_v1",
+      "reason": "configured_horizon",
+      "count": 24
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "reason": "motion_instability",
+      "count": 226
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "reason": "not_enough_points",
+      "count": 894
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "reason": "turn_angle_limit",
+      "count": 18
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "reason": "uncertainty_limit",
+      "count": 2
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "reason": "unrealistic_speed",
+      "count": 1
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "reason": "window_span_too_short",
+      "count": 8
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "reason": "configured_horizon",
+      "count": 135
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "reason": "motion_instability",
+      "count": 27
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "reason": "not_enough_points",
+      "count": 894
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "reason": "uncertainty_limit",
+      "count": 108
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "reason": "unrealistic_speed",
+      "count": 1
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "reason": "window_span_too_short",
+      "count": 8
+    }
+  ],
+  "actual_horizons": {
+    "adaptive_v1": {
+      "samples": 1173,
+      "mean_seconds": 4.382,
+      "median_seconds": 0.0
+    },
+    "adaptive_v2": {
+      "samples": 1173,
+      "mean_seconds": 13.38,
+      "median_seconds": 0.0
+    }
+  },
+  "quality": [
+    {
+      "algorithm": "fixed",
+      "quality": "insufficient_data",
+      "reason": "not_enough_points",
+      "count": 894
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "quality": "insufficient_data",
+      "reason": "not_enough_points",
+      "count": 894
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "quality": "insufficient_data",
+      "reason": "not_enough_points",
+      "count": 894
+    },
+    {
+      "algorithm": "fixed",
+      "quality": "insufficient_data",
+      "reason": "window_span_too_short",
+      "count": 8
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "quality": "insufficient_data",
+      "reason": "window_span_too_short",
+      "count": 8
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "quality": "insufficient_data",
+      "reason": "window_span_too_short",
+      "count": 8
+    },
+    {
+      "algorithm": "fixed",
+      "quality": "ok",
+      "reason": null,
+      "count": 270
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "quality": "insufficient_data",
+      "reason": "no_reliable_future",
+      "count": 51
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "quality": "ok",
+      "reason": null,
+      "count": 269
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "quality": "ok",
+      "reason": null,
+      "count": 219
+    },
+    {
+      "algorithm": "fixed",
+      "quality": "insufficient_data",
+      "reason": "unrealistic_speed",
+      "count": 1
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "quality": "insufficient_data",
+      "reason": "unrealistic_speed",
+      "count": 1
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "quality": "insufficient_data",
+      "reason": "unrealistic_speed",
+      "count": 1
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "quality": "insufficient_data",
+      "reason": "no_reliable_future",
+      "count": 1
+    }
+  ],
+  "models": [
+    {
+      "algorithm": "fixed",
+      "model": "cv",
+      "count": 118
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "model": "cv",
+      "count": 117
+    },
+    {
+      "algorithm": "fixed",
+      "model": "hover",
+      "count": 121
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "model": "hover",
+      "count": 113
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "model": "hover",
+      "count": 121
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "model": "cv",
+      "count": 85
+    },
+    {
+      "algorithm": "fixed",
+      "model": "ct",
+      "count": 31
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "model": "ct",
+      "count": 21
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "model": "ct",
+      "count": 31
+    }
+  ],
+  "paired": [
+    {
+      "eta_seconds": 10,
+      "algorithms": {
+        "fixed": {
+          "samples": 103,
+          "mean_error_m": 15.819,
+          "median_error_m": 5.048,
+          "p90_error_m": 38.481,
+          "within_uncertainty_rate": 0.835,
+          "mean_uncertainty_m": 34.831
+        },
+        "adaptive_v1": {
+          "samples": 103,
+          "mean_error_m": 15.819,
+          "median_error_m": 5.048,
+          "p90_error_m": 38.481,
+          "within_uncertainty_rate": 0.835,
+          "mean_uncertainty_m": 34.831
+        },
+        "adaptive_v2": {
+          "samples": 103,
+          "mean_error_m": 15.819,
+          "median_error_m": 5.048,
+          "p90_error_m": 38.481,
+          "within_uncertainty_rate": 0.835,
+          "mean_uncertainty_m": 34.831
+        }
+      }
+    },
+    {
+      "eta_seconds": 30,
+      "algorithms": {
+        "fixed": {
+          "samples": 23,
+          "mean_error_m": 58.102,
+          "median_error_m": 38.417,
+          "p90_error_m": 145.755,
+          "within_uncertainty_rate": 0.4348,
+          "mean_uncertainty_m": 25.174
+        },
+        "adaptive_v1": {
+          "samples": 23,
+          "mean_error_m": 58.102,
+          "median_error_m": 38.417,
+          "p90_error_m": 145.755,
+          "within_uncertainty_rate": 0.4348,
+          "mean_uncertainty_m": 25.174
+        },
+        "adaptive_v2": {
+          "samples": 23,
+          "mean_error_m": 58.102,
+          "median_error_m": 38.417,
+          "p90_error_m": 145.755,
+          "within_uncertainty_rate": 0.4348,
+          "mean_uncertainty_m": 25.174
+        }
+      }
+    },
+    {
+      "eta_seconds": 60,
+      "algorithms": {
+        "fixed": {
+          "samples": 12,
+          "mean_error_m": 150.259,
+          "median_error_m": 130.713,
+          "p90_error_m": 262.297,
+          "within_uncertainty_rate": 0.0833,
+          "mean_uncertainty_m": 40.058
+        },
+        "adaptive_v1": {
+          "samples": 12,
+          "mean_error_m": 150.259,
+          "median_error_m": 130.713,
+          "p90_error_m": 262.297,
+          "within_uncertainty_rate": 0.0833,
+          "mean_uncertainty_m": 40.058
+        },
+        "adaptive_v2": {
+          "samples": 12,
+          "mean_error_m": 150.259,
+          "median_error_m": 130.713,
+          "p90_error_m": 262.297,
+          "within_uncertainty_rate": 0.0833,
+          "mean_uncertainty_m": 40.058
+        }
+      }
+    }
+  ],
+  "paired_partitions": [
+    {
+      "partition": "development",
+      "eta_seconds": 10,
+      "algorithms": {
+        "fixed": {
+          "samples": 28,
+          "mean_error_m": 11.144,
+          "median_error_m": 0.569,
+          "p90_error_m": 25.031,
+          "within_uncertainty_rate": 0.8929,
+          "mean_uncertainty_m": 29.825
+        },
+        "adaptive_v1": {
+          "samples": 28,
+          "mean_error_m": 11.144,
+          "median_error_m": 0.569,
+          "p90_error_m": 25.031,
+          "within_uncertainty_rate": 0.8929,
+          "mean_uncertainty_m": 29.825
+        },
+        "adaptive_v2": {
+          "samples": 28,
+          "mean_error_m": 11.144,
+          "median_error_m": 0.569,
+          "p90_error_m": 25.031,
+          "within_uncertainty_rate": 0.8929,
+          "mean_uncertainty_m": 29.825
+        }
+      }
+    },
+    {
+      "partition": "development",
+      "eta_seconds": 30,
+      "algorithms": {
+        "fixed": {
+          "samples": 5,
+          "mean_error_m": 98.975,
+          "median_error_m": 37.076,
+          "p90_error_m": 231.788,
+          "within_uncertainty_rate": 0.4,
+          "mean_uncertainty_m": 25.3
+        },
+        "adaptive_v1": {
+          "samples": 5,
+          "mean_error_m": 98.975,
+          "median_error_m": 37.076,
+          "p90_error_m": 231.788,
+          "within_uncertainty_rate": 0.4,
+          "mean_uncertainty_m": 25.3
+        },
+        "adaptive_v2": {
+          "samples": 5,
+          "mean_error_m": 98.975,
+          "median_error_m": 37.076,
+          "p90_error_m": 231.788,
+          "within_uncertainty_rate": 0.4,
+          "mean_uncertainty_m": 25.3
+        }
+      }
+    },
+    {
+      "partition": "holdout",
+      "eta_seconds": 10,
+      "algorithms": {
+        "fixed": {
+          "samples": 75,
+          "mean_error_m": 17.565,
+          "median_error_m": 8.6,
+          "p90_error_m": 41.165,
+          "within_uncertainty_rate": 0.8133,
+          "mean_uncertainty_m": 36.7
+        },
+        "adaptive_v1": {
+          "samples": 75,
+          "mean_error_m": 17.565,
+          "median_error_m": 8.6,
+          "p90_error_m": 41.165,
+          "within_uncertainty_rate": 0.8133,
+          "mean_uncertainty_m": 36.7
+        },
+        "adaptive_v2": {
+          "samples": 75,
+          "mean_error_m": 17.565,
+          "median_error_m": 8.6,
+          "p90_error_m": 41.165,
+          "within_uncertainty_rate": 0.8133,
+          "mean_uncertainty_m": 36.7
+        }
+      }
+    },
+    {
+      "partition": "holdout",
+      "eta_seconds": 30,
+      "algorithms": {
+        "fixed": {
+          "samples": 18,
+          "mean_error_m": 46.748,
+          "median_error_m": 41.296,
+          "p90_error_m": 108.881,
+          "within_uncertainty_rate": 0.4444,
+          "mean_uncertainty_m": 25.139
+        },
+        "adaptive_v1": {
+          "samples": 18,
+          "mean_error_m": 46.748,
+          "median_error_m": 41.296,
+          "p90_error_m": 108.881,
+          "within_uncertainty_rate": 0.4444,
+          "mean_uncertainty_m": 25.139
+        },
+        "adaptive_v2": {
+          "samples": 18,
+          "mean_error_m": 46.748,
+          "median_error_m": 41.296,
+          "p90_error_m": 108.881,
+          "within_uncertainty_rate": 0.4444,
+          "mean_uncertainty_m": 25.139
+        }
+      }
+    },
+    {
+      "partition": "holdout",
+      "eta_seconds": 60,
+      "algorithms": {
+        "fixed": {
+          "samples": 12,
+          "mean_error_m": 150.259,
+          "median_error_m": 130.713,
+          "p90_error_m": 262.297,
+          "within_uncertainty_rate": 0.0833,
+          "mean_uncertainty_m": 40.058
+        },
+        "adaptive_v1": {
+          "samples": 12,
+          "mean_error_m": 150.259,
+          "median_error_m": 130.713,
+          "p90_error_m": 262.297,
+          "within_uncertainty_rate": 0.0833,
+          "mean_uncertainty_m": 40.058
+        },
+        "adaptive_v2": {
+          "samples": 12,
+          "mean_error_m": 150.259,
+          "median_error_m": 130.713,
+          "p90_error_m": 262.297,
+          "within_uncertainty_rate": 0.0833,
+          "mean_uncertainty_m": 40.058
+        }
+      }
+    }
+  ],
+  "paired_by_reference_model": [
+    {
+      "reference_model": "ct",
+      "eta_seconds": 10,
+      "algorithms": {
+        "fixed": {
+          "samples": 2,
+          "mean_error_m": 76.749,
+          "median_error_m": 76.749,
+          "p90_error_m": 124.884,
+          "within_uncertainty_rate": 0.5,
+          "mean_uncertainty_m": 22.65
+        },
+        "adaptive_v1": {
+          "samples": 2,
+          "mean_error_m": 76.749,
+          "median_error_m": 76.749,
+          "p90_error_m": 124.884,
+          "within_uncertainty_rate": 0.5,
+          "mean_uncertainty_m": 22.65
+        },
+        "adaptive_v2": {
+          "samples": 2,
+          "mean_error_m": 76.749,
+          "median_error_m": 76.749,
+          "p90_error_m": 124.884,
+          "within_uncertainty_rate": 0.5,
+          "mean_uncertainty_m": 22.65
+        }
+      }
+    },
+    {
+      "reference_model": "cv",
+      "eta_seconds": 10,
+      "algorithms": {
+        "fixed": {
+          "samples": 29,
+          "mean_error_m": 22.299,
+          "median_error_m": 18.932,
+          "p90_error_m": 38.017,
+          "within_uncertainty_rate": 1,
+          "mean_uncertainty_m": 80.769
+        },
+        "adaptive_v1": {
+          "samples": 29,
+          "mean_error_m": 22.299,
+          "median_error_m": 18.932,
+          "p90_error_m": 38.017,
+          "within_uncertainty_rate": 1,
+          "mean_uncertainty_m": 80.769
+        },
+        "adaptive_v2": {
+          "samples": 29,
+          "mean_error_m": 22.299,
+          "median_error_m": 18.932,
+          "p90_error_m": 38.017,
+          "within_uncertainty_rate": 1,
+          "mean_uncertainty_m": 80.769
+        }
+      }
+    },
+    {
+      "reference_model": "hover",
+      "eta_seconds": 10,
+      "algorithms": {
+        "fixed": {
+          "samples": 72,
+          "mean_error_m": 11.517,
+          "median_error_m": 0.666,
+          "p90_error_m": 38.411,
+          "within_uncertainty_rate": 0.7778,
+          "mean_uncertainty_m": 16.667
+        },
+        "adaptive_v1": {
+          "samples": 72,
+          "mean_error_m": 11.517,
+          "median_error_m": 0.666,
+          "p90_error_m": 38.411,
+          "within_uncertainty_rate": 0.7778,
+          "mean_uncertainty_m": 16.667
+        },
+        "adaptive_v2": {
+          "samples": 72,
+          "mean_error_m": 11.517,
+          "median_error_m": 0.666,
+          "p90_error_m": 38.411,
+          "within_uncertainty_rate": 0.7778,
+          "mean_uncertainty_m": 16.667
+        }
+      }
+    },
+    {
+      "reference_model": "hover",
+      "eta_seconds": 30,
+      "algorithms": {
+        "fixed": {
+          "samples": 23,
+          "mean_error_m": 58.102,
+          "median_error_m": 38.417,
+          "p90_error_m": 145.755,
+          "within_uncertainty_rate": 0.4348,
+          "mean_uncertainty_m": 25.174
+        },
+        "adaptive_v1": {
+          "samples": 23,
+          "mean_error_m": 58.102,
+          "median_error_m": 38.417,
+          "p90_error_m": 145.755,
+          "within_uncertainty_rate": 0.4348,
+          "mean_uncertainty_m": 25.174
+        },
+        "adaptive_v2": {
+          "samples": 23,
+          "mean_error_m": 58.102,
+          "median_error_m": 38.417,
+          "p90_error_m": 145.755,
+          "within_uncertainty_rate": 0.4348,
+          "mean_uncertainty_m": 25.174
+        }
+      }
+    },
+    {
+      "reference_model": "hover",
+      "eta_seconds": 60,
+      "algorithms": {
+        "fixed": {
+          "samples": 12,
+          "mean_error_m": 150.259,
+          "median_error_m": 130.713,
+          "p90_error_m": 262.297,
+          "within_uncertainty_rate": 0.0833,
+          "mean_uncertainty_m": 40.058
+        },
+        "adaptive_v1": {
+          "samples": 12,
+          "mean_error_m": 150.259,
+          "median_error_m": 130.713,
+          "p90_error_m": 262.297,
+          "within_uncertainty_rate": 0.0833,
+          "mean_uncertainty_m": 40.058
+        },
+        "adaptive_v2": {
+          "samples": 12,
+          "mean_error_m": 150.259,
+          "median_error_m": 130.713,
+          "p90_error_m": 262.297,
+          "within_uncertainty_rate": 0.0833,
+          "mean_uncertainty_m": 40.058
+        }
+      }
+    }
+  ],
+  "paired_subject_macro": [
+    {
+      "eta_seconds": 10,
+      "algorithm": "adaptive_v1",
+      "subjects": 9,
+      "mean_subject_mean_error_m": 24.881
+    },
+    {
+      "eta_seconds": 10,
+      "algorithm": "adaptive_v2",
+      "subjects": 9,
+      "mean_subject_mean_error_m": 24.881
+    },
+    {
+      "eta_seconds": 10,
+      "algorithm": "fixed",
+      "subjects": 9,
+      "mean_subject_mean_error_m": 24.881
+    },
+    {
+      "eta_seconds": 30,
+      "algorithm": "adaptive_v1",
+      "subjects": 7,
+      "mean_subject_mean_error_m": 58.354
+    },
+    {
+      "eta_seconds": 30,
+      "algorithm": "adaptive_v2",
+      "subjects": 7,
+      "mean_subject_mean_error_m": 58.354
+    },
+    {
+      "eta_seconds": 30,
+      "algorithm": "fixed",
+      "subjects": 7,
+      "mean_subject_mean_error_m": 58.354
+    },
+    {
+      "eta_seconds": 60,
+      "algorithm": "adaptive_v1",
+      "subjects": 3,
+      "mean_subject_mean_error_m": 121.972
+    },
+    {
+      "eta_seconds": 60,
+      "algorithm": "adaptive_v2",
+      "subjects": 3,
+      "mean_subject_mean_error_m": 121.972
+    },
+    {
+      "eta_seconds": 60,
+      "algorithm": "fixed",
+      "subjects": 3,
+      "mean_subject_mean_error_m": 121.972
+    }
+  ],
+  "buckets": [
+    {
+      "algorithm": "adaptive_v1",
+      "subject_kind": "airspace_target",
+      "model": "ct",
+      "eta_seconds": 10,
+      "samples": 2,
+      "mean_error_m": 76.749,
+      "median_error_m": 76.749,
+      "p90_error_m": 124.884,
+      "within_uncertainty_rate": 0.5,
+      "mean_uncertainty_m": 22.65
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "subject_kind": "airspace_target",
+      "model": "cv",
+      "eta_seconds": 10,
+      "samples": 29,
+      "mean_error_m": 22.299,
+      "median_error_m": 18.932,
+      "p90_error_m": 38.017,
+      "within_uncertainty_rate": 1,
+      "mean_uncertainty_m": 80.769
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 10,
+      "samples": 72,
+      "mean_error_m": 11.517,
+      "median_error_m": 0.666,
+      "p90_error_m": 38.411,
+      "within_uncertainty_rate": 0.7778,
+      "mean_uncertainty_m": 16.667
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 30,
+      "samples": 23,
+      "mean_error_m": 58.102,
+      "median_error_m": 38.417,
+      "p90_error_m": 145.755,
+      "within_uncertainty_rate": 0.4348,
+      "mean_uncertainty_m": 25.174
+    },
+    {
+      "algorithm": "adaptive_v1",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 60,
+      "samples": 12,
+      "mean_error_m": 150.259,
+      "median_error_m": 130.713,
+      "p90_error_m": 262.297,
+      "within_uncertainty_rate": 0.0833,
+      "mean_uncertainty_m": 40.058
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "subject_kind": "airspace_target",
+      "model": "ct",
+      "eta_seconds": 10,
+      "samples": 15,
+      "mean_error_m": 63.039,
+      "median_error_m": 42.338,
+      "p90_error_m": 122.065,
+      "within_uncertainty_rate": 0.5333,
+      "mean_uncertainty_m": 43.52
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "subject_kind": "airspace_target",
+      "model": "ct",
+      "eta_seconds": 30,
+      "samples": 14,
+      "mean_error_m": 90.414,
+      "median_error_m": 77.565,
+      "p90_error_m": 167.285,
+      "within_uncertainty_rate": 0.3571,
+      "mean_uncertainty_m": 69.093
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "subject_kind": "airspace_target",
+      "model": "ct",
+      "eta_seconds": 60,
+      "samples": 7,
+      "mean_error_m": 121.631,
+      "median_error_m": 93.361,
+      "p90_error_m": 242.917,
+      "within_uncertainty_rate": 0.4286,
+      "mean_uncertainty_m": 109.2
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "subject_kind": "airspace_target",
+      "model": "cv",
+      "eta_seconds": 10,
+      "samples": 76,
+      "mean_error_m": 32.6,
+      "median_error_m": 24.285,
+      "p90_error_m": 62.922,
+      "within_uncertainty_rate": 0.9474,
+      "mean_uncertainty_m": 80.393
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 10,
+      "samples": 92,
+      "mean_error_m": 12.139,
+      "median_error_m": 1.467,
+      "p90_error_m": 43.655,
+      "within_uncertainty_rate": 0.7935,
+      "mean_uncertainty_m": 18.44
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 30,
+      "samples": 74,
+      "mean_error_m": 43.857,
+      "median_error_m": 13.971,
+      "p90_error_m": 115.767,
+      "within_uncertainty_rate": 0.5811,
+      "mean_uncertainty_m": 27.77
+    },
+    {
+      "algorithm": "adaptive_v2",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 60,
+      "samples": 60,
+      "mean_error_m": 110.708,
+      "median_error_m": 108.285,
+      "p90_error_m": 249.93,
+      "within_uncertainty_rate": 0.3333,
+      "mean_uncertainty_m": 42.598
+    },
+    {
+      "algorithm": "fixed",
+      "subject_kind": "airspace_target",
+      "model": "ct",
+      "eta_seconds": 10,
+      "samples": 15,
+      "mean_error_m": 63.039,
+      "median_error_m": 42.338,
+      "p90_error_m": 122.065,
+      "within_uncertainty_rate": 0.5333,
+      "mean_uncertainty_m": 43.52
+    },
+    {
+      "algorithm": "fixed",
+      "subject_kind": "airspace_target",
+      "model": "ct",
+      "eta_seconds": 30,
+      "samples": 14,
+      "mean_error_m": 90.414,
+      "median_error_m": 77.565,
+      "p90_error_m": 167.285,
+      "within_uncertainty_rate": 0.3571,
+      "mean_uncertainty_m": 69.093
+    },
+    {
+      "algorithm": "fixed",
+      "subject_kind": "airspace_target",
+      "model": "ct",
+      "eta_seconds": 60,
+      "samples": 12,
+      "mean_error_m": 113.205,
+      "median_error_m": 100.713,
+      "p90_error_m": 219.053,
+      "within_uncertainty_rate": 0.4167,
+      "mean_uncertainty_m": 109.308
+    },
+    {
+      "algorithm": "fixed",
+      "subject_kind": "airspace_target",
+      "model": "cv",
+      "eta_seconds": 10,
+      "samples": 76,
+      "mean_error_m": 32.6,
+      "median_error_m": 24.285,
+      "p90_error_m": 62.922,
+      "within_uncertainty_rate": 0.9474,
+      "mean_uncertainty_m": 80.393
+    },
+    {
+      "algorithm": "fixed",
+      "subject_kind": "airspace_target",
+      "model": "cv",
+      "eta_seconds": 30,
+      "samples": 62,
+      "mean_error_m": 85.968,
+      "median_error_m": 69.821,
+      "p90_error_m": 164.163,
+      "within_uncertainty_rate": 1,
+      "mean_uncertainty_m": 291.869
+    },
+    {
+      "algorithm": "fixed",
+      "subject_kind": "airspace_target",
+      "model": "cv",
+      "eta_seconds": 60,
+      "samples": 56,
+      "mean_error_m": 209.054,
+      "median_error_m": 184.303,
+      "p90_error_m": 390.763,
+      "within_uncertainty_rate": 1,
+      "mean_uncertainty_m": 740.416
+    },
+    {
+      "algorithm": "fixed",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 10,
+      "samples": 92,
+      "mean_error_m": 12.139,
+      "median_error_m": 1.467,
+      "p90_error_m": 43.655,
+      "within_uncertainty_rate": 0.7935,
+      "mean_uncertainty_m": 18.44
+    },
+    {
+      "algorithm": "fixed",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 30,
+      "samples": 74,
+      "mean_error_m": 43.857,
+      "median_error_m": 13.971,
+      "p90_error_m": 115.767,
+      "within_uncertainty_rate": 0.5811,
+      "mean_uncertainty_m": 27.77
+    },
+    {
+      "algorithm": "fixed",
+      "subject_kind": "airspace_target",
+      "model": "hover",
+      "eta_seconds": 60,
+      "samples": 63,
+      "mean_error_m": 107.302,
+      "median_error_m": 100.863,
+      "p90_error_m": 246.575,
+      "within_uncertainty_rate": 0.3651,
+      "mean_uncertainty_m": 43.673
+    }
+  ]
+}

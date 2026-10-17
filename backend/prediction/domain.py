@@ -62,7 +62,7 @@ class PredictionConfig:
     adaptive_horizon: bool = False
     adaptive_max_uncertainty_m: float = 250.0
     adaptive_max_observation_age_seconds: float = 30.0
-    adaptive_max_turn_degrees: float = 90.0
+    adaptive_max_turn_degrees: float | None = None
 
     def __post_init__(self) -> None:
         for name in ("horizon_seconds", "step_seconds"):
@@ -73,10 +73,14 @@ class PredictionConfig:
             raise ValueError("step_seconds must not exceed horizon_seconds")
         if not isfinite(self.window_seconds) or self.window_seconds <= 0:
             raise ValueError("window_seconds must be finite and > 0")
-        for name in ("adaptive_max_uncertainty_m", "adaptive_max_observation_age_seconds", "adaptive_max_turn_degrees"):
+        for name in ("adaptive_max_uncertainty_m", "adaptive_max_observation_age_seconds"):
             value = getattr(self, name)
             if not isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be finite and > 0")
+        if self.adaptive_max_turn_degrees is not None and (
+            not isfinite(self.adaptive_max_turn_degrees) or self.adaptive_max_turn_degrees <= 0
+        ):
+            raise ValueError("adaptive_max_turn_degrees must be None or finite and > 0")
         if self.estimator not in ("least_squares", "kalman_cv"):
             raise ValueError("estimator must be least_squares or kalman_cv")
         validate_noise(self.measurement_noise_std_m, self.acceleration_noise_density_m2_s3)

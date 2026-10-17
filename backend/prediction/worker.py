@@ -150,10 +150,11 @@ def main() -> None:
                         help="Opt in to uncalibrated confidence-bound forecast truncation")
     parser.add_argument("--adaptive-max-uncertainty-m", type=float, default=250.0)
     parser.add_argument("--adaptive-max-observation-age-seconds", type=float, default=30.0)
-    parser.add_argument("--adaptive-max-turn-degrees", type=float, default=90.0)
+    parser.add_argument("--adaptive-max-turn-degrees", type=float, default=None,
+                        help="Optional cumulative-turn cap; disabled by default")
     parser.add_argument("--estimator", choices=("least_squares", "kalman_cv"), default="least_squares")
     parser.add_argument("--measurement-noise-std-m", type=float, default=10.0,
-                        help="Kalman position measurement standard deviation in meters (> 0)")
+                        help="Position measurement standard deviation for Kalman and adaptive motion evidence (> 0 m)")
     parser.add_argument("--acceleration-noise-density-m2-s3", type=float, default=1.0,
                         help="Kalman continuous white-acceleration spectral density in m²/s³ (> 0)")
     parser.add_argument("--once", action="store_true")

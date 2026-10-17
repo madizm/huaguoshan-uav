@@ -72,7 +72,7 @@ def test_turn_angle_limit_and_stable_ct_acceleration():
     radius = 20 / omega
     points = make_points([(t, radius * sin(omega*t), radius * (cos(omega*t)-1))
                           for t in range(0, 21, 5)])
-    result = predict(points, adaptive_max_uncertainty_m=1000)
+    result = predict(points, adaptive_max_uncertainty_m=1000, adaptive_max_turn_degrees=90)
     assert result.model_code == "ct"
     assert result.horizon_policy["actual_horizon_seconds"] == 5
     assert result.horizon_policy["stop_reason"] == "turn_angle_limit"
@@ -84,7 +84,8 @@ def test_accelerating_straight_motion_shortens_forecast():
     result = predict(points)
     assert result.model_code == "cv"
     assert result.horizon_policy["stop_reason"] == "motion_instability"
-    assert result.horizon_policy["metrics"]["unexplained_acceleration_mps2"] == pytest.approx(1)
+    assert result.horizon_policy["metrics"]["fitted_acceleration_mps2"] == pytest.approx(1)
+    assert result.horizon_policy["metrics"]["unexplained_acceleration_mps2"] > 0
 
 
 def test_hover_is_not_automatically_trusted():
@@ -130,3 +131,41 @@ def test_imm_refuses_unsupported_policy():
     with pytest.raises(ValueError, match="not supported"):
         predict_imm_trajectory("airspace_target", 1, straight_line(),
                                BASE_TIME + timedelta(seconds=20), PredictionConfig(adaptive_horizon=True))
+
+
+def test_short_interval_position_noise_does_not_force_five_second_forecast():
+    # Bounded 3 m position noise with a 100 ms pair produces a huge raw
+    # segment acceleration, but no supported whole-window acceleration trend.
+    points = make_points([(t, 10*t + noise, 0) for t, noise in
+                          [(0, 0), (5, 3), (5.1, -3), (10, 0), (15, 1), (20, 0)]])
+    result = predict(points)
+    assert result.quality == "ok"
+    assert result.horizon_policy["actual_horizon_seconds"] >= 30
+    assert result.horizon_policy["rule_version"] == 2
+    assert result.horizon_policy["metrics"]["motion_evidence"] == "below_noise_floor"
+
+
+def test_stable_turn_can_continue_past_ninety_degrees_by_default():
+    omega = radians(10)
+    radius = 20 / omega
+    points = make_points([(t, radius*sin(omega*t), radius*(cos(omega*t)-1))
+                          for t in range(0, 21, 5)])
+    result = predict(points, adaptive_max_uncertainty_m=1000)
+    assert result.model_code == "ct"
+    assert result.horizon_policy["actual_horizon_seconds"] >= 30
+    assert result.horizon_policy["stop_reason"] != "turn_angle_limit"
+
+
+def test_few_points_do_not_claim_acceleration_evidence():
+    points = make_points([(t, 10*t, 0) for t in (0, 10, 20)])
+    result = predict(points)
+    assert result.horizon_policy["metrics"]["motion_evidence"] == "insufficient_samples"
+    assert result.horizon_policy["metrics"]["unexplained_acceleration_mps2"] == 0
+
+
+def test_real_sustained_acceleration_is_still_limited():
+    points = make_points([(t, 0.5*t*t, 0) for t in range(0, 21, 5)])
+    result = predict(points)
+    assert result.horizon_policy["stop_reason"] == "motion_instability"
+    assert result.horizon_policy["metrics"]["motion_evidence"] == "supported_trend"
+    assert 0 < result.horizon_policy["actual_horizon_seconds"] < 60

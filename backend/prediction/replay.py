@@ -240,7 +240,8 @@ def main() -> None:
     parser.add_argument("--adaptive-horizon", action="store_true")
     parser.add_argument("--adaptive-max-uncertainty-m", type=float, default=250.0)
     parser.add_argument("--adaptive-max-observation-age-seconds", type=float, default=30.0)
-    parser.add_argument("--adaptive-max-turn-degrees", type=float, default=90.0)
+    parser.add_argument("--adaptive-max-turn-degrees", type=float, default=None,
+                        help="Optional cumulative-turn cap; disabled by default")
     parser.add_argument("--include-imm", action="store_true", help="Include experimental offline IMM CV/CT")
     parser.add_argument("--tolerance-seconds", type=float, default=3)
     parser.add_argument("--measurement-noise-std-m", type=float, default=10)
