@@ -1,0 +1,21 @@
+[Unit]
+Description=Huaguoshan Amplifier Command Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=huaguoshan
+Group=huaguoshan
+WorkingDirectory=/mnt/project/huaguoshan
+EnvironmentFile=/etc/huaguoshan/amplifier-worker.env
+ExecStart=/opt/huaguoshan/runtime/bin/python /mnt/project/huaguoshan/scripts/amplifier_command_worker.py
+Restart=always
+RestartSec=2
+KillSignal=SIGTERM
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

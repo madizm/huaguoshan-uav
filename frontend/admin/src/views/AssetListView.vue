@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   listAssets,
+  listAssetCapabilitySummaries,
   listCategories,
   listCounterUasTelemetrySummaries,
   updateAsset,
@@ -12,6 +13,7 @@ import {
 } from '../api/equipment'
 import EquipmentEditorDrawer from '../components/EquipmentEditorDrawer.vue'
 import CounterUasTelemetryDrawer from '../components/CounterUasTelemetryDrawer.vue'
+import AmplifierControlDrawer from '../components/AmplifierControlDrawer.vue'
 
 const categories = ref<AssetCategory[]>([])
 const categoryNameMap = reactive<Record<string, string>>({})
@@ -27,6 +29,9 @@ const editingAsset = ref<EquipmentAsset | null>(null)
 const telemetryDrawerVisible = ref(false)
 const monitoringAsset = ref<EquipmentAsset | null>(null)
 const telemetryByAsset = ref<Record<number, CounterUasTelemetrySummary>>({})
+const controllableAmplifierAssetIds = ref<Set<number>>(new Set())
+const amplifierDrawerVisible = ref(false)
+const amplifierAsset = ref<EquipmentAsset | null>(null)
 
 async function loadAssets() {
   loading.value = true
@@ -44,10 +49,17 @@ async function loadAssets() {
       .filter((asset) => asset.category_code === 'counter_uas')
       .map((asset) => asset.id)
     try {
-      const telemetry = await listCounterUasTelemetrySummaries(counterUasIds)
+      const [telemetry, capabilities] = await Promise.all([
+        listCounterUasTelemetrySummaries(counterUasIds),
+        listAssetCapabilitySummaries(counterUasIds),
+      ])
       telemetryByAsset.value = Object.fromEntries(telemetry.map((item) => [item.asset_id, item]))
+      controllableAmplifierAssetIds.value = new Set(capabilities
+        .filter((item) => item.capability_code === 'radio_jamming' && item.access_level === 'controllable' && item.enabled)
+        .map((item) => item.asset_id))
     } catch (error) {
       telemetryByAsset.value = {}
+      controllableAmplifierAssetIds.value = new Set()
       ElMessage.warning(`设备运行状态加载失败：${(error as Error).message}`)
     }
   } catch (error) {
@@ -75,6 +87,11 @@ function openEdit(asset: EquipmentAsset) {
 function openTelemetry(asset: EquipmentAsset) {
   monitoringAsset.value = asset
   telemetryDrawerVisible.value = true
+}
+
+function openAmplifier(asset: EquipmentAsset) {
+  amplifierAsset.value = asset
+  amplifierDrawerVisible.value = true
 }
 
 function operationState(asset: EquipmentAsset) {
@@ -185,11 +202,17 @@ onMounted(async () => {
         <el-table-column prop="updated_at" label="更新时间" width="180">
           <template #default="{ row }">{{ new Date(row.updated_at).toLocaleString('zh-CN') }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="230">
+        <el-table-column label="操作" width="300">
           <template #default="{ row }">
             <el-button v-if="row.category_code === 'counter_uas'" text type="primary" @click="openTelemetry(row)">
               监控
             </el-button>
+            <el-button
+              v-if="controllableAmplifierAssetIds.has(row.id)"
+              text
+              type="danger"
+              @click="openAmplifier(row)"
+            >功放</el-button>
             <el-button text type="primary" @click="openEdit(row)">
               编辑
             </el-button>
@@ -213,6 +236,11 @@ onMounted(async () => {
     />
     <EquipmentEditorDrawer v-model="drawerVisible" :asset="editingAsset" :categories="categories" @saved="loadAssets" />
     <CounterUasTelemetryDrawer v-model="telemetryDrawerVisible" :asset="monitoringAsset" />
+    <AmplifierControlDrawer
+      v-model="amplifierDrawerVisible"
+      :asset="amplifierAsset"
+      :telemetry="amplifierAsset ? telemetryByAsset[amplifierAsset.id] ?? null : null"
+    />
   </section>
 </template>
 

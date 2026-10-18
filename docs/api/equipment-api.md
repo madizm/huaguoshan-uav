@@ -294,7 +294,7 @@ curl -G "$API_BASE/equipment_asset_capabilities" \
   --data-urlencode 'enabled=eq.true'
 ```
 
-反无设备最高只允许 `recommendable`，平台不提供反无设备直接控制 RPC。
+反无设备默认最高只允许 `recommendable`。唯一例外是 `countermeasure.control_authorization` 显式授权的 `radio_jamming` 能力；该能力可设为 `controllable`，并通过独立功放控制 RPC 操作。详见 `docs/api/amplifier-control-api.md`。
 
 ## 7. 能力覆盖范围
 
@@ -450,7 +450,7 @@ GET /equipment_asset_categories
 - `electro_optical_tracking`：光电跟踪
 - `directed_energy_response`：定向能处置
 
-干扰设备和激光/定向能设备最高只能配置为 `recommendable` 接入级别。平台 Phase 1 不提供干扰、激光发射、瞄准或功率控制 RPC，仅提供资产、状态、能力、覆盖范围和方案推荐所需的数据模型。
+干扰设备和激光/定向能设备默认最高只能配置为 `recommendable`。资产 82 对应的反无综合设备可通过显式控制授权启用 `radio_jamming` 功放能力；其他干扰、激光发射、瞄准和功率控制仍不开放。功放接口见 `docs/api/amplifier-control-api.md`。
 
 数据库迁移脚本为：
 

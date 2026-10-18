@@ -36,6 +36,7 @@ sudo ./install.sh
 /etc/huaguoshan/auth.env
 /etc/huaguoshan/risk-engine.env
 /etc/huaguoshan/radar-cloud.env
+/etc/huaguoshan/amplifier-worker.env
 /etc/huaguoshan/lizheng-connector.env
 /etc/huaguoshan/postgrest.conf
 ```
@@ -45,8 +46,10 @@ sudo ./install.sh
 ```bash
 systemctl enable --now huaguoshan-risk-engine
 systemctl enable --now huaguoshan-radar-cloud
+systemctl enable --now huaguoshan-amplifier-worker
 systemctl enable --now huaguoshan-lizheng-connector
 systemctl status huaguoshan-radar-cloud --no-pager
+systemctl status huaguoshan-amplifier-worker --no-pager
 systemctl status huaguoshan-lizheng-connector --no-pager
 systemctl status huaguoshan-risk-engine --no-pager
 nginx -t
@@ -57,7 +60,7 @@ curl -fsS http://127.0.0.1:20000/healthz
 
 数据库归档恢复见 `database/README.md`；完整初始化、初始管理员创建及验收步骤见 `app/docs/部署指南.md`。
 
-数据库归档含平台登录密码哈希及可能的真实业务/源数据，整个离线包必须按敏感数据制品管理。
+数据库归档含平台登录密码哈希及可能的真实业务/源数据，整个离线包必须按敏感数据制品管理。功放 worker 只能在完成 `create_countermeasure_amplifier_schema.sql`、配置独立数据库登录角色并确认 60 秒关闭风险后启动。
 
 ## 客户端网络
 

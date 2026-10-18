@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 SOURCE_SYSTEM = "radar_cloud"
 SUPPORTED_MESSAGE_TYPES = {
     "config_status",
+    "uav_amp_status",
     "uav_dashboard_snapshot",
     "uav_online_remove",
     "uav_online_upsert",
@@ -35,6 +36,11 @@ SOURCE_TIMEZONE = ZoneInfo("Asia/Shanghai")
 DETECTION_METHOD_BY_SOURCE_TYPE = {
     10: "radar",
     20: "radio_detection",
+}
+AMPLIFIER_FREQUENCY_MHZ = {
+    "2.4": 2400,
+    "5.2": 5200,
+    "5.8": 5800,
 }
 
 
@@ -215,6 +221,72 @@ def normalize_config_status(payload: dict[str, Any], station_id: str,
     }
 
 
+def normalize_amplifier_status(payload: dict[str, Any], station_id: str,
+                               received_at: datetime) -> dict[str, Any] | None:
+    if str(payload.get("stationId", station_id)) != station_id:
+        return None
+    device_sn = payload.get("deviceSn")
+    if not isinstance(device_sn, str) or not device_sn.strip():
+        return None
+    amp_status = safe_number(payload.get("ampStatus"))
+    if amp_status not in {0.0, 1.0}:
+        raise ValueError("uav_amp_status ampStatus must be 0 or 1")
+
+    quality_flags: list[str] = []
+    frequencies: list[int] = []
+    raw_frequencies = payload.get("freq")
+    values = raw_frequencies.split(",") if isinstance(raw_frequencies, str) else []
+    for value in values:
+        frequency = AMPLIFIER_FREQUENCY_MHZ.get(value.strip())
+        if frequency is None and value.strip():
+            quality_flags.append("unsupported_amplifier_frequency")
+        elif frequency is not None and frequency not in frequencies:
+            frequencies.append(frequency)
+    frequencies.sort()
+
+    trigger_number = safe_number(payload.get("unattendedType"))
+    trigger_source = {0.0: "manual", 1.0: "unattended"}.get(trigger_number, "unknown")
+    if payload.get("unattendedType") not in (None, "") and trigger_source == "unknown":
+        quality_flags.append("invalid_trigger_source")
+
+    observed_at = received_at
+    raw_time = payload.get("time")
+    if raw_time not in (None, ""):
+        timestamp_ms = safe_number(raw_time)
+        try:
+            if timestamp_ms is None:
+                raise ValueError
+            observed_at = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+        except (ValueError, OverflowError, OSError):
+            quality_flags.append("invalid_source_time")
+    else:
+        quality_flags.append("missing_source_time")
+
+    duration_number = safe_number(payload.get("durationSec"))
+    duration_seconds: int | None = None
+    if duration_number is not None and duration_number.is_integer() and 0 <= duration_number <= 120:
+        duration_seconds = int(duration_number)
+    elif payload.get("durationSec") not in (None, ""):
+        quality_flags.append("invalid_vendor_duration")
+
+    serial = payload.get("serial")
+    return {
+        "schemaVersion": 1,
+        "sourceSystem": SOURCE_SYSTEM,
+        "stationId": station_id,
+        "sourceAssetId": device_sn.strip(),
+        "actualState": "on" if amp_status == 1.0 else "off",
+        "activeFrequenciesMhz": frequencies,
+        "triggerSource": trigger_source,
+        "sourceTargetId": serial.strip() if isinstance(serial, str) and serial.strip() else None,
+        "vendorDurationSeconds": duration_seconds,
+        "observedAt": observed_at.isoformat(),
+        "receivedAt": received_at.isoformat(),
+        "qualityFlags": quality_flags,
+        "rawPayload": payload,
+    }
+
+
 def normalize_vendor_item(message_type: str, item: dict[str, Any], station_id: str,
                           received_at: datetime) -> dict[str, Any] | None:
     item_station = str(item.get("stationId", station_id))
@@ -292,7 +364,7 @@ def normalize_vendor_item(message_type: str, item: dict[str, Any], station_id: s
 
 def normalize_vendor_payload(message_type: str, payload: dict[str, Any], station_id: str,
                              received_at: datetime) -> list[dict[str, Any]]:
-    if message_type == "config_status":
+    if message_type in {"config_status", "uav_amp_status"}:
         return []
     items = payload.get("list", []) if message_type in {"uav_dashboard_snapshot", "online_list_snapshot"} else [payload]
     if not isinstance(items, list):
@@ -427,6 +499,17 @@ class DetectionStore:
             "select situation.ingest_detection_config_status(%s::jsonb)",
             (json.dumps(status, ensure_ascii=False, separators=(",", ":")),),
         )
+    async def ingest_amplifier_status(self, status: dict[str, Any]) -> dict[str, Any]:
+        return await self._execute_value(
+            "select countermeasure.ingest_amplifier_status(%s::jsonb)",
+            (json.dumps(status, ensure_ascii=False, separators=(",", ":")),),
+        )
+
+    async def mark_amplifier_source_unknown(self) -> dict[str, Any]:
+        return await self._execute_value(
+            "select countermeasure.mark_amplifier_source_unknown(%s,%s,%s)",
+            (SOURCE_SYSTEM, self.config.station_id, utc_now()),
+        )
 
     async def ingest_vendor_payload(self, message_type: str,
                                     payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -438,6 +521,19 @@ class DetectionStore:
                 return [await self.ingest_config_status(status)]
             except Exception as error:
                 logging.exception("config status rejected box_code=%s", status["sourceAssetId"])
+                return [{
+                    "status": "rejected",
+                    "sourceAssetId": status["sourceAssetId"],
+                    "errorCode": type(error).__name__,
+                }]
+        if message_type == "uav_amp_status":
+            status = normalize_amplifier_status(payload, self.config.station_id, utc_now())
+            if status is None:
+                return []
+            try:
+                return [await self.ingest_amplifier_status(status)]
+            except Exception as error:
+                logging.exception("amplifier status rejected device_sn=%s", status["sourceAssetId"])
                 return [{
                     "status": "rejected",
                     "sourceAssetId": status["sourceAssetId"],
@@ -592,6 +688,7 @@ class Connector:
                     logging.exception("radar-cloud connection failed; retrying in %.1fs", delay)
                     try:
                         await self.store.connector_status("disconnected", type(error).__name__)
+                        await self.store.mark_amplifier_source_unknown()
                     except Exception:
                         logging.exception("failed to persist disconnected status")
                     try:
@@ -602,6 +699,7 @@ class Connector:
         finally:
             try:
                 await self.store.connector_status("disconnected", "connector_stopped")
+                await self.store.mark_amplifier_source_unknown()
             except Exception:
                 logging.exception("failed to persist shutdown status")
             await self.store.close()

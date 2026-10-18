@@ -392,3 +392,38 @@ _Avoid_: Asset Administrator, Duty Operator, Analyst, 设备管理员、值班�
 The business role responsible for maintaining Equipment Asset records, source mappings, simulated data, migrations, API configuration, and operational data quality.
 负责维护设施设备资产、来源映射、模拟数据、数据迁移、API 配置和运行数据质量的业务角色。
 _Avoid_: Separate Device Administrator, Data Administrator, Security Administrator, 独立设备管理员、数据管理员、安全管理员
+
+**Amplifier Operation（功放操作）**:
+An operator-requested process that starts an authorized Countermeasure Capability and obtains device-state confirmation when it ends. An Amplifier Operation expresses platform intent and does not by itself prove that the device executed the command.
+操作员请求设备开启经授权反制能力，并在结束时获得设备状态确认的一次完整过程。功放操作表达平台意图，本身不能证明设备已经执行指令。
+_Avoid_: Amplifier State, Command, 功放状态、指令
+
+**Amplifier Actual State（功放实际状态）**:
+The latest device-reported fact that an amplifier is on, off, or unknown. A lost connection makes the state unknown and must not be interpreted as off.
+设备最近上报的功放开启、关闭或未知事实。连接中断时状态为未知，不能解释为关闭。
+_Avoid_: Operation State, Requested State, 操作状态、请求状态
+
+**Omnidirectional Frequency Mode（全向频段模式）**:
+An Amplifier Operation mode that enables one or more authorized frequency bands in all directions and requires a separate platform-issued stop command.
+按一个或多个允许频段开启全向功放的操作模式。该模式需要平台发送独立关闭指令。
+_Avoid_: Target Coordinate Mode, 全频段模式、目标坐标模式
+
+**Target Coordinate Mode（目标坐标模式）**:
+An Amplifier Operation mode that acts on a WGS84 target coordinate for a device-timed duration and cannot be interrupted by an Omnidirectional Frequency Mode stop command.
+按目标 WGS84 经纬度执行设备侧定时处置的操作模式。该模式不能用全向频段模式的关闭指令提前中止。
+_Avoid_: Omnidirectional Frequency Mode, Track Mode, 全向频段模式、航迹模式
+
+**Device-State Gate（设备状态门禁）**:
+The device-runtime conditions that must hold before a new Amplifier Operation can be accepted. For the current radar-cloud amplifier, the gate contains only box online and countermeasure subsystem online.
+创建新功放操作前必须满足的设备运行条件。当前云平台功放的门禁只包含盒子在线和处置子系统在线。
+_Avoid_: Authorization, Request Validation, 授权、请求参数校验
+
+**Business Duration Limit（业务时长上限）**:
+The maximum duration that the platform permits for one Amplifier Operation. The current Business Duration Limit is 60 seconds.
+平台允许一次功放操作持续的最长时间。当前业务时长上限为 60 秒。
+_Avoid_: Device Hard Protection, Timeout, 设备硬保护、超时
+
+**Device Hard Protection（设备硬保护）**:
+An independent device safeguard that prevents an amplifier from remaining active indefinitely. The current 120-second Device Hard Protection does not satisfy or replace the 60-second Business Duration Limit.
+设备用于防止功放无限开启的独立保护。当前 120 秒设备硬保护不满足、也不能替代 60 秒业务时长上限。
+_Avoid_: Business Duration Limit, Platform Timer, 业务时长上限、平台计时器

@@ -201,5 +201,61 @@ class RadarCloudConnectorTests(unittest.TestCase):
         self.assertIn('"set role {}"', source)
 
 
+    def test_parses_and_normalizes_amplifier_status(self):
+        received_at = connector.datetime(2026, 9, 2, 8, 0, 1, tzinfo=connector.timezone.utc)
+        parsed = connector.parse_vendor_message(
+            '{"type":"uav_amp_status","payload":{"stationId":90,"deviceSn":"BOX-1","ampStatus":1}}'
+        )
+        self.assertEqual(parsed[0], "uav_amp_status")
+        normalized = connector.normalize_amplifier_status({
+            "ampStatus": 1,
+            "unattendedType": 0,
+            "freq": "2.4,5.2,5.8",
+            "serial": "",
+            "deviceSn": "BOX-1",
+            "durationSec": None,
+            "stationId": 90,
+            "time": 1788336000000,
+        }, "90", received_at)
+        self.assertEqual(normalized["actualState"], "on")
+        self.assertEqual(normalized["activeFrequenciesMhz"], [2400, 5200, 5800])
+        self.assertEqual(normalized["triggerSource"], "manual")
+        self.assertIsNone(normalized["sourceTargetId"])
+        self.assertEqual(normalized["observedAt"], "2026-09-02T08:00:00+00:00")
+        self.assertEqual(normalized["qualityFlags"], [])
+
+    def test_amplifier_status_rejects_wrong_identity_and_invalid_state(self):
+        received_at = connector.datetime(2026, 9, 2, tzinfo=connector.timezone.utc)
+        self.assertIsNone(connector.normalize_amplifier_status({
+            "stationId": 30, "deviceSn": "BOX-1", "ampStatus": 1,
+        }, "90", received_at))
+        self.assertIsNone(connector.normalize_amplifier_status({
+            "stationId": 90, "ampStatus": 1,
+        }, "90", received_at))
+        with self.assertRaisesRegex(ValueError, "ampStatus"):
+            connector.normalize_amplifier_status({
+                "stationId": 90, "deviceSn": "BOX-1", "ampStatus": 3,
+            }, "90", received_at)
+
+    def test_amplifier_status_flags_unknown_frequency_and_invalid_time(self):
+        received_at = connector.datetime(2026, 9, 2, tzinfo=connector.timezone.utc)
+        normalized = connector.normalize_amplifier_status({
+            "stationId": 90, "deviceSn": "BOX-1", "ampStatus": 0,
+            "freq": "2.4,433", "unattendedType": 9, "time": "invalid",
+        }, "90", received_at)
+        self.assertEqual(normalized["actualState"], "off")
+        self.assertEqual(normalized["activeFrequenciesMhz"], [2400])
+        self.assertIn("unsupported_amplifier_frequency", normalized["qualityFlags"])
+        self.assertIn("invalid_trigger_source", normalized["qualityFlags"])
+        self.assertIn("invalid_source_time", normalized["qualityFlags"])
+        self.assertEqual(normalized["observedAt"], received_at.isoformat())
+
+    def test_store_routes_amplifier_status_to_private_ingest_function(self):
+        source = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("countermeasure.ingest_amplifier_status", source)
+        self.assertIn('message_type == "uav_amp_status"', source)
+        self.assertIn("mark_amplifier_source_unknown", source)
+
+
 if __name__ == "__main__":
     unittest.main()

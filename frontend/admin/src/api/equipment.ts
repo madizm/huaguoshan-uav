@@ -25,6 +25,10 @@ export interface AssetCapabilityConfiguration {
   parameters: Record<string, unknown>
 }
 
+export interface AssetCapabilitySummary extends AssetCapabilityConfiguration {
+  asset_id: number
+}
+
 export interface SensorChannelConfiguration {
   id?: number
   channel_code: string
@@ -321,6 +325,15 @@ export type CounterUasTelemetrySummary = Pick<CounterUasTelemetryCurrent,
   'asset_id' | 'received_at' | 'asset_connectivity_status' | 'detection_device_online'
   | 'countermeasure_device_online' | 'connector_state' | 'telemetry_stale'
 >
+
+export function listAssetCapabilitySummaries(assetIds: number[]): Promise<AssetCapabilitySummary[]> {
+  if (assetIds.length === 0) return Promise.resolve([])
+  return http.get('/equipment_asset_capabilities', {
+    select: 'asset_id,capability_code,access_level,enabled,parameters',
+    asset_id: `in.(${assetIds.join(',')})`,
+    order: 'asset_id.asc,capability_code.asc',
+  })
+}
 
 export function listCounterUasTelemetrySummaries(assetIds: number[]): Promise<CounterUasTelemetrySummary[]> {
   if (assetIds.length === 0) return Promise.resolve([])
